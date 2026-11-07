@@ -1,0 +1,60 @@
+{
+  "status": "FAIL_LONG_INPUT_ARCHITECTURE",
+  "candidate": "6d31865",
+  "userFeedback": "Long continuous typing freezes; redesign the foundation rather than patching individual cases.",
+  "date": "2026-11-07T06:43:16.998Z",
+  "measurements": {
+    "replacementCases": [
+      {
+        "kind": "repeated",
+        "length": 256,
+        "elapsedMs": 62.40000000037253,
+        "layoutAndPaintMs": 53.5,
+        "mainThreadHeartbeatMaxMs": 62.200000000186265,
+        "pages": 2,
+        "renderedLines": 46
+      },
+      {
+        "kind": "repeated",
+        "length": 1024,
+        "elapsedMs": 326.5,
+        "layoutAndPaintMs": 322.29999999981374,
+        "mainThreadHeartbeatMaxMs": 326.20000000018626,
+        "pages": 3,
+        "renderedLines": 82
+      },
+      {
+        "kind": "repeated",
+        "length": 4096,
+        "elapsedMs": 22086.299999999814,
+        "layoutAndPaintMs": 22077.299999999814,
+        "mainThreadHeartbeatMaxMs": 22085.89999999944,
+        "pages": 7,
+        "renderedLines": 229
+      }
+    ],
+    "singleCharacterEdit": {
+      "scenario": "Append one Thai character to an already laid-out 1024-character cell",
+      "elapsedMs": 318,
+      "shapeCalls": 93,
+      "charactersPassedToShaper": 26027,
+      "maxShapeInput": 1025,
+      "wasmShapingAndSerializationMs": 83.80000000819564
+    },
+    "unfinished": "8192-character case was interrupted by a 55-second overall watchdog; no completed timing is claimed."
+  },
+  "verifiedCodeFindings": [
+    "Each transaction walks all rows and structured-clones the complete request once for every row.",
+    "Each refresh clones and lays out the entire resolved document on the browser main thread.",
+    "measureText tries remaining paragraph prefixes repeatedly at successive line boundaries; the native runtime serializes each shape result.",
+    "Rendering rebuilds decorations and composition mirror across all document lines rather than the affected viewport.",
+    "queueMicrotask and async wrappers do not isolate synchronous WASM work from input/rendering."
+  ],
+  "boundary": "Read-only runtime investigation in a separate headless browser. No Core or Editor behavior repair in this review. Architecture proposals are not implementation evidence.",
+  "evidence": [
+    "scripts/long-input-profile.mjs",
+    "artifacts/long-input-profile.json",
+    "artifacts/single-edit-profile.json"
+  ],
+  "priorEvidence": "224-character live-input checks remain bounded observations; they do not establish long-input readiness."
+}

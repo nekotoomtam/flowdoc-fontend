@@ -1,0 +1,139 @@
+{
+  "status": "FAIL",
+  "decision": "Do not adopt this paginator. ProseMirror text editing remains a candidate, not a validated paper editor.",
+  "coreRelease": "0.5.5",
+  "coreReleaseCommit": "77b69bc974605284be8f67e741fb95609030aaba",
+  "runtime": "Oracle Linux, cached candidate package with release-equivalent tree; internal draw interception, unmodified layout/shaping/PDF writer",
+  "fixture": "Isolated UAT summary-dynamic, 34 repeated members; header/footer removed, totals empty; original fonts; not full UAT",
+  "target": {
+    "origin": "authored",
+    "sectionId": "instance-I0001",
+    "areaId": "647dd264-217d-4ef5-80d4-42aa2e559e89",
+    "areaEntryIndex": 0,
+    "areaFormatId": "summary-dynamic",
+    "groupId": "uat-groups",
+    "groupIndex": 0,
+    "sourceId": "v15",
+    "itemIndex": 21,
+    "nodeId": "section-instance-I0001~area-647dd264-217d-4ef5-80d4-42aa2e559e89~entry-0~format-summary-dynamic~group-uat-groups~index-0~v15~item-21"
+  },
+  "browserChecks": {
+    "twoPages": true,
+    "middleComposition": true,
+    "correctOwner": true,
+    "scrollCaret": true,
+    "continueTyping": true,
+    "undoRedo": true
+  },
+  "enginePageCount": 2,
+  "browserPageCount": 2,
+  "paginationEqual": false,
+  "enginePages": [
+    1,
+    2
+  ],
+  "browserPages": [
+    2
+  ],
+  "lineBreaksEqual": false,
+  "engineLines": [
+    {
+      "page": 1,
+      "text": "เมนูจัดกาทดสอบแก้ไขข้อมูล",
+      "xPt": 191,
+      "yPt": 771.2999999999998,
+      "widthPt": 94.01280000000001,
+      "heightPt": 17.3
+    },
+    {
+      "page": 2,
+      "text": "ภาษาไทยกลางคำและ",
+      "xPt": 191,
+      "yPt": 72,
+      "widthPt": 72.39960000000002,
+      "heightPt": 17.3
+    },
+    {
+      "page": 2,
+      "text": "ตรวจสอบการแบ่งหน้า",
+      "xPt": 191,
+      "yPt": 89.29999999999995,
+      "widthPt": 74.34000000000002,
+      "heightPt": 17.3
+    },
+    {
+      "page": 2,
+      "text": "กระดาษทดสอบแก้ไขข้อมูล",
+      "xPt": 191,
+      "yPt": 106.60000000000002,
+      "widthPt": 90.45120000000001,
+      "heightPt": 17.3
+    },
+    {
+      "page": 2,
+      "text": "ภาษาไทยกลางคำและ",
+      "xPt": 191,
+      "yPt": 123.89999999999998,
+      "widthPt": 72.39960000000002,
+      "heightPt": 17.3
+    },
+    {
+      "page": 2,
+      "text": "ตรวจสอบการแบ่งหน้า",
+      "xPt": 191,
+      "yPt": 141.20000000000005,
+      "widthPt": 74.34000000000002,
+      "heightPt": 17.3
+    },
+    {
+      "page": 2,
+      "text": "กระดาษทดสอบแก้ไขข้อมูล",
+      "xPt": 191,
+      "yPt": 158.5,
+      "widthPt": 90.45120000000001,
+      "heightPt": 17.3
+    },
+    {
+      "page": 2,
+      "text": "ภาษาไทยกลางคำและ",
+      "xPt": 191,
+      "yPt": 175.79999999999995,
+      "widthPt": 72.39960000000002,
+      "heightPt": 17.3
+    },
+    {
+      "page": 2,
+      "text": "ตรวจสอบการแบ่งหน้า",
+      "xPt": 191,
+      "yPt": 193.10000000000002,
+      "widthPt": 74.34000000000002,
+      "heightPt": 17.3
+    },
+    {
+      "page": 2,
+      "text": "กระดาษรใบสั่งตัด",
+      "xPt": 191,
+      "yPt": 210.39999999999998,
+      "widthPt": 58.716000000000015,
+      "heightPt": 17.3
+    }
+  ],
+  "browserLines": [
+    "เมนูจัดกาทดสอบแก้ไขข้อมูล",
+    "ภาษาไทยกลางคำและตรวจ",
+    "สอบการแบ่งหน้ากระดาษ",
+    "ทดสอบแก้ไขข้อมูลภาษาไทย",
+    "กลางคำและตรวจสอบการแบ่ง",
+    "หน้ากระดาษทดสอบแก้ไข",
+    "ข้อมูลภาษาไทยกลางคำและ",
+    "ตรวจสอบการแบ่งหน้ากระ",
+    "ดาษรใบสั่งตัด"
+  ],
+  "limitations": [
+    "No physical OS Thai IME test",
+    "No large-document/memory qualification",
+    "No editable fragment splitting across page boundary",
+    "Group-label spanning and continuation not implemented",
+    "No Service production changes; no print UI added"
+  ]
+}

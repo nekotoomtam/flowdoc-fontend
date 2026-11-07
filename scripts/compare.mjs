@@ -1,0 +1,12 @@
+import fs from 'node:fs';
+const read=p=>JSON.parse(fs.readFileSync(p,'utf8'));
+const browser=read('artifacts/browser-report.json');
+const resolved=read('artifacts/engine/edited-resolved.json');
+const draw=read('artifacts/engine/edited-draw.json');
+const [id,source]=Object.entries(resolved.sourceMap).find(([,s])=>s.sourceId==='v15'&&s.itemIndex===21&&s.areaEntryIndex===0&&s.groupIndex===0);
+const lines=draw.pages.flatMap((p,i)=>p.commands.filter(c=>c.nodeId===id).map(c=>({page:i+1,text:c.text,...c.bounds})));
+const enginePages=[...new Set(lines.map(l=>l.page))],browserPages=[browser.edited.rows[21].page];
+const report={status:'FAIL',decision:'Do not adopt this paginator. ProseMirror text editing remains a candidate, not a validated paper editor.',coreRelease:'0.5.5',coreReleaseCommit:'77b69bc974605284be8f67e741fb95609030aaba',runtime:'Oracle Linux, cached candidate package with release-equivalent tree; internal draw interception, unmodified layout/shaping/PDF writer',fixture:'Isolated UAT summary-dynamic, 34 repeated members; header/footer removed, totals empty; original fonts; not full UAT',target:{...source,nodeId:id},browserChecks:browser.checks,enginePageCount:draw.pages.length,browserPageCount:Math.max(...browser.edited.rows.map(r=>r.page)),paginationEqual:JSON.stringify(enginePages)===JSON.stringify(browserPages),enginePages,browserPages,lineBreaksEqual:JSON.stringify(lines.map(l=>l.text))===JSON.stringify(browser.browserLines),engineLines:lines,browserLines:browser.browserLines,limitations:['No physical OS Thai IME test','No large-document/memory qualification','No editable fragment splitting across page boundary','Group-label spanning and continuation not implemented','No Service production changes; no print UI added']};
+fs.writeFileSync('artifacts/parity-report.json',JSON.stringify(report,null,2));
+fs.writeFileSync('public/experiment-result.json',JSON.stringify(report,null,2));
+console.log(JSON.stringify({status:report.status,enginePages,browserPages,lineBreaksEqual:report.lineBreaksEqual}));

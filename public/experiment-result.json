@@ -1,10 +1,11 @@
 {
-  "status": "FAIL",
-  "decision": "Do not adopt this paginator. ProseMirror text editing remains a candidate, not a validated paper editor.",
+  "status": "PASS_BOUNDED_EXPERIMENT",
+  "date": "2026-11-07T06:17:37.231Z",
+  "decision": "Engine-driven line/page projection passes the tested split-cell editing scenario. Not a production stack approval.",
   "coreRelease": "0.5.5",
   "coreReleaseCommit": "77b69bc974605284be8f67e741fb95609030aaba",
-  "runtime": "Oracle Linux, cached candidate package with release-equivalent tree; internal draw interception, unmodified layout/shaping/PDF writer",
-  "fixture": "Isolated UAT summary-dynamic, 34 repeated members; header/footer removed, totals empty; original fonts; not full UAT",
+  "runtime": "Oracle Linux; native Core composition, shaping, layout and PDF writer; test-only stdin bridge and draw interception. No PDF viewer.",
+  "fixture": "Isolated UAT summary-dynamic, 34 repeated members, two pages; header/footer removed and totals empty; original fixture font bytes.",
   "target": {
     "origin": "authored",
     "sectionId": "instance-I0001",
@@ -14,28 +15,50 @@
     "groupId": "uat-groups",
     "groupIndex": 0,
     "sourceId": "v15",
-    "itemIndex": 21,
-    "nodeId": "section-instance-I0001~area-647dd264-217d-4ef5-80d4-42aa2e559e89~entry-0~format-summary-dynamic~group-uat-groups~index-0~v15~item-21"
+    "itemIndex": 21
   },
-  "browserChecks": {
-    "twoPages": true,
-    "middleComposition": true,
-    "correctOwner": true,
+  "checks": {
+    "engineSplitPages": true,
+    "domLineTextAndPosition": true,
+    "compositionDeferred": true,
+    "caretAfterReflow": true,
+    "clickAndEditContinuation": true,
     "scrollCaret": true,
-    "continueTyping": true,
-    "undoRedo": true
+    "correctOwner": true,
+    "editFirstFragment": true,
+    "undoRedo": true,
+    "sameEditorView": true,
+    "staleResponseRejected": true,
+    "independentNativeExportComparison": true
   },
-  "enginePageCount": 2,
-  "browserPageCount": 2,
-  "paginationEqual": false,
   "enginePages": [
     1,
     2
   ],
   "browserPages": [
+    1,
     2
   ],
-  "lineBreaksEqual": false,
+  "maxPositionDeltaPt": 0.0078125,
+  "lineBreaksEqual": true,
+  "requestSha256": "b1c7c061fcd36e2ec3eeccb1382e93caf863c9a882cd482e062a10c9bc669e12",
+  "latencyMs": {
+    "firstLayout": 500,
+    "subsequentMin": 493,
+    "subsequentMax": 521,
+    "note": "Observed sample; includes SSH/native generation, excludes 180 ms input debounce; not a performance target"
+  },
+  "limitations": [
+    "CDP composition, not physical OS Thai IME",
+    "2 pages / 34 rows only; full UAT and large-document resource bounds not qualified",
+    "Engine round-trip latency; stale geometry remains visible while awaiting latest revision",
+    "Glyph pixel parity and printer output not tested"
+  ],
+  "evidence": {
+    "browser": "artifacts/split-browser-report.json",
+    "native": "artifacts/engine-split-reference/edited-draw.json",
+    "screenshot": "artifacts/engine-split-two-pages.png"
+  },
   "engineLines": [
     {
       "page": 1,
@@ -119,21 +142,85 @@
     }
   ],
   "browserLines": [
-    "เมนูจัดกาทดสอบแก้ไขข้อมูล",
-    "ภาษาไทยกลางคำและตรวจ",
-    "สอบการแบ่งหน้ากระดาษ",
-    "ทดสอบแก้ไขข้อมูลภาษาไทย",
-    "กลางคำและตรวจสอบการแบ่ง",
-    "หน้ากระดาษทดสอบแก้ไข",
-    "ข้อมูลภาษาไทยกลางคำและ",
-    "ตรวจสอบการแบ่งหน้ากระ",
-    "ดาษรใบสั่งตัด"
-  ],
-  "limitations": [
-    "No physical OS Thai IME test",
-    "No large-document/memory qualification",
-    "No editable fragment splitting across page boundary",
-    "Group-label spanning and continuation not implemented",
-    "No Service production changes; no print UI added"
+    {
+      "text": "เมนูจัดกาทดสอบแก้ไขข้อมูล",
+      "page": 1,
+      "from": 0,
+      "to": 25,
+      "xPt": 190.9921875,
+      "yPt": 771.29296875
+    },
+    {
+      "text": "ภาษาไทยกลางคำและ",
+      "page": 2,
+      "from": 25,
+      "to": 41,
+      "xPt": 190.9921875,
+      "yPt": 72
+    },
+    {
+      "text": "ตรวจสอบการแบ่งหน้า",
+      "page": 2,
+      "from": 41,
+      "to": 59,
+      "xPt": 190.9921875,
+      "yPt": 89.296875
+    },
+    {
+      "text": "กระดาษทดสอบแก้ไขข้อมูล",
+      "page": 2,
+      "from": 59,
+      "to": 81,
+      "xPt": 190.9921875,
+      "yPt": 106.59375
+    },
+    {
+      "text": "ภาษาไทยกลางคำและ",
+      "page": 2,
+      "from": 81,
+      "to": 97,
+      "xPt": 190.9921875,
+      "yPt": 123.90234375
+    },
+    {
+      "text": "ตรวจสอบการแบ่งหน้า",
+      "page": 2,
+      "from": 97,
+      "to": 115,
+      "xPt": 190.9921875,
+      "yPt": 141.19921875
+    },
+    {
+      "text": "กระดาษทดสอบแก้ไขข้อมูล",
+      "page": 2,
+      "from": 115,
+      "to": 137,
+      "xPt": 190.9921875,
+      "yPt": 158.49609375
+    },
+    {
+      "text": "ภาษาไทยกลางคำและ",
+      "page": 2,
+      "from": 137,
+      "to": 153,
+      "xPt": 190.9921875,
+      "yPt": 175.79296875
+    },
+    {
+      "text": "ตรวจสอบการแบ่งหน้า",
+      "page": 2,
+      "from": 153,
+      "to": 171,
+      "xPt": 190.9921875,
+      "yPt": 193.1015625
+    },
+    {
+      "text": "กระดาษรใบสั่งตัด",
+      "page": 2,
+      "from": 171,
+      "to": 187,
+      "xPt": 190.9921875,
+      "yPt": 210.3984375
+    }
   ]
 }

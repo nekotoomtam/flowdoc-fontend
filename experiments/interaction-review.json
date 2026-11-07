@@ -22,5 +22,9 @@
     "artifacts/continuous-input-report.json",
     "artifacts/continuous-input-overflow.png"
   ],
-  "runtimeChanges": "None; preserve the user current browser and unsaved editing session."
+  "runtimeChanges": "None; preserve the user current browser and unsaved editing session.",
+  "followUp": {
+    "result": "public/experiment-result.json",
+    "note": "New local WASM candidate passes bounded live-input checks; previous candidate failure is retained and user re-review is pending."
+  }
 }

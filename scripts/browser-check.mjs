@@ -20,13 +20,18 @@ try{
    await cdp.send('Input.imeSetComposition',{text,selectionStart:text.length,selectionEnd:text.length});
  }
  await page.waitForTimeout(500);
- const composing=await snap();assert.equal(composing.composing,true);assert.equal(composing.paintedRevision,baseline.paintedRevision);
+ const composing=await snap();assert.equal(composing.composing,true);assert.equal(composing.paintedRevision,composing.revision);
+ const compositionOverflow=await page.evaluate(()=>Math.max(0,...Array.from(document.querySelectorAll('.composing .composition-line')).map(el=>{const r=el.getBoundingClientRect(),p=document.querySelector(`.paper[data-page="${el.dataset.page}"]`).getBoundingClientRect();return (r.right-p.left)*.75-296})));
+ assert.equal(await page.locator('#editor').evaluate(el=>getComputedStyle(el).opacity),'0');
+ assert.equal(await page.locator('.composition-caret').isVisible(),true);
+ assert.equal(await page.evaluate(()=>{const c=document.querySelector('.composition-caret').getBoundingClientRect();return Array.from(document.querySelectorAll('.composition-line')).some(el=>{const r=el.getBoundingClientRect();return c.left>=r.left-1&&c.right<=r.right+2&&c.top>=r.top-1&&c.bottom<=r.bottom+1})}),true);
+ assert.ok(compositionOverflow<.5,`active composition overflow ${compositionOverflow}`);
  await cdp.send('Input.insertText',{text:insertion});
  await settled();const after=await snap();
  assert.equal(after.layout.rows[21].text,initial.slice(0,9)+insertion+initial.slice(9));
  assert.deepEqual([...new Set(after.layout.rows[21].lines.map(l=>l.page))],[1,2]);
  assert.equal(after.selection.member,21);assert.equal(after.selection.offset,9+insertion.length);
- assert.equal(after.engineResponse.requestHash,createHash('sha256').update(JSON.stringify(after.request)).digest('hex'));
+ assert.equal(after.engineResponse.source.includes('WASM'),true);
  function ownerCheck(state){for(let i=0;i<34;i++)if(i!==21)assert.deepEqual(state.request.sections[0].data.parts[0].data.groups[0].members[i],baseline.request.sections[0].data.parts[0].data.groups[0].members[i]);}
  ownerCheck(after);
  // Inspect actual DOM placement and line content, not just the projection model.
@@ -58,15 +63,15 @@ try{
  await page.keyboard.press('Control+y');await settled();assert.equal((await snap()).layout.rows[21].text,firstEdit.layout.rows[21].text);
  // A response for an older edit must not overwrite newer typing or its caret.
  const staleBefore=await snap(),staleText=staleBefore.layout.rows[21].text,staleAt=staleBefore.selection.offset;
- await page.keyboard.insertText('ก');await page.waitForFunction(()=>window.spike.snapshot().inFlight);
+ await page.keyboard.insertText('ก');
  await page.keyboard.insertText('ข');await settled();const rapid=await snap();
- assert.ok(rapid.discarded>staleBefore.discarded);
+ assert.equal(rapid.paintedRevision,rapid.revision);
  assert.equal(rapid.layout.rows[21].text,staleText.slice(0,staleAt)+'กข'+staleText.slice(staleAt));
  assert.equal(rapid.selection.member,21);assert.equal(rapid.selection.offset,staleAt+2);ownerCheck(rapid);
  assert.equal(await page.evaluate(()=>window.originalView===window.spike.view),originalView);
  await page.evaluate(()=>window.scrollTo(0,0));await page.screenshot({path:'artifacts/engine-split-two-pages.png',fullPage:true});
  assert.deepEqual(errors,[]);
- const report={status:'PASS_BOUNDED_EXPERIMENT',checks:{engineSplitPages:true,domLineTextAndPosition:true,compositionDeferred:true,caretAfterReflow:true,clickAndEditContinuation:true,scrollCaret:true,correctOwner:true,editFirstFragment:true,undoRedo:true,sameEditorView:true,staleResponseRejected:true},baseline,after,domLines,clicked,continuationEdit,returned,continued,firstEdit,rapid,errors,limitations:['CDP composition, not physical OS Thai IME','2 pages / 34 rows only; full UAT and large-document resource bounds not qualified','Engine round-trip latency; stale geometry remains visible while awaiting latest revision','Glyph pixel parity and printer output not tested']};
+ const report={status:'PASS_BOUNDED_EXPERIMENT',checks:{engineSplitPages:true,domLineTextAndPosition:true,compositionLiveLayout:true,caretAfterReflow:true,clickAndEditContinuation:true,scrollCaret:true,correctOwner:true,editFirstFragment:true,undoRedo:true,sameEditorView:true,immediateLocalLayout:true},baseline,after,domLines,clicked,continuationEdit,returned,continued,firstEdit,rapid,errors,limitations:['CDP composition, not physical OS Thai IME','2 pages / 34 rows only; full UAT and large-document resource bounds not qualified','Pinned Core layout bundle and fixed UAT resolved-data adapter; not a production authoring contract','Glyph pixel parity and printer output not tested']};
  fs.writeFileSync('artifacts/split-browser-report.json',JSON.stringify(report,null,2));
  fs.writeFileSync('artifacts/split-edited-request.json',JSON.stringify(after.request,null,2));
  console.log(JSON.stringify({status:report.status,checks:report.checks,enginePages:[...new Set(after.layout.rows[21].lines.map(l=>l.page))],latenciesMs:firstEdit.latencies.map(Math.round)}));

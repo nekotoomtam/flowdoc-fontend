@@ -1,26 +1,27 @@
 {
-  "status": "PASS_BOUNDED_EXPERIMENT",
-  "date": "2026-11-07T06:17:37.231Z",
-  "decision": "Engine-driven line/page projection passes the tested split-cell editing scenario. Not a production stack approval.",
-  "coreRelease": "0.5.5",
-  "coreReleaseCommit": "77b69bc974605284be8f67e741fb95609030aaba",
-  "runtime": "Oracle Linux; native Core composition, shaping, layout and PDF writer; test-only stdin bridge and draw interception. No PDF viewer.",
-  "fixture": "Isolated UAT summary-dynamic, 34 repeated members, two pages; header/footer removed and totals empty; original fixture font bytes.",
-  "target": {
-    "origin": "authored",
-    "sectionId": "instance-I0001",
-    "areaId": "647dd264-217d-4ef5-80d4-42aa2e559e89",
-    "areaEntryIndex": 0,
-    "areaFormatId": "summary-dynamic",
-    "groupId": "uat-groups",
-    "groupIndex": 0,
-    "sourceId": "v15",
-    "itemIndex": 21
+  "status": "PASS_BOUNDED_LIVE_INPUT_AWAITING_USER_REVIEW",
+  "date": "2026-11-07T06:34:43.612Z",
+  "decision": "Live typing passes the instrumented UAT two-page experiment. User usability approval and production stack selection remain open.",
+  "previousFailure": "experiments/interaction-review.json (candidate 242465f)",
+  "runtime": {
+    "layout": "Pinned Core 0.5.5 documentFlow browser bundle",
+    "shaping": "rustybuzz 0.20.1 WASM",
+    "segmentation": "ICU4X icu_segmenter 2.2.0 with same data and dependency lock",
+    "fonts": "SHA-256 verified fixture bytes",
+    "inputPath": "Local computation after each edit, before the next browser frame; no trailing debounce or layout API requests",
+    "composition": "Keep native ProseMirror composition input; display locally laid-out text and caret during active composition, then restore the same EditorView"
   },
+  "fixture": "Isolated UAT summary-dynamic, 34 members, two pages, no bands or totals",
   "checks": {
+    "continuousThai": true,
+    "splitAcrossPages": true,
+    "followingRowsMove": true,
+    "caretAndOwnerEveryInput": true,
+    "scrollAndContinue": true,
+    "nativeLayoutExactAtCheckpoints": true,
     "engineSplitPages": true,
     "domLineTextAndPosition": true,
-    "compositionDeferred": true,
+    "compositionLiveLayout": true,
     "caretAfterReflow": true,
     "clickAndEditContinuation": true,
     "scrollCaret": true,
@@ -28,199 +29,78 @@
     "editFirstFragment": true,
     "undoRedo": true,
     "sameEditorView": true,
-    "staleResponseRejected": true,
-    "independentNativeExportComparison": true
+    "immediateLocalLayout": true,
+    "activeCompositionOverflowChecked": true,
+    "activeCompositionCaretChecked": true,
+    "caretVisibleAfterEveryTypedCharacter": true
   },
-  "enginePages": [
-    1,
-    2
-  ],
-  "browserPages": [
-    1,
-    2
-  ],
-  "maxPositionDeltaPt": 0.0078125,
-  "lineBreaksEqual": true,
-  "requestSha256": "b1c7c061fcd36e2ec3eeccb1382e93caf863c9a882cd482e062a10c9bc669e12",
-  "latencyMs": {
-    "firstLayout": 500,
-    "subsequentMin": 493,
-    "subsequentMax": 521,
-    "note": "Observed sample; includes SSH/native generation, excludes 180 ms input debounce; not a performance target"
+  "measurement": {
+    "characters": 224,
+    "browserFrames": 2798,
+    "maxOverflowPt": 0.0078125,
+    "maxOverlapPt": 0,
+    "maxOffPagePt": 0,
+    "staleFrames": 0,
+    "interactiveApiRequests": 0,
+    "inputToLayoutMs": {
+      "median": 25.09999999962747,
+      "p95": 33.89999999944121,
+      "max": 50.200000000186265
+    },
+    "note": "Observed headless Chrome run while recording video; input-to-layout does not include display scanout."
   },
+  "nativeComparisons": [
+    {
+      "name": "baseline",
+      "equal": true,
+      "requestHash": "e1a5e703ab868ffc3b68808a0e956ab4aba1c555ce360bcaad4f14b6e8926924",
+      "engineMs": 365.69580499996664
+    },
+    {
+      "name": "input-30",
+      "equal": true,
+      "requestHash": "cf81f1fe2b543d7313b63192b3cc7e5b272aeb47d7c1cbc27fbdba647b3d7365",
+      "engineMs": 379.025512000022
+    },
+    {
+      "name": "input-90",
+      "equal": true,
+      "requestHash": "8362f35c05c403f9ae38dbaee32f98516ff7226ef91e36d1bb2b4e6823cfdf5f",
+      "engineMs": 382.3318250000011
+    },
+    {
+      "name": "input-150",
+      "equal": true,
+      "requestHash": "618ebc57482b602b344052290a410f65efae40b06f3f73a56c7ad6675db4e931",
+      "engineMs": 392.6456809999654
+    },
+    {
+      "name": "input-224",
+      "equal": true,
+      "requestHash": "6e431e80ce5834afe42d1bd7f336d16ad42821d43d78290d5f571bc7403f414d",
+      "engineMs": 388.4404440000071
+    }
+  ],
   "limitations": [
-    "CDP composition, not physical OS Thai IME",
-    "2 pages / 34 rows only; full UAT and large-document resource bounds not qualified",
-    "Engine round-trip latency; stale geometry remains visible while awaiting latest revision",
-    "Glyph pixel parity and printer output not tested"
+    "Physical OS IME not certified",
+    "Fixed UAT 34-row fixture; not a general authoring adapter",
+    "Large-document performance and printer pixels not qualified",
+    "Physical IME candidate-window placement not validated; browser composition events were tested",
+    "General Section/Area/Format authoring and huge-document virtualization are outside this fixed fixture"
   ],
   "evidence": {
-    "browser": "artifacts/split-browser-report.json",
-    "native": "artifacts/engine-split-reference/edited-draw.json",
-    "screenshot": "artifacts/engine-split-two-pages.png"
+    "live": "artifacts/live-input-report.json",
+    "compositionAndScroll": "artifacts/split-browser-report.json",
+    "video": "artifacts/live-input.webm",
+    "screenshot": "artifacts/continuous-local-two-pages.png"
   },
-  "engineLines": [
-    {
-      "page": 1,
-      "text": "เมนูจัดกาทดสอบแก้ไขข้อมูล",
-      "xPt": 191,
-      "yPt": 771.2999999999998,
-      "widthPt": 94.01280000000001,
-      "heightPt": 17.3
-    },
-    {
-      "page": 2,
-      "text": "ภาษาไทยกลางคำและ",
-      "xPt": 191,
-      "yPt": 72,
-      "widthPt": 72.39960000000002,
-      "heightPt": 17.3
-    },
-    {
-      "page": 2,
-      "text": "ตรวจสอบการแบ่งหน้า",
-      "xPt": 191,
-      "yPt": 89.29999999999995,
-      "widthPt": 74.34000000000002,
-      "heightPt": 17.3
-    },
-    {
-      "page": 2,
-      "text": "กระดาษทดสอบแก้ไขข้อมูล",
-      "xPt": 191,
-      "yPt": 106.60000000000002,
-      "widthPt": 90.45120000000001,
-      "heightPt": 17.3
-    },
-    {
-      "page": 2,
-      "text": "ภาษาไทยกลางคำและ",
-      "xPt": 191,
-      "yPt": 123.89999999999998,
-      "widthPt": 72.39960000000002,
-      "heightPt": 17.3
-    },
-    {
-      "page": 2,
-      "text": "ตรวจสอบการแบ่งหน้า",
-      "xPt": 191,
-      "yPt": 141.20000000000005,
-      "widthPt": 74.34000000000002,
-      "heightPt": 17.3
-    },
-    {
-      "page": 2,
-      "text": "กระดาษทดสอบแก้ไขข้อมูล",
-      "xPt": 191,
-      "yPt": 158.5,
-      "widthPt": 90.45120000000001,
-      "heightPt": 17.3
-    },
-    {
-      "page": 2,
-      "text": "ภาษาไทยกลางคำและ",
-      "xPt": 191,
-      "yPt": 175.79999999999995,
-      "widthPt": 72.39960000000002,
-      "heightPt": 17.3
-    },
-    {
-      "page": 2,
-      "text": "ตรวจสอบการแบ่งหน้า",
-      "xPt": 191,
-      "yPt": 193.10000000000002,
-      "widthPt": 74.34000000000002,
-      "heightPt": 17.3
-    },
-    {
-      "page": 2,
-      "text": "กระดาษรใบสั่งตัด",
-      "xPt": 191,
-      "yPt": 210.39999999999998,
-      "widthPt": 58.716000000000015,
-      "heightPt": 17.3
-    }
-  ],
-  "browserLines": [
-    {
-      "text": "เมนูจัดกาทดสอบแก้ไขข้อมูล",
-      "page": 1,
-      "from": 0,
-      "to": 25,
-      "xPt": 190.9921875,
-      "yPt": 771.29296875
-    },
-    {
-      "text": "ภาษาไทยกลางคำและ",
-      "page": 2,
-      "from": 25,
-      "to": 41,
-      "xPt": 190.9921875,
-      "yPt": 72
-    },
-    {
-      "text": "ตรวจสอบการแบ่งหน้า",
-      "page": 2,
-      "from": 41,
-      "to": 59,
-      "xPt": 190.9921875,
-      "yPt": 89.296875
-    },
-    {
-      "text": "กระดาษทดสอบแก้ไขข้อมูล",
-      "page": 2,
-      "from": 59,
-      "to": 81,
-      "xPt": 190.9921875,
-      "yPt": 106.59375
-    },
-    {
-      "text": "ภาษาไทยกลางคำและ",
-      "page": 2,
-      "from": 81,
-      "to": 97,
-      "xPt": 190.9921875,
-      "yPt": 123.90234375
-    },
-    {
-      "text": "ตรวจสอบการแบ่งหน้า",
-      "page": 2,
-      "from": 97,
-      "to": 115,
-      "xPt": 190.9921875,
-      "yPt": 141.19921875
-    },
-    {
-      "text": "กระดาษทดสอบแก้ไขข้อมูล",
-      "page": 2,
-      "from": 115,
-      "to": 137,
-      "xPt": 190.9921875,
-      "yPt": 158.49609375
-    },
-    {
-      "text": "ภาษาไทยกลางคำและ",
-      "page": 2,
-      "from": 137,
-      "to": 153,
-      "xPt": 190.9921875,
-      "yPt": 175.79296875
-    },
-    {
-      "text": "ตรวจสอบการแบ่งหน้า",
-      "page": 2,
-      "from": 153,
-      "to": 171,
-      "xPt": 190.9921875,
-      "yPt": 193.1015625
-    },
-    {
-      "text": "กระดาษรใบสั่งตัด",
-      "page": 2,
-      "from": 171,
-      "to": 187,
-      "xPt": 190.9921875,
-      "yPt": 210.3984375
-    }
-  ]
+  "sourceHashes": {
+    "src/main.ts": "c21d142761d5ef6a86174eaa5a185dffdf8d1a7b841fa57d762573b4d0041ed2",
+    "src/local-layout.mjs": "92e8b114631c88c9f13d15434e74e2aa7ddbedb0b76b04d2cae7bfff4e8c0947",
+    "src/engine-layout.mjs": "5a32327d2529b1b78dd233f2f956893df9ab79178dd2db81a1aafce68d199310",
+    "src/style.css": "1313946f651ad3eae2a8d1ee50835a57ce31086063334318fd7ebf331db7c6c4",
+    "src/vendor/core-layout.mjs": "276f712768f8673ef128dedfb6bfa69f42daec95ba32557cbc142e442d42f99e",
+    "public/wasm/flowdoc_spike_text_bg.wasm": "0e8a1600067d2ade6b30e6012b76f698231374e4f22ecbb7dc1ed14103fdb3ef",
+    "public/spike-resolved.json": "a4e0610d4a1ec76351dcf12fc374b2992df0cf73cef372776860e1221020962f"
+  }
 }

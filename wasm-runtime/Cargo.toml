@@ -1,0 +1,18 @@
+[package]
+name = "flowdoc_spike_text"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+rustybuzz = "=0.20.1"
+icu_segmenter = "=2.2.0"
+wasm-bindgen = "=0.2.126"
+serde_json = "=1.0.151"
+
+[profile.release]
+opt-level = 3
+lto = true

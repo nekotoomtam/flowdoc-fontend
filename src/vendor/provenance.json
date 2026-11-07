@@ -1,0 +1,110 @@
+{
+  "commit": "77b69bc974605284be8f67e741fb95609030aaba",
+  "files": [
+    {
+      "path": "src/layout/formatLayout.ts",
+      "sha256": "1080f7c68e720f91ed52677b468c535cdbac8583bb6d42d4c11c14cedee5900a"
+    },
+    {
+      "path": "src/composition/resolvedDocument.ts",
+      "sha256": "39d4c3342ea26e6268db97dbcdc83be72cc33a4590c1d5e6b6d679efb078269e"
+    },
+    {
+      "path": "src/template/checks.ts",
+      "sha256": "0ff36a4a34e267983fac20cd6ee4ce16bd51a89510ffe5ee444dfdc8c5b77504"
+    },
+    {
+      "path": "src/composition/linkContract.ts",
+      "sha256": "72042750cb1dd3f1b4491df56c36fd29330f3602c70cd66841517a2c2f34f47d"
+    },
+    {
+      "path": "src/fonts/types.ts",
+      "sha256": "cb985d55fa24fe567fa1db7896fb13a4d636cc3cfd31ae90ffdf7e668e2554d2"
+    },
+    {
+      "path": "src/fonts/selection.ts",
+      "sha256": "3106fb28ff54f3d7d1b19aad03a7c8821347249e4b29066517cc913ae19fc4aa"
+    },
+    {
+      "path": "src/layout/measureText.ts",
+      "sha256": "ab3bd78e20ac7b4cd70ab3b2c68df9316113c47291f7a4e5ebaa83636b9fd2c3"
+    },
+    {
+      "path": "src/layout/textFlow.ts",
+      "sha256": "da138cc7a03b462d6ac19d3577ebd56ad6a4dd98b76d6ee79e5f71165bc950cd"
+    },
+    {
+      "path": "src/composition/strokeStyle.ts",
+      "sha256": "04216237faaa3eccce006f382bf6b32cd2d22ef870eb0f6430f31281b57dcce9"
+    },
+    {
+      "path": "src/layout/line.ts",
+      "sha256": "700951e691dab5e6b297f2faec90712a3c76235e10188bffb51c71df6d39b0fa"
+    },
+    {
+      "path": "src/template/pageNumbering.ts",
+      "sha256": "4b701c446b4aab3315e3747302720978b3d12045eefb8862cb0427f6664407c6"
+    },
+    {
+      "path": "src/layout/systemPageCounting.ts",
+      "sha256": "d0649c09756335919eb6f231e372f63471d56f9d808b88ee81666a9794c0b4dc"
+    },
+    {
+      "path": "src/layout/measurePageFieldText.ts",
+      "sha256": "73a8b52652279327ce490b2943e09c183feccb5c80a7d4ae7483e24988aa3f35"
+    },
+    {
+      "path": "src/layout/pageBands.ts",
+      "sha256": "78b4c6016f67c2654d27c6cbb61d2d28ff3bed9ca2bd2a966039ae7f5a1756aa"
+    },
+    {
+      "path": "src/layout/fixedTextBlock.ts",
+      "sha256": "ebbce0facd4d01d1b415791321684927d7b02b7d15efae56eeaf9c79544d2ec6"
+    },
+    {
+      "path": "src/composition/tableGrid.ts",
+      "sha256": "6a74968905644cbfbea93dd602a63f4ac4971f1e1de81c55a0f2f09c7e28d1b5"
+    },
+    {
+      "path": "src/layout/measureCellContent.ts",
+      "sha256": "530e819851558f751ff3f7257686a10cf47389fd14a9a3e00bb8c9395a9ea8bc"
+    },
+    {
+      "path": "src/layout/nativeTableProbe.ts",
+      "sha256": "47feebd3f0400944621dd453b56d444c5dadfea8a5896ab6c8ad1ecd97d69e4e"
+    },
+    {
+      "path": "src/layout/cellTableFlow.ts",
+      "sha256": "5d04123dea9e8ff26bff9d7392c271f9b576257b6f715d0b6fa160c0eb9f2b8c"
+    },
+    {
+      "path": "src/layout/tableStart.ts",
+      "sha256": "ccc6888a0b953c8d8809dd933c901db6d3e35c828e32cb43bfddd051202abfc8"
+    },
+    {
+      "path": "src/composition/contents.ts",
+      "sha256": "5e6bd919c016748cba68a0f7d62110ac83a36e840f498396232499d240d392e3"
+    },
+    {
+      "path": "src/layout/measureContents.ts",
+      "sha256": "576f7315167d8f1911a70d273d45ab72d4d35b5d42db6b48e0805e3d311ba531"
+    },
+    {
+      "path": "src/layout/documentFlow.ts",
+      "sha256": "46137ea05188611fb81de6d506223351d4fbce6e3c4d3a6e1e363e0158e8592d"
+    },
+    {
+      "path": "src/runtime/scriptSpans.ts",
+      "sha256": "1d505433b1300983d02956d58dd4cc9d3573cd01ef9ec47f9c3cf64bc3438b6d"
+    },
+    {
+      "path": "src/runtime/cacheTextRuntime.ts",
+      "sha256": "e6ea88d2dffd65b534a925b6308e8ead5db3f0ff75829a082110b750a52aedab"
+    },
+    {
+      "path": "src/runtime/textRuntime.ts",
+      "sha256": "199753875f90cc4d871aaa0fa4400a0778d6eefff26200d814af2cb3e8cec8ba"
+    }
+  ],
+  "adapter": "Unconfigured prefixFit returns false, matching native PDF. Only fixed UAT resolved data is supported by this spike."
+}

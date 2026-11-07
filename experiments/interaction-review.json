@@ -1,0 +1,26 @@
+{
+  "status": "FAIL_INTERACTIVE_EDITING",
+  "candidateCommit": "242465f",
+  "reviewedAt": "2026-11-07T06:21:00.321Z",
+  "supersedesOverallDecision": "public/experiment-result.json",
+  "settledLayoutChecks": "Previous settled-layout checks remain scoped evidence only; they do not establish usability.",
+  "userFeedback": "Unusable: feedback cannot keep up with typing; text crosses neighboring columns.",
+  "reproduction": {
+    "scenario": "60 Thai characters at 35 ms gaps, measured during input before waiting for layout",
+    "maxOverflowPt": 243.54296875,
+    "typingDurationMs": 2921.5999999996275,
+    "layoutUpdatesDuringInput": 0
+  },
+  "cause": [
+    "Trailing debounce restarts on every edit, so continuous typing prevents layout submission.",
+    "Absolute nowrap line fragments retain stale geometry and allow text to overflow into neighboring cells.",
+    "Revision rejection protects data but cannot provide immediate layout feedback."
+  ],
+  "acceptance": "Not usable as a paper editor. Continuous input, live wrapping, row movement and caret visibility must pass before another readiness claim.",
+  "evidence": [
+    "scripts/continuous-input-check.mjs",
+    "artifacts/continuous-input-report.json",
+    "artifacts/continuous-input-overflow.png"
+  ],
+  "runtimeChanges": "None; preserve the user current browser and unsaved editing session."
+}

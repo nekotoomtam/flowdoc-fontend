@@ -52,6 +52,10 @@ try{
   const member=group.locator('fieldset .trial-rows > details').first();
   for(const [name,value] of Object.entries({menu:'เมนูทดสอบ',cases:'7',pass:'6',fail:'1'}))
     await member.getByLabel(new RegExp('^'+name)).fill(value);
+  await group.getByRole('button',{name:'+ เพิ่มรายการ',exact:true}).click();
+  const sibling=group.locator('fieldset .trial-rows > details').nth(1);
+  for(const [name,value] of Object.entries({menu:'เมนูทดสอบ',cases:'8',pass:'7',fail:'1'}))
+    await sibling.getByLabel(new RegExp('^'+name)).fill(value);
   const result=await preview();
   assert.ok(result.body.previewId&&result.body.pageCount>=2);
   assert.deepEqual(result.request.trial.sections[0].data.parts.map(part=>part.format),['heading','break','summary-dynamic']);
@@ -66,6 +70,67 @@ try{
   assert.ok(second.page.lines.some(line=>line.text.includes('เมนูทดสอบ')));
   await page.getByText(/^2 \/ /).waitFor();
   await page.screenshot({path:join(output,'preview-nested-table.png')});
+  const target=paper.getByRole('button',{name:'แก้ค่า เมนูทดสอบ',exact:true});
+  assert.equal(await target.count(),2);
+  await target.nth(1).click();
+  const editor=page.locator('#trial-paper-value');
+  assert.equal(await editor.inputValue(),'เมนูทดสอบ');
+  await editor.evaluate(input=>input.setSelectionRange(4,4));
+  const auto=page.waitForResponse(r=>r.request().method()==='POST'&&r.url().endsWith(path+'/preview'),{timeout:120000});
+  await page.keyboard.insertText('ไทย');
+  assert.equal(await sibling.getByLabel(/^menu/).inputValue(),'เมนูไทยทดสอบ');
+  assert.equal(await member.getByLabel(/^menu/).inputValue(),'เมนูทดสอบ');
+  const autoReply=await auto,autoData=await autoReply.json();
+  assert.equal(autoReply.status(),200,JSON.stringify(autoData.issues??autoData.error));
+  const sent=autoReply.request().postDataJSON().trial;
+  assert.deepEqual(sent.sections[0].data.parts[2].data.groups[0].members.map(item=>item.menu),['เมนูทดสอบ','เมนูไทยทดสอบ']);
+  await paper.getByRole('button',{name:'แก้ค่า เมนูไทยทดสอบ',exact:true}).waitFor();
+  assert.equal(await editor.evaluate(input=>document.activeElement===input&&input.selectionStart===7&&input.selectionEnd===7),true);
+  await page.keyboard.insertText('ต่อ');
+  await paper.getByRole('button',{name:'แก้ค่า เมนูไทยต่อทดสอบ',exact:true}).waitFor();
+  assert.equal(await editor.evaluate(input=>document.activeElement===input&&input.selectionStart===10),true);
+  await page.screenshot({path:join(output,'preview-paper-edit-caret.png')});
+  let release;
+  let seen;
+  const held=new Promise(resolve=>{release=resolve;});
+  const started=new Promise(resolve=>{seen=resolve;});
+  await page.route('**/preview',async route=>{
+    const request=route.request().postDataJSON();
+    const value=request.trial?.sections[0].data.parts[2].data.groups[0].members[1].menu;
+    if(value==='เมนูไทยต่อรอทดสอบ'){
+      const response=await route.fetch();
+      seen();await held;await route.fulfill({response});
+    }else await route.continue();
+  });
+  await page.keyboard.insertText('รอ');
+  await started;
+  await page.keyboard.insertText('ใหม่');
+  assert.equal(await sibling.getByLabel(/^menu/).inputValue(),'เมนูไทยต่อรอใหม่ทดสอบ');
+  await paper.evaluate(paper=>{
+    new MutationObserver(()=>{
+      if(paper.querySelector('[aria-label="แก้ค่า เมนูไทยต่อรอทดสอบ"]'))paper.dataset.stalePainted='true';
+    }).observe(paper,{childList:true});
+  });
+  release();
+  await paper.getByRole('button',{name:'แก้ค่า เมนูไทยต่อรอใหม่ทดสอบ',exact:true}).waitFor();
+  assert.equal(await editor.evaluate(input=>document.activeElement===input&&input.selectionStart===16),true);
+  assert.equal(await paper.getAttribute('data-stale-painted'),null);
+  await page.unroute('**/preview');
+
+  const long='ก'.repeat(1500);
+  const longResponse=page.waitForResponse(r=>r.request().method()==='POST'&&r.url().endsWith(path+'/preview'),{timeout:120000});
+  await page.keyboard.insertText(long);
+  const expandedReply=await longResponse,expanded=await expandedReply.json();
+  assert.equal(expandedReply.status(),200,JSON.stringify(expanded.issues??expanded.error));
+  assert.ok(expanded.pageCount>result.body.pageCount,JSON.stringify({pages:expanded.pageCount}));
+  assert.ok(expanded.pageIndex>1,'The view follows the edited occurrence across pages');
+  await page.waitForFunction(count=>document.querySelector('#page-number').textContent.endsWith('/ '+count),expanded.pageCount);
+  assert.equal(await editor.evaluate(input=>document.activeElement===input&&input.selectionStart===1516),true);
+  assert.equal(await member.getByLabel(/^menu/).inputValue(),'เมนูทดสอบ');
+  await page.screenshot({path:join(output,'preview-paper-edit-cross-page.png')});
+  await editor.fill('เมนูไทยต่อรอใหม่ทดสอบ');
+  await paper.getByRole('button',{name:'แก้ค่า เมนูไทยต่อรอใหม่ทดสอบ',exact:true}).waitFor();
+  await page.getByRole('button',{name:'เสร็จ',exact:true}).click();
   await heading.getByLabel(/title/).fill('ทดลองฉบับใหม่');
   assert.equal(await paper.locator('svg').count(),0);
   const updated=await preview();
@@ -74,7 +139,7 @@ try{
   assert.deepEqual(await read(),original);
   assert.deepEqual(errors,[]);assert.deepEqual(writes,[]);
   const proof={draftId:id,revision:original.revision,pages:result.body.pageCount,realEngine:result.body.engineVersion,
-    nestedArray:true,imageUpload:true,orderedFormats:true,changedInputRerendered:true,definitionWrites:0};
+    nestedArray:true,editReturnedToCorrectMember:true,caretSurvivedReflow:true,supersededResultDiscarded:true,expandedPages:expanded.pageCount,imageUpload:true,orderedFormats:true,changedInputRerendered:true,definitionWrites:0};
   await writeFile(join(output,'trial-preview-verification.json'),JSON.stringify(proof,null,2)+'\n');
   console.log(JSON.stringify(proof));
 }finally{await browser.close();}

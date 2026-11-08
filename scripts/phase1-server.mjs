@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
 import {loadOriginalUat} from './original-uat-preview.mjs';
 import {trialImages} from './trial-preview-images.mjs';
+import {trialBindings} from './trial-preview-bindings.mjs';
 import {randomBytes, randomUUID, createHash} from 'node:crypto';
 import {readFile, mkdtemp} from 'node:fs/promises';
 import {createInterface} from 'node:readline';
@@ -65,7 +66,8 @@ async function glyphPaths(draw,resources){
 function projectOriginalPage(cache,index){
   const {commands,images,...page}=cache.draw.pages[index];
   const glyphs=Object.create(null);
-  const lines=commands.map(({text,bounds,fontId,fontSizePt,baselineOffsetPt,color,glyphs:run})=>{
+  const lines=commands.map(command=>{
+    const {text,bounds,fontId,fontSizePt,baselineOffsetPt,color,glyphs:run}=command;
     const [units,paths]=cache.paths[fontId];
     const font=cache.fonts.indexOf(fontId), scale=fontSizePt/units;
     let advance=0;
@@ -75,7 +77,17 @@ function projectOriginalPage(cache,index){
       if(d){glyphs[key]=d;glyphUses.push([key,bounds.xPt+advance+g.offsetXPt,bounds.yPt+baselineOffsetPt-g.offsetYPt]);}
       advance+=g.advancePt;
     }
-    return {text,...bounds,fontSizePt,baselineOffsetPt,color,scale,glyphUses};
+    const owner=cache.bindings?.lines.get(command);
+    let edit;
+    if(owner){
+      let x=0;
+      const clusters=run.map(g=>{
+        const cluster=[x,owner.start+g.clusterStartOffset,owner.start+g.clusterEndOffset];
+        x+=g.advancePt;return cluster;
+      });
+      edit={...owner,clusters};
+    }
+    return {text,...bounds,fontSizePt,baselineOffsetPt,color,scale,glyphUses,...(edit?{edit}:{})};
   });
   return {...page,sampleImages:images??[],glyphs,lines};
 }
@@ -159,9 +171,18 @@ try {
         assert.equal(draw.pages.length,pdf.pageCount);
         const paths=await glyphPaths(draw,resources);
         const cache={revision:draft.revision,fingerprint:draft.fingerprint,draw,paths,fonts:Object.keys(paths)};
-        const first=projectOriginalPage(cache,0);
+        if(custom)cache.bindings=trialBindings(draft.definition,resolved,sample,draw);
+        const focus=trial?.focus;
+        const positions=typeof focus?.key==='string'?cache.bindings?.locations.get(focus.key):undefined;
+        const preferred=Number.isSafeInteger(focus?.pageIndex)?Math.min(Math.max(0,focus.pageIndex),draw.pages.length-1):0;
+        const caret=Number.isSafeInteger(focus?.offset)?focus.offset:0;
+        const position=positions?.find(p=>p.pageIndex===preferred&&p.start<=caret&&caret<=p.end)
+          ??positions?.find(p=>p.start<=caret&&caret<=p.end)
+          ??positions?.find(p=>p.pageIndex===preferred);
+        const pageIndex=position?.pageIndex??preferred;
+        const first=projectOriginalPage(cache,pageIndex);
         const layoutHash=hash(draw.pages);
-        cache.header={revision:cache.revision,fingerprint:cache.fingerprint,pages:[first],paged:true,
+        cache.header={revision:cache.revision,fingerprint:cache.fingerprint,pages:[first],pageIndex,paged:true,
           pageCount:pdf.pageCount,layoutHash,pdfHash:pdf.sha256,engineMs,renderMs:performance.now()-started,
           engineVersion:rendererIdentity.version,
           ...(fixture?{entryCount:fixture.entryCount,imagePlacements:fixture.placements}:{})};

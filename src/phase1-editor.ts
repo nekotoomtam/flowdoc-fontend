@@ -16,9 +16,10 @@ type DrawPage = {
   glyphs?:Record<string,string>;
   fills?: {xPt: number; yPt: number; widthPt: number; heightPt: number; color: string}[];
   borders?: {x1Pt: number; y1Pt: number; x2Pt: number; y2Pt: number; widthPt: number; color: string; style?:string}[];
-  lines: {text: string; xPt: number; yPt: number; fontSizePt: number; baselineOffsetPt: number; color: string; weight?: number; scale?:number; glyphUses?:[string,number,number][]}[];
+  lines: {text: string; xPt: number; yPt: number; widthPt:number; heightPt:number; fontSizePt: number; baselineOffsetPt: number; color: string; weight?: number; scale?:number; glyphUses?:[string,number,number][]; edit?:PreviewEdit}[];
 };
-type Preview = {previewId?:string;revision: number; fingerprint: string; engineVersion: string; engineMs: number; renderMs: number; layoutHash: string; pdfHash: string; pageCount: number; pages: DrawPage[]; paged?:boolean; entryCount?:number; imagePlacements?:number};
+type PreviewEdit = {key:string;start:number;end:number;clusters:[number,number,number][]};
+type Preview = {pageIndex?:number;previewId?:string;revision: number; fingerprint: string; engineVersion: string; engineMs: number; renderMs: number; layoutHash: string; pdfHash: string; pageCount: number; pages: DrawPage[]; paged?:boolean; entryCount?:number; imagePlacements?:number};
 type ServiceReply = {ok: boolean; value?: Draft; issues?: {code: string; path?:string}[]};
 const q = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id)! as T;
 const title = q('title'), status = q('status'), editor = q('editor'), tree = q('tree'), paper = q('paper'), variables = q('variables');
@@ -1258,9 +1259,57 @@ function paintBorders(sheet:SVGElement,page:DrawPage){
     else paint(w);
   }
 }
+const trialPaperEditor=q('trial-paper-editor'),trialPaperValue=q<HTMLTextAreaElement>('trial-paper-value');
+let trialForm:ReturnType<typeof mountTrial>|undefined;
+let paperEdit:{key:string;composing:boolean}|undefined;
+function positionPaperEditor(){
+  if(!paperEdit)return;
+  const caret=trialPaperValue.selectionStart;
+  const hits=[...previewPaper.querySelectorAll<SVGRectElement>('[data-trial-key]')]
+    .filter(hit=>hit.dataset.trialKey===paperEdit?.key);
+  const hit=hits.find(hit=>Number(hit.dataset.start)<=caret&&caret<=Number(hit.dataset.end))??hits[0];
+  const bounds=hit?.getBoundingClientRect();
+  const width=Math.min(300,window.innerWidth-24);
+  const left=bounds?Math.max(12,Math.min(bounds.left,window.innerWidth-width-12)):12;
+  const top=bounds?Math.max(90,Math.min(bounds.bottom+3,window.innerHeight-trialPaperEditor.offsetHeight-12))
+    :Math.max(12,window.innerHeight-trialPaperEditor.offsetHeight-12);
+  Object.assign(trialPaperEditor.style,{left:left+'px',top:top+'px',width:width+'px'});
+}
+function beginPaperEdit(edit:PreviewEdit,offset:number){
+  const value=trialForm?.read(edit.key);
+  if(value===undefined)return;
+  paperEdit={key:edit.key,composing:false};
+  trialPaperValue.value=value;
+  trialPaperEditor.hidden=false;
+  trialPaperValue.focus({preventScroll:true});
+  trialPaperValue.setSelectionRange(offset,offset);
+  positionPaperEditor();
+}
+function closePaperEdit(){
+  paperEdit=undefined;trialPaperEditor.hidden=true;
+}
+function syncPaperEdit(composing:boolean){
+  if(!paperEdit)return;
+  const {key}=paperEdit,value=trialPaperValue.value;
+  const offset=trialPaperValue.selectionStart;
+  const readFocus=()=>({key,pageIndex,offset:paperEdit?.key===key?trialPaperValue.selectionStart:offset});
+  trialForm?.write(key,value,readFocus,composing);
+}
+trialPaperValue.addEventListener('compositionstart',()=>{if(paperEdit)paperEdit.composing=true;});
+trialPaperValue.addEventListener('input',event=>syncPaperEdit(Boolean(paperEdit?.composing||(event as InputEvent).isComposing)));
+trialPaperValue.addEventListener('compositionend',()=>{
+  if(!paperEdit)return;
+  paperEdit.composing=false;syncPaperEdit(false);
+});
+trialPaperValue.addEventListener('keydown',event=>{
+  if(event.key==='Escape'&&!paperEdit?.composing){event.preventDefault();closePaperEdit();}
+});
+q('trial-paper-done').addEventListener('click',closePaperEdit);
+window.addEventListener('resize',positionPaperEditor);
+window.addEventListener('scroll',positionPaperEditor,true);
 function showPage(page:DrawPage) {
   if(!preview)return;
-  const sheet=svg('svg',{viewBox:'0 0 '+page.widthPt+' '+page.heightPt,role:'img','aria-label':'กระดาษ Engine หน้า '+(pageIndex+1)});
+  const sheet=svg('svg',{viewBox:'0 0 '+page.widthPt+' '+page.heightPt,role:preview.previewId?'group':'img','aria-label':'กระดาษ Engine หน้า '+(pageIndex+1)});
   sheet.append(svg('rect',{width:page.widthPt,height:page.heightPt,fill:color(page.backgroundColor)}));
   for(const f of page.fills??[])sheet.append(svg('rect',{x:f.xPt,y:f.yPt,width:f.widthPt,height:f.heightPt,fill:color(f.color)}));
   paintBorders(sheet,page);
@@ -1286,7 +1335,32 @@ function showPage(page:DrawPage) {
     if(image.resourceId)sheet.append(svg('image',{...bounds,href:assetUrl(image.resourceId,preview.previewId),preserveAspectRatio:'none'}));
     else if(image.color)sheet.append(svg('rect',{...bounds,fill:color(image.color)}));
   }
+  for(const line of page.lines){
+    const edit=line.edit;
+    if(!edit||trialForm?.read(edit.key)===undefined)continue;
+    const hit=svg('rect',{x:line.xPt,y:line.yPt,width:Math.max(line.widthPt,5),
+      height:line.heightPt,fill:'transparent',tabindex:0,role:'button','aria-label':'แก้ค่า '+line.text});
+    hit.classList.add('trial-field-hit');
+    hit.dataset.trialKey=edit.key;hit.dataset.start=String(edit.start);hit.dataset.end=String(edit.end);
+    hit.addEventListener('click',event=>{
+      const mouse=event as MouseEvent,rect=hit.getBoundingClientRect();
+      const x=(mouse.clientX-rect.left)*Math.max(line.widthPt,5)/rect.width;
+      let offset=edit.end;
+      for(let i=0;i<edit.clusters.length;i++){
+        const [start,from]=edit.clusters[i];
+        const end=edit.clusters[i+1]?.[0]??line.widthPt;
+        if(x<(start+end)/2){offset=from;break;}
+      }
+      beginPaperEdit(edit,offset);
+    });
+    hit.addEventListener('keydown',event=>{
+      const key=(event as KeyboardEvent).key;
+      if(key==='Enter'||key===' '){event.preventDefault();beginPaperEdit(edit,edit.start);}
+    });
+    sheet.append(hit);
+  }
   previewPaper.replaceChildren(sheet);
+  positionPaperEditor();
   previewPaper.dataset.revision=String(preview.revision);
   q('page-number').textContent=(pageIndex+1)+' / '+preview.pageCount;
   jump.value=String(pageIndex+1);jump.max=String(preview.pageCount);jump.disabled=false;
@@ -1298,7 +1372,7 @@ async function goPage(index:number){
   pendingPage?.abort();
   const controller=new AbortController();pendingPage=controller;
   try{
-    let page=current.pages[index];
+    let page=current.paged?(index===(current.pageIndex??0)?current.pages[0]:undefined):current.pages[index];
     if(current.paged&&!page){
       const route=current.previewId?'/preview-runs/'+encodeURIComponent(current.previewId)+'/pages/'+index:'/preview-pages/'+revision+'/'+index;
       const response=await fetch(endpoint+route,
@@ -1307,6 +1381,7 @@ async function goPage(index:number){
       if(!response.ok||data.revision!==revision||data.index!==index||!data.page)throw Error('Page unavailable');
       page=data.page;
     }
+    if(!page)throw Error('Page unavailable');
     await readyImages(page,current.previewId);
     if(pendingPage!==controller||preview!==current||!showingPreview)return;
     pageIndex=index;showPage(page);
@@ -1316,7 +1391,7 @@ async function goPage(index:number){
   }finally{if(pendingPage===controller)pendingPage=undefined;}
 }
 
-async function loadPreview(trial?:Trial) {
+async function loadPreview(trial?:Trial,current=()=>true) {
   if(!draft||pendingPreview||!showingPreview||isDirty())return;
   const started=performance.now(), revision=draft.revision, fingerprint=draft.fingerprint;
   const request=new AbortController();pendingPreview=request;
@@ -1325,6 +1400,7 @@ async function loadPreview(trial?:Trial) {
   try{
     const response=await fetch(endpoint+'/preview',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({expectedRevision:revision,...(trial?{trial}:benchmark?{sample:'benchmark'}:{})}),signal:AbortSignal.any([request.signal,AbortSignal.timeout(120000)])});
+    if(!current()||pendingPreview!==request)return;
     if(response.status===409){previewStatus.textContent='ฉบับนี้มี revision ใหม่กว่าในระบบ กรุณาโหลดฉบับล่าสุด';return;}
     const data=await response.json() as Preview & {error?:string;issues?:{code:string;path?:string}[]};
     if(!response.ok){
@@ -1338,12 +1414,12 @@ async function loadPreview(trial?:Trial) {
     if(!response.ok||!data.pages?.length||data.revision!==revision||data.fingerprint!==fingerprint)throw Error('Preview unavailable');
     if(benchmark)await Promise.all([document.fonts.load('300 12px FlowDocLab'),document.fonts.load('400 12px FlowDocLab')]);
     await readyImages(data.pages[0],data.previewId);
-    if(pendingPreview!==request||draft.revision!==revision||!showingPreview)return;
-    preview=data;pageIndex=0;showPage(data.pages[0]);
+    if(pendingPreview!==request||!current()||draft.revision!==revision||!showingPreview)return;
+    preview=data;pageIndex=data.pageIndex??0;showPage(data.pages[0]);
     previewStatus.textContent='Core '+data.engineVersion+' · Revision '+revision+' · '+data.pageCount+' หน้า';
     afterPaint('flowdoc:engine-preview',started,{revision,pageCount:data.pageCount,engineMs:data.engineMs,renderMs:data.renderMs,layoutHash:data.layoutHash,pdfHash:data.pdfHash});
   }catch{
-    if(!request.signal.aborted)previewStatus.textContent='จัดหน้าทดลองไม่สำเร็จ ลองจัดหน้าใหม่อีกครั้ง';
+    if(!request.signal.aborted&&current())previewStatus.textContent='จัดหน้าทดลองไม่สำเร็จ ลองจัดหน้าใหม่อีกครั้ง';
   }finally{
     if(pendingPreview===request){pendingPreview=undefined;refreshPreview.disabled=false;}
   }
@@ -1353,25 +1429,28 @@ function openPreview(){
   const custom=creationMode()&&!benchmark;
   q('trial-input').hidden=!custom;
   q('legacy-preview-description').hidden=custom;
+  q('trial-edit-hint').hidden=!custom;
   refreshPreview.hidden=custom;
   if(!custom){if(!preview)void loadPreview();return;}
   const version=templateId+'/'+draft.revision+'/'+draft.fingerprint;
   if(trialVersion===version)return;
   trialVersion=version;
+  trialForm?.dispose();closePaperEdit();
   previewStatus.textContent='กรอกค่าตัวแปรแล้วกดจัดหน้า · Revision '+draft.revision;
-  mountTrial(q<HTMLFormElement>('trial-form'),draft.definition,()=>{
+  trialForm=mountTrial(q<HTMLFormElement>('trial-form'),draft.definition,()=>{
+    closePaperEdit();
     if(preview||pendingPreview){cancelPreview();previewStatus.textContent='ข้อมูลเปลี่ยนแล้ว กดจัดหน้าเพื่อดูผลล่าสุด';}
-  },trial=>{
+  },(trial,current)=>{
     if(trialVersion!==version||!showingPreview||isDirty())return Promise.resolve();
-    cancelPreview();
-    return loadPreview(trial);
+    if(!trial.focus)cancelPreview();
+    return loadPreview(trial,current);
   });
 }
 function changeMode(toPreview: boolean) {
   showingPreview=toPreview;previewPanel.hidden=!toPreview;editor.hidden=toPreview;
   defineTab.setAttribute('aria-pressed',String(!toPreview));previewTab.setAttribute('aria-pressed',String(toPreview));
   if(toPreview)openPreview();
-  if(!toPreview){pendingPage?.abort();pendingPage=undefined;}
+  if(!toPreview){closePaperEdit();pendingPage?.abort();pendingPage=undefined;}
   if(!toPreview&&pendingPreview){
     cancelPreview();refreshPreview.disabled=false;
     if(creationMode())previewStatus.textContent='กดจัดหน้าเพื่อดูผลจากข้อมูลทดลอง';

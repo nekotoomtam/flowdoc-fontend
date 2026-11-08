@@ -2,8 +2,11 @@ import type {Definition,Field,Schema} from './editor-structure';
 
 type SampleData=Record<string,unknown>;
 type Upload={id:string;bytes:string};
-type Read=(files:Map<string,File>)=>unknown;
-export type Trial={data:SampleData;sections:SampleData[];images:Upload[]};
+type Path=(string|number)[];
+type ReadContext={files:Map<string,File>;fields:Map<string,HTMLTextAreaElement>};
+type Read=(context:ReadContext,path:Path)=>unknown;
+export type TrialFocus={key:string;offset:number;pageIndex:number};
+export type Trial={data:SampleData;sections:SampleData[];images:Upload[];focus?:TrialFocus};
 const maxImageBytes=1024*1024;
 const maxImagesBytes=2*1024*1024;
 const node=<K extends keyof HTMLElementTagNameMap>(tag:K,label?:string)=>{
@@ -26,11 +29,16 @@ async function fileBytes(file:File){
   for(let i=0;i<bytes.length;i+=16384)binary+=String.fromCharCode(...bytes.subarray(i,i+16384));
   return btoa(binary);
 }
-export function mountTrial(form:HTMLFormElement,definition:Definition,changed:()=>void,render:(trial:Trial)=>Promise<void>){
+export function mountTrial(form:HTMLFormElement,definition:Definition,changed:()=>void,render:(trial:Trial,current:()=>boolean)=>Promise<void>){
   const error=node('p');error.className='trial-error';error.setAttribute('role','alert');
   const submit=node('button','จัดหน้าจากข้อมูลนี้');submit.type='submit';submit.className='primary';
-  let editVersion=0;
-  const invalidate=()=>{editVersion++;error.textContent='';changed();};
+  let editVersion=0,bindings=new Map<string,HTMLTextAreaElement>(),running=false;
+  let timer:number|undefined,queued:(()=>TrialFocus)|undefined;
+  const encoded=new WeakMap<File,Promise<string>>();
+  const invalidate=()=>{
+    editVersion++;error.textContent='';bindings.clear();queued=undefined;
+    window.clearTimeout(timer);timer=undefined;changed();
+  };
   function collection(parent:HTMLElement,addLabel:string,make:()=>{element:HTMLElement;read:Read},max=200){
     const rows=node('div');rows.className='trial-rows';
     const entries=new Map<HTMLElement,Read>();
@@ -60,7 +68,7 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,changed:()
       add.disabled=rows.childElementCount>=max;
     }
     parent.append(rows,add);
-    return (files:Map<string,File>)=>[...rows.children].map(panel=>entries.get(panel as HTMLElement)!(files));
+    return (context:ReadContext,path:Path)=>[...rows.children].map((panel,index)=>entries.get(panel as HTMLElement)!(context,[...path,index]));
   }
   function fields(schema:Schema){
     const element=node('div');element.className='trial-fields';
@@ -70,9 +78,9 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,changed:()
       element.append(result.element);reads.set(key,result.read);
     }
     if(!reads.size)element.append(node('p','ส่วนนี้ไม่มีตัวแปร'));
-    return {element,read(files:Map<string,File>){
+    return {element,read(context:ReadContext,path:Path){
       const data:SampleData=Object.create(null);
-      for(const [key,read] of reads){const value=read(files);if(value!==undefined)data[key]=value;}
+      for(const [key,read] of reads){const value=read(context,[...path,key]);if(value!==undefined)data[key]=value;}
       return data;
     }};
   }
@@ -96,24 +104,24 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,changed:()
         }
         select.addEventListener('change',show);show();
         body.append(labeled('Format',select),slot);
-        return {element:body,read(files){
+        return {element:body,read(context,path){
           if(!active)throw Error('เลือก Format สำหรับ '+key);
-          return {format:select.value,data:active.read(files)};
+          return {format:select.value,data:active.read(context,[...path,'data'])};
         }};
       });
-      return {element:panel,read(files){
-        const entries=read(files);
+      return {element:panel,read(context,path){
+        const entries=read(context,path);
         return entries.length||field.required?entries:undefined;
       }};
     }
     if(field.type==='image'){
       const input=node('input');input.type='file';input.accept='image/png,image/jpeg';
       const id=crypto.randomUUID();
-      return {element:labeled(label+' · PNG หรือ JPEG',input),read(files){
+      return {element:labeled(label+' · PNG หรือ JPEG',input),read(context){
         const file=input.files?.[0];
         if(!file){if(field.required)throw Error('เลือกรูปสำหรับ '+key);return undefined;}
         if(file.size>maxImageBytes)throw Error('รูป '+key+' ต้องมีขนาดไม่เกิน 1 MB');
-        files.set(id,file);return id;
+        context.files.set(id,file);return id;
       }};
     }
     if(field.type==='link'){
@@ -135,7 +143,8 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,changed:()
       }};
     }
     const input=node('textarea');input.rows=2;
-    return {element:labeled(label,input),read(){
+    return {element:labeled(label,input),read(context,path){
+      context.fields.set(JSON.stringify(path),input);
       if(!input.value&&field.required&&!field.allowEmpty)throw Error('กรอกตัวแปร '+key);
       return input.value||field.required?input.value:undefined;
     }};
@@ -147,9 +156,9 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,changed:()
     const wrapper=node('div');wrapper.append(data.element);
     if(header&&Object.keys(section.header!.inputSchema.fields).length)wrapper.append(details('ตัวแปรหัวกระดาษ',header.element));
     if(footer&&Object.keys(section.footer!.inputSchema.fields).length)wrapper.append(details('ตัวแปรท้ายกระดาษ',footer.element));
-    return {element:details(section.label,wrapper,index===0),read(files:Map<string,File>){
-      return {sectionKey:section.sectionKey,instanceKey:'preview-'+(index+1),data:data.read(files),
-        ...(header?{header:header.read(files)}:{}),...(footer?{footer:footer.read(files)}:{})};
+    return {element:details(section.label,wrapper,index===0),read(context:ReadContext,path:Path){
+      return {sectionKey:section.sectionKey,instanceKey:'preview-'+(index+1),data:data.read(context,[...path,'data']),
+        ...(header?{header:header.read(context,[...path,'header'])}:{}),...(footer?{footer:footer.read(context,[...path,'footer'])}:{})};
     }};
   });
   const fieldsPanel=node('div');fieldsPanel.className='trial-input-scroll';
@@ -157,20 +166,46 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,changed:()
   form.replaceChildren(fieldsPanel,error,submit);
   form.oninput=invalidate;
   form.onchange=invalidate;
-  form.onsubmit=async event=>{
-    event.preventDefault();
-    if(submit.disabled)return;
-    submit.disabled=true;error.textContent='';
+  function schedule(){
+    if(running||timer!==undefined||!queued)return;
+    timer=window.setTimeout(()=>{
+      timer=undefined;
+      const focus=queued;queued=undefined;
+      if(focus)void send(focus());
+    },180);
+  }
+  async function send(focus?:TrialFocus){
+    if(running)return;
+    running=true;submit.disabled=true;error.textContent='';
     const version=editVersion;
+    const current=()=>version===editVersion;
     try{
-      const files=new Map<string,File>();
-      const data=global.read(files),values=sections.map(section=>section.read(files));
-      if([...files.values()].reduce((total,file)=>total+file.size,0)>maxImagesBytes)
+      const context:ReadContext={files:new Map(),fields:new Map()};
+      const data=global.read(context,['data']),values=sections.map((section,i)=>section.read(context,['sections',i]));
+      const files=[...context.files];
+      if(files.reduce((total,[,file])=>total+file.size,0)>maxImagesBytes)
         throw Error('รูปทั้งหมดต้องมีขนาดรวมไม่เกิน 2 MB');
-      const images=await Promise.all([...files].map(async ([id,file])=>({id,bytes:await fileBytes(file)})));
-      if(version===editVersion)await render({data,sections:values,images});
+      const images=await Promise.all(files.map(async ([id,file])=>{
+        let bytes=encoded.get(file);
+        if(!bytes){bytes=fileBytes(file);encoded.set(file,bytes);}
+        return {id,bytes:await bytes};
+      }));
+      if(current()){bindings=context.fields;await render({data,sections:values,images,focus},current);}
     }catch(cause){
-      if(version===editVersion)error.textContent=cause instanceof Error?cause.message:'จัดหน้าทดลองไม่สำเร็จ';
-    }finally{submit.disabled=false;}
+      if(current())error.textContent=cause instanceof Error?cause.message:'จัดหน้าทดลองไม่สำเร็จ';
+    }finally{running=false;submit.disabled=false;schedule();}
+  }
+  form.onsubmit=event=>{event.preventDefault();void send();};
+  return {
+    read(key:string){return bindings.get(key)?.value;},
+    write(key:string,value:string,focus:()=>TrialFocus,composing:boolean){
+      const input=bindings.get(key);
+      if(!input||!form.contains(input))return;
+      input.value=value;
+      editVersion++;
+      if(composing){queued=undefined;window.clearTimeout(timer);timer=undefined;}
+      else{queued=focus;schedule();}
+    },
+    dispose(){editVersion++;queued=undefined;window.clearTimeout(timer);},
   };
 }

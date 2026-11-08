@@ -226,3 +226,9 @@ main{padding:0 14px 24px}
 .trial-input-scroll{max-height:min(60vh,620px);overflow:auto;scrollbar-gutter:stable;padding-right:3px}
 #trial-form>button[type=submit]{margin-top:7px;width:100%}
 @media(max-width:760px){.trial-input-scroll{max-height:50vh}}
+.trial-field-hit{cursor:text}
+.trial-field-hit:hover,.trial-field-hit:focus-visible{fill:#9acabb35;stroke:#27745b;stroke-width:1;outline:none}
+#trial-paper-editor{position:fixed;z-index:12;display:grid;gap:5px;padding:8px;background:#fff;border:1px solid #26765c;border-radius:7px;box-shadow:0 5px 20px #243e3340}
+#trial-paper-editor label{font-size:12px;color:#215c4c}
+#trial-paper-editor textarea{width:100%;min-width:0;resize:vertical;font:inherit;font-family:FlowDocLab,sans-serif;border:1px solid #a5b9af;padding:5px}
+#trial-paper-editor button{justify-self:end;padding:4px 10px;font-size:12px}

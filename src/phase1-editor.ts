@@ -139,6 +139,8 @@ function drawBranch(items: Outline[], depth = 0) {
     treeNodes.set(item,itemButton);
     const type=element('small',kinds[item.type]??item.type);
     type.className='type';
+    if(item.type==='area')type.textContent='Area · '+item.children.length+' รูปแบบ';
+    if(item.label===type.textContent||item.label.startsWith(type.textContent+' '))type.hidden=true;
     const toggle=button('▸',()=>{
       if (!branch) branch=li.appendChild(drawBranch(item.children,depth+1));
       branch.hidden=toggle.getAttribute('aria-expanded')==='true';
@@ -149,7 +151,7 @@ function drawBranch(items: Outline[], depth = 0) {
     });
     toggle.className='toggle';
     toggle.setAttribute('aria-label','ขยายหรือยุบ '+item.label);
-    const open=item.children.length>0&&(expanded.get(refKey(item.ref))??depth<2);
+    const open=item.children.length>0&&(expanded.get(refKey(item.ref))??(depth<2&&(item.type!=='area'||item.children.length<=4)));
     toggle.setAttribute('aria-expanded',String(open));
     toggle.hidden=!item.children.length;
     row.append(toggle,itemButton,type);
@@ -212,17 +214,23 @@ function drawPaper(root: Outline, preferred?: Format) {
         const col=element('col');if(total)col.style.width=(width/total*100)+'%';columns.append(col);
       }
       if(total)table.style.width='min(100%, '+unit(total)+')';
-      block.append(choose(item,'ตาราง'),table);table.append(columns,body);
+      const tableHandle=choose(item,'ตาราง','definition-control definition-table-handle');
+      const tableNumber=(item.parent?.children.filter(child=>child.type==='table').indexOf(item)??0)+1;
+      tableHandle.setAttribute('aria-label','เลือกตาราง '+tableNumber);
+      block.classList.add('definition-table');
+      block.append(tableHandle,table);table.append(columns,body);
+      block.addEventListener('click',event=>{if(event.target===block||event.target===table)select(item,false);});
       const metadata=item.children.filter(child=>child.type!=='table-row');
       if(metadata.length){const controls=element('div');controls.className='definition-meta';
         controls.append(...metadata.map(item=>choose(item,item.label,'definition-marker')));block.append(controls);}
       for(const [index,row] of item.children.filter(child=>child.type==='table-row').entries()){
-        const tr=element('tr');
+        const tr=element('tr');tr.dataset.authoredRow=String(index+1);
         const rowButton=choose(row,row.label,'definition-marker definition-row');
         // Merged rows can have no authored cells of their own.
         if(!row.children.length)block.append(rowButton);
         for(const [cellIndex,cell] of row.children.entries()){
           const td=element('td'),cellProps=cell.node?.props;
+          td.dataset.authoredColumn=String((cellProps?.columnIndex??cellIndex)+1);
           td.colSpan=cellProps?.colSpan??1;td.rowSpan=cellProps?.rowSpan??1;
           td.style.backgroundColor=hex(cellProps?.fillColor??(index<(props?.headerRowCount??0)?props?.headerFillColor:undefined));
           td.style.borderColor=hex(props?.borderColor);
@@ -262,12 +270,24 @@ function drawPaper(root: Outline, preferred?: Format) {
       if(props?.width)rule.style.width=length(props.width);
       rule.style.height=length(props?.thickness)||'1px';
       rule.style.backgroundColor=hex(props?.color)||'#31463e';
-      rule.style.marginTop=length(props?.spaceBefore);rule.style.marginBottom=length(props?.spaceAfter);
+      block.classList.add('definition-line');
+      for(const [side,value] of [['before',props?.spaceBefore],['after',props?.spaceAfter]] as const){
+        if(!value||value.value<=0)continue;
+        block.style.setProperty(side==='before'?'padding-top':'padding-bottom',length(value));
+        if(points(value)<12)continue;
+        const note=(side==='before'?'เว้นก่อนเส้น ':'เว้นหลังเส้น ')+displayLength(value);
+        const guide=button(note,()=>select(item,false,side));
+        guide.className='spacing-guide spacing-'+side;
+        guide.style.height=length(value);
+        guide.setAttribute('aria-label',note);
+        block.append(guide);
+      }
       if(props?.align==='center')rule.style.marginInline='auto';
       if(props?.align==='right')rule.style.marginLeft='auto';
       block.append(rule);
     }else if(item.type==='columns'){
       const columns=element('div');columns.className='definition-columns';
+      columns.style.gap=length(props?.gap)||'0';
       for(const [i,column] of item.children.entries()){
         const view=contents(column);view.style.flex=String(item.node?.columns?.[i]?.weight??1);
         columns.append(view);
@@ -398,7 +418,7 @@ function drawVariables(item:Outline){
 }
 
 
-function select(item: Outline, measure: boolean) {
+function select(item: Outline, measure: boolean, spacing?:'before'|'after') {
   const started=performance.now();
   if(selection) {
     treeNodes.get(selection)?.removeAttribute('aria-current');
@@ -437,6 +457,7 @@ function select(item: Outline, measure: boolean) {
   if(!hasConflict)status.textContent='';
   drawVariables(item);
   showActions(item);
+  showLayoutFacts(item,spacing);
   if(measure)afterPaint('flowdoc:tree-selection',started,{type:item.type});
 }
 function reveal(item:Outline){
@@ -631,6 +652,89 @@ function askBinding(item:Outline){
     const [scope,key]=values.field.split(':');stage({kind:'binding',at:item.ref,scope,key});
   });
 }
+function displayLength(value:Length){return new Intl.NumberFormat('th-TH',{maximumFractionDigits:3}).format(value.value)+' '+value.unit;}
+function showLayoutFacts(item:Outline,spacing?:'before'|'after'){
+  const panel=q('layout-facts'),summary=q('paper-layout-summary');
+  panel.replaceChildren();summary.textContent='';summary.hidden=true;
+  const note=(label:string,value:string)=>{
+    const block=element('div');block.className='layout-fact';
+    block.append(element('strong',label),element('p',value));panel.append(block);
+    if(summary.hidden&&item.type!=='section'){summary.textContent=label+' · '+value;summary.hidden=false;}
+  };
+  const navigate=(label:string,target:Outline)=>panel.append(button(label,()=>select(target,true)));
+  const lineage:Outline[]=[];
+  for(let current:Outline|undefined=item;current;current=current.parent)lineage.push(current);
+  const table=lineage.find(current=>current.type==='table');
+  const row=lineage.find(current=>current.type==='table-row');
+  const cell=lineage.find(current=>current.type==='table-cell');
+  const band=lineage.find(current=>current.type==='header'||current.type==='footer');
+  const props=item.node?.props;
+  if(table){
+    const rows=table.node?.rowIds?.length??0,columns=table.node?.columns?.length??0;
+    const rowNumber=row&&table.node?.rowIds?table.node.rowIds.indexOf(row.id)+1:0;
+    const cellIndex=cell&&row?.node?.cellIds?row.node.cellIds.indexOf(cell.id):-1;
+    const column=cell?(cell.node?.props?.columnIndex??cellIndex)+1:0;
+    const position=[rowNumber?'แถว '+rowNumber+(rowNumber<=(table.node?.props?.headerRowCount??0)?' (หัวตาราง)':''):'',
+      column?'คอลัมน์ '+column+(cell?.node?.props?.colSpan&&cell.node.props.colSpan>1?' ครอบ '+cell.node.props.colSpan+' คอลัมน์':''):''].filter(Boolean);
+    note(position.length?'อยู่ในตาราง · '+position.join(' · '):'ตาราง',rows+' แถวต้นแบบ × '+columns+' คอลัมน์');
+    if(table.node?.props?.borderColor?.toUpperCase()==='FFFFFF')
+      note('เส้นขอบสีขาว','ตารางนี้กำหนดเส้นขอบสีขาวไว้ กรอบสีเขียวอ่อนบนกระดาษช่วยให้เห็นโครงของตาราง');
+    const rules=table.children.filter(child=>child.type==='row-group'||child.type==='repeat');
+    if(rules.length)note('ตารางนี้มีแถววนซ้ำ',rules.map(rule=>rule.label).join(' · '));
+    const padding=cell?.node?.props?.padding;
+    if(padding){
+      const values=(['top','right','bottom','left'] as const).flatMap((side,i)=>padding[side]?[[ 'บน','ขวา','ล่าง','ซ้าย'][i]+' '+displayLength(padding[side])]:[]);
+      if(values.length)note('ระยะขอบในเซลล์',values.join(' · '));
+    }
+    if(cell&&cell!==item)navigate('เลือกเซลล์',cell);
+    if(table!==item)navigate('เลือกตาราง',table);
+  }
+  if(item.type==='line'){
+    const lengths=[props?.spaceBefore&&'ก่อนเส้น '+displayLength(props.spaceBefore),
+      props?.spaceAfter&&'หลังเส้น '+displayLength(props.spaceAfter)].filter(Boolean);
+    const chosen=spacing==='before'?props?.spaceBefore:spacing==='after'?props?.spaceAfter:undefined;
+    if(chosen)note(spacing==='before'?'ช่องว่างก่อนเส้น':'ช่องว่างหลังเส้น','เส้นนี้กำหนดให้เว้น '+displayLength(chosen));
+    if(lengths.length)note('ระยะที่ตั้งไว้กับเส้น',lengths.join(' · '));
+    if(props?.color?.toUpperCase()==='FFFFFF')note('เส้นสีขาว','เส้นกลืนกับกระดาษ แต่ระยะเว้นก่อนหรือหลังเส้นยังมีผล');
+  }
+  const peers=item.parent?.children??[];
+  const index=peers.indexOf(item);
+  if(index>=0&&item.type!=='line'){
+    for(const [neighbor,key,direction] of [[peers[index-1],'spaceAfter','ด้านบน'],[peers[index+1],'spaceBefore','ด้านล่าง']] as const){
+      const length=neighbor?.type==='line'?neighbor.node?.props?.[key]:undefined;
+      if(!length||length.value<=0)continue;
+      note('ช่องว่าง'+direction,'เส้นที่อยู่ติดกันตั้งระยะเว้น '+displayLength(length));
+      navigate('ไปยังเส้น'+direction,neighbor);
+    }
+  }
+  const binding=item.inline?.type==='field-ref'&&item.inline.scope&&item.inline.key
+    ?{scope:item.inline.scope,key:item.inline.key}:item.node?.type==='image'?item.node.props?.source:undefined;
+  if(binding){
+    const source=variableScopes(item).find(scope=>scope.scope===binding.scope);
+    if(source)note('ผูกกับตัวแปร '+binding.key,source.label+' · ใส่ค่าตอนสร้างเอกสาร');
+  }
+  const text=lineage.find(current=>current.type==='text-block');
+  const styleId=text?.node?.props?.textStyleId??(text?band?.band?.baseTextStyleId:undefined);
+  const style=styleId?draft.definition.styles[styleId] as {lineHeightPt?:number}|undefined:undefined;
+  if(style?.lineHeightPt)note('ระยะบรรทัดของข้อความ',style.lineHeightPt+' pt ตามสไตล์ข้อความ');
+  if(item.type==='columns'&&props?.gap)note('ช่องว่างระหว่างคอลัมน์',displayLength(props.gap));
+  if(item===band&&band.band){
+    const definition=band.band;
+    const values=[definition.placement?.offset&&'จากขอบกระดาษ '+displayLength(definition.placement.offset),
+      definition.sizing?.height&&'ความสูง '+displayLength(definition.sizing.height),
+      definition.gap&&'เว้นถึงเนื้อหา '+displayLength(definition.gap)].filter(Boolean);
+    if(values.length)note('ตำแหน่ง'+itemType(band),values.join(' · '));
+  }
+  if(item.type==='section'){
+    const margins=draft.definition.pageLayouts?.[item.section.pageLayoutId??draft.definition.book.defaultPageLayoutId]?.page.margin;
+    if(margins){
+      const values=(['top','right','bottom','left'] as const).flatMap((side,i)=>margins[side]?[[ 'บน','ขวา','ล่าง','ซ้าย'][i]+' '+displayLength(margins[side])]:[]);
+      if(values.length)note('ระยะขอบกระดาษ',values.join(' · '));
+    }
+    note('เริ่มจากกระดาษ','คลิกกรอบตารางหรือแถบระยะเว้นเพื่อดูว่าเป็นของส่วนไหน');
+  }
+  if(!panel.childElementCount)note(itemType(item),'ดูตำแหน่งจากชื่อส่วนเหนือกระดาษ และคลิกรายการใกล้กันเพื่อดูระยะของส่วนนั้น');
+}
 const editorTitle=document.querySelector<HTMLElement>('.editor-title')!;
 const titleSize=new ResizeObserver(()=>document.documentElement.style.setProperty('--editor-title-height',editorTitle.offsetHeight+'px'));
 titleSize.observe(editorTitle);
@@ -655,6 +759,7 @@ function showPaperLocation(item:Outline){
 
   const ordered=item.inline&&item.parent?item.parent:item;
   const state=structureOrder(draft.definition,ordered.ref);
+  if(state?.ids.length===1&&state.up==='ถึงขอบเขตที่ย้ายได้แล้ว')return;
   if(!state){
     if(item.type==='format')order.append(element('p','Format เป็นรูปแบบที่เลือกใช้ใน Area จัดลำดับองค์ประกอบภายใน Format ได้'));
     return;
@@ -698,10 +803,10 @@ function showActions(item:Outline){
   actions.replaceChildren();paperActions.replaceChildren();
   showPaperLocation(item);
   const groups={
-    add:element('details'),edit:element('details'),move:element('details'),
+    add:element('details'),edit:element('details'),more:element('details'),
   };
-  const labels={add:'+ เพิ่ม',edit:'แก้ไข',move:'ย้ายไปส่วนอื่น'};
-  for(const key of ['add','edit','move'] as const){
+  const labels={add:'+ เพิ่ม',edit:'แก้ไข',more:'เพิ่มเติม'};
+  for(const key of ['add','edit','more'] as const){
     const menu=groups[key];
     const label=element('summary',labels[key]);
     const commands=element('div');commands.className='paper-command-list';
@@ -710,16 +815,11 @@ function showActions(item:Outline){
       if(menu.open)for(const other of Object.values(groups))if(other!==menu)other.open=false;
     });
   }
-  if(item.parent){
-    const parent=item.parent;
-    const up=button('เลือก '+itemType(parent),()=>select(parent,true));
-    up.title='เลือกส่วนที่ครอบรายการนี้';paperActions.append(up);
-  }
   if(creationMode()){
     const part:Part=item.ref.formatId?'format-schema':item.ref.band?'band-schema':'section-schema';
     const owner=item.format?.label??item.format?.key??(item.ref.band?(item.ref.band==='header'?'หัวกระดาษ':'ท้ายกระดาษ'):item.section.label);
-    const control=button('นิยามตัวแปร',()=>editPart(item.ref,part,'ตัวแปร · '+owner));
-    control.disabled=isSaving||hasConflict;paperActions.append(control);
+    const control=button('นิยามตัวแปร',()=>{groups.more.open=false;void editPart(item.ref,part,'ตัวแปร · '+owner);});
+    control.disabled=isSaving||hasConflict;groups.more.lastElementChild!.append(control);
   }
   const add=(name:string,run:()=>void,kind:keyof typeof groups='edit',sidebar=true)=>{
     const invoke=()=>{groups[kind].open=false;run();};
@@ -730,11 +830,11 @@ function showActions(item:Outline){
     }
   };
   function finish(){
-    const empty={add:'เพิ่มรายการใหม่ในส่วนที่ครอบรายการนี้',edit:'เลือกรายการที่มีรายละเอียดให้แก้',move:''};
-    for(const key of ['add','edit','move'] as const){
+    const empty={add:'เพิ่มรายการใหม่ในส่วนที่ครอบรายการนี้',edit:'เลือกรายการที่มีรายละเอียดให้แก้',more:''};
+    for(const key of ['add','edit','more'] as const){
       const menu=groups[key],commands=menu.lastElementChild!;
       if(!commands.childElementCount){
-        if(key==='move'){menu.hidden=true;continue;}
+        if(key==='more'){menu.hidden=true;continue;}
         commands.append(element('p',empty[key]));
         if(key==='add'){
           let parent=item.parent;
@@ -825,7 +925,7 @@ function showActions(item:Outline){
     add('ย้ายไป…',()=>{
       ask('ย้าย '+item.label,[{key:'target',label:'ตำแหน่งใหม่',options:targets.map(x=>[refKey(x.ref),outlinePath(x)])}],
         v=>stage({kind:'move',at,to:outlines.get(v.target)!.ref}));
-    },'move');
+    },'more');
   }
   if(creationMode()){
     const part=(key:Part,label:string)=>add(label,()=>editPart(at,key,label));
@@ -840,8 +940,8 @@ function showActions(item:Outline){
     const remove=()=>ask(label+' · '+item.label,[],()=>stage({kind:'delete',at}),
       outlinePath(item)+(item.children.length?' · รายการย่อยจะถูกลบด้วย':'')+' · ย้อนกลับได้ก่อนบันทึก');
     const locked=item.type==='section'&&roots.length===1;
-    for(const target of [paperActions,actions]){
-      const control=button(target===actions?'ลบรายการนี้':label,remove);
+    for(const target of [groups.more.lastElementChild!,actions]){
+      const control=button(target===actions?'ลบรายการนี้':label,()=>{groups.more.open=false;remove();});
       control.className='paper-remove';
       control.disabled=locked||isSaving||hasConflict;
       if(locked)control.title='เอกสารต้องมีอย่างน้อยหนึ่ง Section';
@@ -897,9 +997,16 @@ function zoomPaper(delta:number){
 }
 q('zoom-in').addEventListener('click',()=>zoomPaper(25));
 q('zoom-out').addEventListener('click',()=>zoomPaper(-25));
+q('show-guides').addEventListener('click',()=>{
+  const control=q('show-guides'),show=control.getAttribute('aria-pressed')!=='true';
+  control.setAttribute('aria-pressed',String(show));
+  paper.classList.toggle('show-guides',show);
+  q('guide-legend').hidden=!show;
+});
 q('show-handles').addEventListener('click',()=>{
   const control=q('show-handles'),show=control.getAttribute('aria-pressed')!=='true';
   control.setAttribute('aria-pressed',String(show));control.textContent=show?'ซ่อนจุดเลือก':'แสดงจุดเลือก';paper.classList.toggle('show-handles',show);
+  control.closest('details')!.open=false;
 });
 function tryStage(change:Change){
   try{stage(change);}catch(e){status.textContent=e instanceof Error?e.message:'แก้โครงไม่สำเร็จ';}
@@ -932,7 +1039,7 @@ q('save-structure').addEventListener('click',async()=>{
       signal:AbortSignal.timeout(20000)});
     const result=await response.json() as ServiceReply;
     if(response.status===409&&result.issues?.[0]?.code==='STALE_CURRENT'){
-      hasConflict=true;conflict.hidden=false;status.textContent='มีฉบับใหม่กว่า · การแก้โครงในหน้านี้ยังอยู่';return;
+      hasConflict=true;conflict.hidden=false;q<HTMLDetailsElement>('advanced-details').open=true;status.textContent='มีฉบับใหม่กว่า · การแก้โครงในหน้านี้ยังอยู่';return;
     }
     if(!response.ok||!result.ok||!result.value){
       const issue=result.issues?.[0];
@@ -1118,7 +1225,7 @@ form.addEventListener('submit',async event=>{
       body:JSON.stringify({sectionId:item.id,label,expectedRevision:draft.revision,idempotencyKey:crypto.randomUUID()})});
     const reply=await response.json() as ServiceReply;
     if(response.status===409&&reply.issues?.[0]?.code==='STALE_CURRENT'){
-      hasConflict=true;conflict.hidden=false;
+      hasConflict=true;conflict.hidden=false;q<HTMLDetailsElement>('advanced-details').open=true;
       // Preserve the attempted text until the user explicitly reloads.
       status.textContent='บันทึกไม่ได้ ฉบับที่เปิดอยู่เก่ากว่าฉบับล่าสุด';
       return;

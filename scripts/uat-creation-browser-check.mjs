@@ -167,6 +167,8 @@ try{
   assert.equal(await id('tree').locator('[data-kind=format]').count(),0);
   assert.equal(await id('paper').locator('.definition-sheet').getAttribute('data-page-size'),'A4');
   await photo('02-empty-section');
+  await id('advanced-details').locator('summary').click();
+  await id('variable-panel').locator(':scope > summary').click();
   await act('ขนาดกระดาษและระยะขอบ').click();await form({left:36});
   await id('variables').locator('details').first().getByRole('button',{name:'+ ประกาศตัวแปร'}).click();
   await form({key:'headerBanner',type:'image',required:'yes'});
@@ -214,6 +216,7 @@ assert.equal(await id('tree').locator('[data-kind=format]').count(),14);
   const read=page.waitForResponse(r=>r.request().method()==='GET'&&r.url().endsWith('/drafts/'+reply.value.templateId));
   await page.getByRole('button',{name:'เปิดแก้ไข '+name,exact:true}).click();
   assert.deepEqual(comparable((await (await read).json()).value.definition),comparable(original));
+  await id('tree').getByRole('button',{name:'ขยายหรือยุบ parts',exact:true}).click();
   await id('tree').locator('[data-kind=format]').first().waitFor();
   assert.equal(await id('tree').locator('[data-kind=format]').count(),14);
   assert.match(await id('revision').textContent(),/Revision 1/);

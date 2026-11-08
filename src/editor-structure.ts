@@ -6,7 +6,7 @@ export type DocNode = {
   id:string; type:string; role?:{role:string};
   props?:{areaId?:string;verticalAlign?:string;colSpan?:number;rowSpan?:number;columnIndex?:number;
     anchorId?:unknown;headerRowCount?:number;repeatHeaderRows?:boolean;allowBreak?:boolean;textStyleId?:string;
-    width?:Length;height?:Length;borderWidth?:Length;borderColor?:string;headerFillColor?:string;fillColor?:string;
+    width?:Length;height?:Length;gap?:Length;borderWidth?:Length;borderColor?:string;headerFillColor?:string;fillColor?:string;
     textAlign?:string;align?:string;color?:string;thickness?:Length;spaceBefore?:Length;spaceAfter?:Length;padding?:Partial<Record<'top'|'right'|'bottom'|'left',Length>>;source?:{scope:string;key:string}};
   rowIds?:string[];cellIds?:string[];childIds?:string[];
   columns?:{width?:Length;childIds?:string[];weight?:number}[];children?:Inline[];
@@ -17,7 +17,7 @@ type Group = {id:string;tableId:string;rowTemplateIds:string[];source:{scope:str
 type CellRepeat = {id?:string;cellId:string;childTemplateIds:string[];source?:{scope:string;key:string}};
 export type Host = {fragment?:Fragment;repeats?:Repeat[];rowGroups?:Group[];cellRepeats?:CellRepeat[]};
 export type Format = Host & {key:string;label?:string;ownerAreaId:string;inputSchema:Schema;fragment:Fragment};
-export type Band = Host & {inputSchema:Schema;fragment:Fragment;placement?:{mode:string;left:Length;right:Length;offset:Length};sizing?:{height?:Length};gap?:Length};
+export type Band = Host & {baseTextStyleId?:string;inputSchema:Schema;fragment:Fragment;placement?:{mode:string;left:Length;right:Length;offset:Length};sizing?:{height?:Length};gap?:Length};
 type BandMode = 'all'|'first'|'continuation'|'none';
 export type Section = {id:string;label:string;nameBase?:string;sectionKey:string;pageLayoutId?:string;
   role?:'body'|'cover';headerMode?:BandMode;footerMode?:BandMode;

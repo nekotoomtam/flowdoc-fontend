@@ -59,6 +59,8 @@ try {
   const oldPreview=await runPreview(a);
   assert.equal(oldPreview.data.revision,staleRevision);
   await a.locator('#define-tab').click();
+  await a.locator('#advanced-details > summary').click();
+  await b.locator('#advanced-details > summary').click();
   const name='UAT เฟส 1 · '+new Date().toISOString();
   await input(a).fill(name);
   const aReply=a.waitForResponse(isRename);
@@ -113,6 +115,8 @@ try {
     const page=await openFromLibrary();
     const entry=(await measures(page,'flowdoc:open-from-library')).at(-1);
     open.push(entry.ms+entry.detail.navigationMs);
+    const parts=page.locator('#tree .tree-row').filter({has:area(page)}).locator('.toggle[aria-expanded=false]');
+    if(await parts.count())await parts.click();
     for(const node of [area(page),format(page),section(page)])await node.click();
     await waitMeasures(page,'flowdoc:tree-selection',3);
     tree.push(...(await measures(page,'flowdoc:tree-selection')).map(e=>e.ms));
@@ -123,6 +127,8 @@ try {
     await page.close();
   }
   for(let i=0;i<12;i++){
+    const parts=reopened.locator('#tree .tree-row').filter({has:area(reopened)}).locator('.toggle[aria-expanded=false]');
+    if(await parts.count())await parts.click();
     for(const node of [area(reopened),format(reopened),section(reopened)])await node.click();
   }
   await cdp.send('HeapProfiler.collectGarbage');

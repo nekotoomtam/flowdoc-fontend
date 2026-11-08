@@ -71,6 +71,7 @@ try{
   await token.focus();await page.keyboard.press('Enter');
   assert.match(await page.locator('#tree [aria-current=true]').textContent(),/menu/);
   assert.match(await page.locator('#variable-detail').textContent(),/members\[\].*menu/);
+  await page.locator('#variable-panel > summary').click();
   await page.locator('#variables [data-variable-scope=local][data-variable-path="totals[].pass"]').click();
   assert.match(await page.locator('#variable-detail').textContent(),/totals\[\]\.pass/);
   await token.click();

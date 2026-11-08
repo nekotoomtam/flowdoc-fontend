@@ -28,6 +28,7 @@ async function open(){
   await page.goto(base+'/library.html?phase1=1');
   await page.locator('[data-doc-key=stage6-uat-editor-phase1]').getByRole('button',{name:/^เปิดแก้ไข UAT/}).click();
   await wait(page,'flowdoc:open-from-library',1);
+  await page.locator('#advanced-details > summary').click();
   return page;
 }
 async function pick(p,refValue){
@@ -211,6 +212,8 @@ try{
    const page=await open();
    const start=(await measure(page,'flowdoc:open-from-library')).at(-1);
    openMs.push(start.ms+start.detail.navigationMs);
+   const areaToggle=tree(page,'area').locator('..').locator('.toggle[aria-expanded=false]');
+   if(await areaToggle.count())await areaToggle.click();
    for(const node of [tree(page,'area'),tree(page,'format'),tree(page,'section')])await node.click();
    await wait(page,'flowdoc:tree-selection',3);
    treeMs.push(...(await measure(page,'flowdoc:tree-selection')).map(x=>x.ms));

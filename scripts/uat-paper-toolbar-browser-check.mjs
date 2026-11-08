@@ -22,6 +22,10 @@ const tree=page.locator('#tree');
 const undo=()=>page.locator('#undo-structure').click();
 const photo=name=>page.screenshot({path:join(output,name+'.png')});
 const menu=label=>tools.getByText(label,{exact:true});
+async function handles(label){
+  await page.locator('.paper-view-options > summary').click();
+  await page.getByRole('button',{name:label,exact:true}).click();
+}
 async function command(group,label){
   await menu(group).click();
   await tools.getByRole('button',{name:label,exact:true}).click();
@@ -30,10 +34,15 @@ try{
   await page.goto(base+'/phase1-editor.html?id='+encodeURIComponent(id));
   await menu('+ เพิ่ม').waitFor();
   assert.match(await page.locator('#paper-selection').textContent(),/Section/);
-  for(const label of ['+ เพิ่ม','แก้ไข','นิยามตัวแปร'])assert.ok(await menu(label).isVisible());
+  for(const label of ['+ เพิ่ม','แก้ไข','เพิ่มเติม'])assert.ok(await menu(label).isVisible());
   const orderTools=page.locator('#paper-order');
-  assert.ok(await orderTools.getByRole('button',{name:'เลื่อนขึ้น',exact:true}).isDisabled());
-  await photo('05-paper-toolbar-on-open');
+  assert.equal(await orderTools.getByRole('button',{name:'เลื่อนขึ้น',exact:true}).count(),0);
+  assert.equal(await page.locator('#advanced-details').getAttribute('open'),null);
+  assert.equal(await page.locator('#variable-panel').getAttribute('open'),null);
+  assert.equal(await tree.locator('[data-kind=format]').count(),0);
+  assert.ok(await paper.getByRole('button',{name:'เลือกตาราง 1',exact:true}).isVisible());
+  await photo('08-quiet-editor-on-open');
+  await tree.getByRole('button',{name:'ขยายหรือยุบ parts',exact:true}).click();
   await command('+ เพิ่ม','+ เพิ่ม Section');
   const form=page.locator('#structure-form');
   await form.locator('[name=label]').fill('ทดสอบปุ่มเหนือกระดาษ');
@@ -47,7 +56,7 @@ try{
   const order=()=>blocks.evaluateAll(rows=>rows.map(row=>row.querySelector('[data-paper-ref]')?.dataset.paperRef));
   const before=await order();
   assert.ok(before.length>1);
-  await page.getByRole('button',{name:'แสดงจุดเลือก',exact:true}).click();
+  await handles('แสดงจุดเลือก');
   await blocks.nth(1).locator(':scope > button[data-paper-ref]').first().click();
   const location=page.locator('#paper-path');
   for(const ancestor of ['Section','Area','Format'])assert.ok(await location.getByRole('button',{name:new RegExp(ancestor)}).isVisible());
@@ -59,7 +68,7 @@ try{
   assert.deepEqual(await order(),[before[1],before[0],...before.slice(2)]);
   await undo();
   assert.deepEqual(await order(),before);
-  await page.getByRole('button',{name:'ซ่อนจุดเลือก',exact:true}).click();
+  await handles('ซ่อนจุดเลือก');
 
   const text=paper.getByRole('button',{name:'Copyright © TTT Brother CO., LTD.',exact:true});
   await text.click();
@@ -70,7 +79,7 @@ try{
   await undo();
   await text.waitFor();
   await text.click();
-  await tools.getByRole('button',{name:'เลือก กล่องข้อความ',exact:true}).click();
+  await location.getByRole('button',{name:/^กล่องข้อความ Copyright/}).click();
   await command('แก้ไข','แก้รูปแบบรายการนี้');
   const dialog=page.locator('#visual-definition-dialog');
   await dialog.waitFor();
@@ -86,11 +95,11 @@ try{
   await form.locator('[name=type]').selectOption('text-block');
   await form.getByRole('button',{name:'ยืนยัน',exact:true}).click();
   await paper.getByRole('button',{name:'ข้อความใหม่',exact:true}).waitFor();
-  await tools.getByRole('button',{name:'ลบ กล่องข้อความ',exact:true}).click();
+  await command('เพิ่มเติม','ลบ กล่องข้อความ');
   assert.match(await form.getByRole('heading').textContent(),/ลบ กล่องข้อความ.*ข้อความใหม่/);
   await form.getByRole('button',{name:'ยกเลิก',exact:true}).click();
   await paper.getByRole('button',{name:'ข้อความใหม่',exact:true}).waitFor();
-  await tools.getByRole('button',{name:'ลบ กล่องข้อความ',exact:true}).click();
+  await command('เพิ่มเติม','ลบ กล่องข้อความ');
   await form.getByRole('button',{name:'ยืนยัน',exact:true}).click();
   await paper.getByRole('button',{name:'ข้อความใหม่',exact:true}).waitFor({state:'hidden'});
   await undo();
@@ -99,14 +108,15 @@ try{
 
   await tree.locator('[data-kind=format]').getByText('cover',{exact:true}).click();
   const variables=page.locator('#variables');
-  await tools.getByRole('button',{name:'นิยามตัวแปร',exact:true}).click();
+  await page.locator('#variable-panel > summary').click();
+  await command('เพิ่มเติม','นิยามตัวแปร');
   assert.match(await dialog.getByRole('heading').textContent(),/ตัวแปร.*cover/);
   await dialog.getByRole('button',{name:'+ เพิ่มตัวแปร',exact:true}).click();
   const temporary=dialog.locator('[data-visual-row]').last();
   await temporary.locator('[data-visual-key]').fill('testTemporaryField');
   await dialog.getByRole('button',{name:'ใช้กับโครงเอกสาร',exact:true}).click();
   await variables.getByRole('button',{name:'testTemporaryField · string',exact:true}).waitFor();
-  await tools.getByRole('button',{name:'นิยามตัวแปร',exact:true}).click();
+  await command('เพิ่มเติม','นิยามตัวแปร');
   const existing=dialog.locator('[data-visual-row]').filter({has:page.getByText('testTemporaryField',{exact:true})});
   await existing.locator('summary').click();
   await existing.getByRole('button',{name:'ลบ',exact:true}).click();
@@ -115,17 +125,41 @@ try{
   await undo();
   await undo();
   await tree.locator('[data-kind=format]').getByText('summary-dynamic',{exact:true}).click();
-  await page.getByRole('button',{name:'แสดงจุดเลือก',exact:true}).click();
+  await handles('แสดงจุดเลือก');
   const dynamic=paper.locator('.definition-format');
   await dynamic.locator('button[data-kind=table-row]').first().click();
   assert.match(await orderTools.textContent(),/ตารางที่วนซ้ำหรือผสาน/);
   assert.ok(await orderTools.getByRole('button',{name:'เลื่อนลง',exact:true}).isDisabled());
+  await handles('ซ่อนจุดเลือก');
+  await page.locator('#variable-panel > summary').click();
+  await tree.locator('[data-kind=format]').getByText('cover',{exact:true}).click();
+  const facts=page.locator('#layout-facts');
+  const tableField=paper.getByRole('button',{name:'{{title}}',exact:true});
+  await tableField.click();
+  assert.match(await facts.textContent(),/อยู่ในตาราง.*แถว 1.*คอลัมน์/);
+  assert.match(await facts.textContent(),/เส้นขอบสีขาว/);
+  assert.equal(await paper.locator('.definition-table:has(button[aria-current=true])').count(),1);
+  await photo('09-selected-table-cell');
+  const spacing=paper.locator('.spacing-guide[aria-label="เว้นก่อนเส้น 155 pt"]');
+  await spacing.click();
+  assert.match(await facts.textContent(),/ช่องว่างก่อนเส้น.*155 pt.*เส้นสีขาว/);
+  await photo('10-authored-spacing-explained');
+  const line=spacing.locator('..');
+  const lineHeight=await line.evaluate(node=>node.getBoundingClientRect().height);
+  await page.getByRole('button',{name:'เส้นช่วยดูโครง',exact:true}).click();
+  assert.equal(await spacing.isVisible(),false);
+  assert.equal(await line.evaluate(node=>node.getBoundingClientRect().height),lineHeight);
+  await page.getByRole('button',{name:'เส้นช่วยดูโครง',exact:true}).click();
   await page.setViewportSize({width:640,height:850});
   await page.reload();
   await menu('+ เพิ่ม').waitFor();
   const toolbar=await tools.boundingBox();
   assert.ok(toolbar&&toolbar.y+toolbar.height<850,'Paper actions are visible on open in a narrow window');
+  await paper.getByRole('button',{name:'{{title}}',exact:true}).click();
+  const compact=page.locator('#paper-layout-summary');
+  assert.ok(await compact.isVisible());
+  assert.match(await compact.textContent(),/อยู่ในตาราง.*คอลัมน์ 2/);
   assert.deepEqual(errors,[]);
   assert.deepEqual(writes,[]);
-  console.log(JSON.stringify({id,addedSection:true,reorderedOnPaper:true,editedText:true,openedSelectedStyle:true,addedAndRemovedContent:true,addedAndRemovedVariable:true,changesUndone:true,writes:0}));
+  console.log(JSON.stringify({id,addedSection:true,reorderedOnPaper:true,editedText:true,openedSelectedStyle:true,addedAndRemovedContent:true,addedAndRemovedVariable:true,tableOwnership:true,authoredSpacing:true,changesUndone:true,writes:0}));
 }finally{await browser.close();}

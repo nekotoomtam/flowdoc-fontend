@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
 import {loadOriginalUat} from './original-uat-preview.mjs';
-import {randomBytes, createHash} from 'node:crypto';
+import {trialImages} from './trial-preview-images.mjs';
+import {randomBytes, randomUUID, createHash} from 'node:crypto';
 import {readFile, mkdtemp} from 'node:fs/promises';
 import {createInterface} from 'node:readline';
 import {createPool} from '/candidate/dist/db/connection.js';
@@ -36,6 +37,7 @@ const banner = {kind:'rgb',width:2,height:1,bytes:Uint8Array.of(20,91,76,20,91,7
 const tempRoot = await mkdtemp('/tmp/flowdoc-editor-phase1-');
 let originalFixture;
 let originalPreview;
+const trialPreviews=new Map();
 function original(){
   return originalFixture??=(loadOriginalUat(core.PDF_STREAM_CONTRACT).catch(error=>{
     originalFixture=undefined;throw error;
@@ -108,33 +110,51 @@ try {
   }
 
   let previewBusy = false;
-  async function render(expectedRevision,mode) {
+  async function render(templateId,body) {
+    const {expectedRevision,sample:mode,trial}=body??{};
+    const custom=trial!==undefined;
+    if(!custom&&templateId!==identity)return {status:400,body:{error:'trial_required'}};
     if (previewBusy) return {status:429,body:{error:'preview_busy'}};
     previewBusy = true;
     try {
-      const draft = await readDraft();
+      const result=await service('GET','/'+templateId);
+      if(result.statusCode!==200)return {status:result.statusCode,body:result.json()};
+      const draft=take(result.json());
       if (draft.revision !== expectedRevision) return {status:409,body:{error:'STALE_CURRENT'}};
-      if(mode!=='benchmark'&&originalPreview?.revision===draft.revision&&originalPreview.fingerprint===draft.fingerprint)
+      if(!custom&&mode!=='benchmark'&&originalPreview?.revision===draft.revision&&originalPreview.fingerprint===draft.fingerprint)
         return {status:200,body:originalPreview.header};
       const started = performance.now();
       const validated = take(core.validateTemplate(draft.definition));
-      const fixture=mode==='benchmark'?null:await original();
-      const sample = fixture
-        ? {...fixture.request,docKey,version:draft.definition.version}
-        : {...request,docKey,version:draft.definition.version,
-          data:{...request.data,headerBanner:bannerId,docVersion:'Phase 1'}};
-      const resolved = take(core.composeDocument(validated,take(core.prepareGeneration(validated,sample))));
-      const refs = await readReferences(pool,identity,draft.revision);
+      if(custom&&(!trial||typeof trial!=='object'||!Array.isArray(trial.sections)||!Array.isArray(trial.images)))
+        return {status:422,body:{error:'invalid_trial'}};
+      const fixture=custom||mode==='benchmark'?null:await original();
+      const identityFields={docKey:draft.docKey,version:draft.definition.version};
+      const sample=custom?{...identityFields,data:trial.data,sections:trial.sections}
+        :fixture?{...fixture.request,...identityFields}
+        :{...request,...identityFields,data:{...request.data,headerBanner:bannerId,docVersion:'Phase 1'}};
+      const prepared=core.prepareGeneration(validated,sample);
+      if(!prepared.ok)return {status:422,body:prepared};
+      const composed=core.composeDocument(validated,prepared.value);
+      if(!composed.ok)return {status:422,body:composed};
+      const resolved=composed.value;
+      let assets=fixture;
+      if(custom){
+        try{assets=await trialImages(trial.images,core.PDF_STREAM_CONTRACT);}
+        catch{return {status:422,body:{error:'invalid_image'}};}
+      }
+      const refs=await readReferences(pool,templateId,draft.revision);
       const {snapshot,readiness} = await resolveFontReadiness(pool,draft.definition,draft.fingerprint,refs,
         {document:resolved,input:sample},undefined,{deferFiles:true});
-      assert.equal(readiness.status,'ready');
+      if(readiness.status!=='ready')return {status:422,body:{error:'font_not_ready'}};
       const resources = await snapshotResources(snapshot,tempRoot);
-      if(fixture){
+      if(assets){
         let draw;
         const engine=createEngine(resources,{runtime:createTextRuntime,
           subset(pages,current,temp){draw=pages;return subsetFonts(pages,current,temp);},write:writePdf});
         const engineStarted=performance.now();
-        const pdf=take(await engine.generatePdfTo(resolved,fixture.provider,{async write(){},async abort(reason){throw Error(reason);}}));
+        const generated=await engine.generatePdfTo(resolved,assets.provider,{async write(){},async abort(){}});
+        if(!generated.ok)return {status:422,body:generated};
+        const pdf=generated.value;
         const engineMs=performance.now()-engineStarted;
         assert.equal(draw.pages.length,pdf.pageCount);
         const paths=await glyphPaths(draw,resources);
@@ -143,8 +163,15 @@ try {
         const layoutHash=hash(draw.pages);
         cache.header={revision:cache.revision,fingerprint:cache.fingerprint,pages:[first],paged:true,
           pageCount:pdf.pageCount,layoutHash,pdfHash:pdf.sha256,engineMs,renderMs:performance.now()-started,
-          engineVersion:rendererIdentity.version,entryCount:fixture.entryCount,imagePlacements:fixture.placements};
-        originalPreview=cache;
+          engineVersion:rendererIdentity.version,
+          ...(fixture?{entryCount:fixture.entryCount,imagePlacements:fixture.placements}:{})};
+        if(custom){
+          const id=randomUUID();
+          cache.header.previewId=id;
+          trialPreviews.set(id,{...cache,templateId,assets:assets.assets});
+          setTimeout(()=>trialPreviews.delete(id),20*60*1000).unref();
+          if(trialPreviews.size>2)trialPreviews.delete(trialPreviews.keys().next().value);
+        }else originalPreview=cache;
         return {status:200,body:cache.header};
       }
       const expectedFaces = new Map([
@@ -217,7 +244,7 @@ try {
     const selectedRoute='/'+packet.templateId;
     if(packet.templateId!==identity){
       const owned=await pool.query('SELECT 1 FROM authoring_templates a JOIN templates t ON t.id=a.template_id WHERE a.principal=$1 AND t.id=$2 AND t.doc_key LIKE $3',[principal,packet.templateId,'editor-draft-%']);
-      if(!owned.rowCount||!['get','rename','structure'].includes(packet.action))return {status:404,body:{error:'not_found'}};
+      if(!owned.rowCount||!['get','rename','structure','preview','trial-page','trial-asset'].includes(packet.action))return {status:404,body:{error:'not_found'}};
     }
     if (packet.action === 'get') {
       const result = await service('GET',selectedRoute);
@@ -240,7 +267,18 @@ try {
       const result = await service('PUT',selectedRoute,packet.body);
       return {status:result.statusCode,body:result.json()};
     }
-    if (packet.action === 'preview') return render(packet.body?.expectedRevision,packet.body?.sample);
+    if (packet.action === 'preview') return render(packet.templateId,packet.body);
+    if(packet.action==='trial-page'||packet.action==='trial-asset'){
+      const cache=trialPreviews.get(packet.body.run);
+      if(!cache||cache.templateId!==packet.templateId)return {status:404,body:{error:'PREVIEW_EXPIRED'}};
+      if(packet.action==='trial-asset'){
+        const asset=cache.assets.get(packet.body.key);
+        return asset?{status:200,mediaType:asset.type,bytes:asset.bytes.toString('base64')}:{status:404,body:{error:'not_found'}};
+      }
+      const index=packet.body.index;
+      if(!Number.isSafeInteger(index)||index<0||index>=cache.draw.pages.length)return {status:404,body:{error:'not_found'}};
+      return {status:200,body:{revision:cache.revision,index,page:projectOriginalPage(cache,index)}};
+    }
     if (packet.action === 'preview-page') {
       const {revision,index}=packet.body;
       if(originalPreview?.revision!==revision)return {status:409,body:{error:'PREVIEW_EXPIRED'}};

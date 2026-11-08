@@ -207,3 +207,22 @@ main{padding:0 14px 24px}
 #paper-layout-actions strong{font-size:12px;color:#31564a;margin-inline-end:2px}
 #paper-layout-actions button{font-size:12px;padding:4px 9px;background:#f0f7f3;color:#205442;border-color:#a7c3b4}
 #paper .column-highlight{outline:2px solid #39846a;outline-offset:-2px;background-color:#e4f3eb!important}
+#preview{max-width:1500px}
+.trial-layout{display:grid;grid-template-columns:minmax(280px,370px) minmax(0,1fr);gap:16px;align-items:start}
+.trial-layout:has(#trial-input[hidden]){display:block;max-width:940px;margin:auto}
+#trial-input{display:block;min-width:0;padding:12px;background:#f5f8f5;border:1px solid var(--line);border-radius:8px}
+#trial-form details{background:#fff;border:1px solid var(--line);border-radius:6px;padding:7px;margin:6px 0}
+#trial-form summary{cursor:pointer;font-weight:600;overflow-wrap:anywhere}
+#trial-form fieldset{min-width:0;padding:7px;margin:0;border:1px solid var(--line);border-radius:6px}
+#trial-form label{display:grid;gap:3px;margin:5px 0;overflow-wrap:anywhere}
+#trial-form input,#trial-form select,#trial-form textarea{width:100%;min-width:0;padding:5px;border:1px solid #a5b9af;border-radius:5px;font:inherit}
+#trial-form textarea{resize:vertical}
+.trial-fields{display:grid;gap:4px;margin:5px 0}
+.trial-list-controls{display:flex;flex-wrap:wrap;gap:5px}
+.trial-list-controls button,#trial-form fieldset button{font-size:12px;padding:4px 7px}
+.trial-error:not(:empty){color:#922c2c;font-weight:600}
+.trial-result{min-width:0}
+@media(max-width:760px){.trial-layout{display:block}.trial-result{margin-top:14px}}
+.trial-input-scroll{max-height:min(60vh,620px);overflow:auto;scrollbar-gutter:stable;padding-right:3px}
+#trial-form>button[type=submit]{margin-top:7px;width:100%}
+@media(max-width:760px){.trial-input-scroll{max-height:50vh}}

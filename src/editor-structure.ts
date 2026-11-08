@@ -1,4 +1,4 @@
-export type Field = {type:string; items?:Schema; areaId?:string; required?:boolean};
+export type Field = {type:string; label?:string; allowEmpty?:boolean; items?:Schema; areaId?:string; required?:boolean};
 export type Schema = {type?:'object'; fields:Record<string,Field>};
 export type Inline = {id?:string; type:string; text?:string; key?:string; scope?:string; field?:string;value?:unknown;target?:unknown;url?:unknown};
 export type Length = {unit:'pt'|'mm';value:number};

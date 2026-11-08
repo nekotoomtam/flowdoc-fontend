@@ -5,7 +5,7 @@
 <header class="topbar"><a class="brand" href="/library.html?phase1=1">FlowDoc</a><span class="badge">UAT · ฉบับทดสอบ · จัดโครง</span></header>
 <main>
   <div class="title editor-title"><div><a href="/library.html?phase1=1">‹ กลับคลังโครงทดสอบ</a><h1 id="title">กำลังเปิดโครงเอกสาร</h1><p id="revision"></p></div>
-  <div class="editor-toolbar"><nav aria-label="โหมดเอกสาร"><button id="define-tab" aria-pressed="true">แก้โครง</button><button id="preview-tab" aria-pressed="false" disabled>ผลจาก Engine</button></nav><button id="save-structure" class="primary" type="button" disabled>บันทึกโครง</button></div></div>
+  <div class="editor-toolbar"><nav aria-label="โหมดเอกสาร"><button id="define-tab" aria-pressed="true">แก้โครง</button><button id="preview-tab" aria-pressed="false" disabled>ลองข้อมูล / Preview</button></nav><button id="save-structure" class="primary" type="button" disabled>บันทึกโครง</button></div></div>
   <div id="structure-pending" class="structure-tools" hidden><strong>ฉบับร่างยังไม่ได้บันทึก</strong><button id="undo-structure" type="button">ย้อนขั้นล่าสุด</button><button id="discard-structure" type="button">ทิ้งการแก้โครง</button></div>
   <p id="status" role="status"></p>
 <section id="new-document" class="panel new-document" hidden>
@@ -57,11 +57,21 @@
     </aside>
   </div>
   <section id="preview" class="panel" hidden aria-label="กระดาษเสมือนจาก Engine">
-    <h2>กระดาษเสมือนจาก Engine</h2><p>ใช้ข้อมูลและภาพจากชุด UAT ต้นฉบับกับนิยามฉบับที่บันทึกแล้ว</p>
-    <p id="preview-status" role="status"></p>
-    <div class="pager"><button id="previous-page" disabled>หน้าก่อน</button><span id="page-number"></span><label for="jump-page">ไปหน้า</label><input id="jump-page" type="number" min="1" step="1" disabled><button id="next-page" disabled>หน้าถัดไป</button></div>
-    <div id="preview-paper"></div>
-    <button id="refresh-preview">ลองจัดหน้าใหม่</button>
+    <div class="trial-layout">
+      <aside id="trial-input" hidden aria-label="ข้อมูลทดลอง">
+        <h2>ข้อมูลทดลอง</h2>
+        <p>ช่องกรอกมาจากตัวแปรของโครงฉบับที่บันทึกไว้ ค่าที่กรอกอยู่ในแท็บนี้</p>
+        <form id="trial-form"></form>
+      </aside>
+      <div class="trial-result">
+        <h2>กระดาษเสมือนจาก Engine</h2>
+        <p id="legacy-preview-description">ใช้ข้อมูลและภาพจากชุด UAT ต้นฉบับกับนิยามฉบับที่บันทึกแล้ว</p>
+        <p id="preview-status" role="status"></p>
+        <div class="pager"><button id="previous-page" disabled>หน้าก่อน</button><span id="page-number"></span><label for="jump-page">ไปหน้า</label><input id="jump-page" type="number" min="1" step="1" disabled><button id="next-page" disabled>หน้าถัดไป</button></div>
+        <div id="preview-paper"></div>
+        <button id="refresh-preview">ลองจัดหน้าใหม่</button>
+      </div>
+    </div>
   </section>
 </main>
 <form id="inline-editor" hidden><label for="inline-value">แก้ข้อความบนกระดาษ</label><input id="inline-value" required><p id="inline-error" role="alert"></p><div><button type="submit" class="primary">ใช้ข้อความนี้</button><button id="inline-cancel" type="button">ยกเลิก</button></div></form>

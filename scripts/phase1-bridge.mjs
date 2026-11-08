@@ -62,6 +62,7 @@ export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1'}={
       const match=/^\/drafts\/([^/]+)(\/(?:preview|structure))?$/.exec(req.url??'');
       const pageRoute=/^\/drafts\/([^/]+)\/preview-pages\/(\d+)\/(\d+)$/.exec(req.url??'');
       const assetRoute=/^\/drafts\/([^/]+)\/preview-assets\/([a-f0-9-]+)$/.exec(req.url??'');
+      const trialRoute=/^\/drafts\/([^/]+)\/preview-runs\/([^/]+)\/(pages|assets)\/([^/]+)$/.exec(req.url??'');
       let action,templateId,body;
       if(req.method==='GET'&&req.url==='/catalog')action='catalog';
       else if(req.method==='GET'&&req.url==='/fonts')action='fonts';
@@ -79,19 +80,24 @@ export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1'}={
       if(req.method==='GET'&&assetRoute&&uuid.test(assetRoute[1])&&uuid.test(assetRoute[2])){
         action='preview-asset';templateId=assetRoute[1];body={key:assetRoute[2]};
       }
+      if(req.method==='GET'&&trialRoute&&uuid.test(trialRoute[1])&&uuid.test(trialRoute[2])){
+        const [,id,run,type,key]=trialRoute;
+        if(type==='pages'&&/^\d+$/.test(key)){action='trial-page';templateId=id;body={run,index:Number(key)};}
+        if(type==='assets'&&uuid.test(key)){action='trial-asset';templateId=id;body={run,key};}
+      }
       if(!action)return send(404,{error:'not_found'});
       if(req.method!=='GET'){
         if(!/^application\/json(?:;|$)/i.test(req.headers['content-type']??''))return send(415,{error:'invalid_content_type'});
         try{
           const chunks=[];let bytes=0;
-          for await(const chunk of req){bytes+=chunk.length;if(bytes>(['structure','create'].includes(action)?2*1024*1024:4096))return send(413,{error:'body_too_large'});chunks.push(chunk);}
+          for await(const chunk of req){bytes+=chunk.length;if(bytes>(action==='preview'?4*1024*1024:['structure','create'].includes(action)?2*1024*1024:4096))return send(413,{error:'body_too_large'});chunks.push(chunk);}
           body=JSON.parse(Buffer.concat(chunks).toString('utf8'));
         }catch{return send(400,{error:'invalid_json'});}
       }
       try{
         const reply=await ask({action,templateId,body});
-        if(action==='preview-asset'&&reply.status===200&&['image/png','image/jpeg'].includes(reply.mediaType)){
-          res.writeHead(200,{'Content-Type':reply.mediaType,'Cache-Control':'private, max-age=3600','X-Content-Type-Options':'nosniff'});
+        if(['preview-asset','trial-asset'].includes(action)&&reply.status===200&&['image/png','image/jpeg'].includes(reply.mediaType)){
+          res.writeHead(200,{'Content-Type':reply.mediaType,'Cache-Control':action==='trial-asset'?'no-store':'private, max-age=3600','X-Content-Type-Options':'nosniff'});
           res.end(Buffer.from(reply.bytes,'base64'));
         }else send(reply.status,reply.body);
       }

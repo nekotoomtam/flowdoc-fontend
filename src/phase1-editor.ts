@@ -32,6 +32,7 @@ const previous = q<HTMLButtonElement>('previous-page'), next = q<HTMLButtonEleme
 const jump=q<HTMLInputElement>('jump-page');
 const benchmark=sessionStorage.getItem('flowdoc:benchmark-preview')==='1';
 const canvasPreview=new URLSearchParams(location.search).get('previewRenderer')==='canvas';
+const resumablePreview=new URLSearchParams(location.search).get('previewEngine')==='resume';
 const fullTrialTransport=new URLSearchParams(location.search).get('previewTransport')==='full'||
   sessionStorage.getItem('flowdoc:full-trial-transport')==='1';
 let pendingPage:AbortController|undefined;
@@ -1769,7 +1770,7 @@ async function loadPreview(trial?:Trial,current=()=>true,usable=current,structur
   try{
     const signal=AbortSignal.any([request.signal,AbortSignal.timeout(120000)]);
     const post=(input:object)=>fetch(endpoint+'/preview',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({expectedRevision:revision,...input}),signal});
+      body:JSON.stringify({expectedRevision:revision,...(trial&&resumablePreview?{layoutMode:'resume'}:{}),...input}),signal});
     const full=trial?{trial}:benchmark?{sample:'benchmark'}:{};
     const base=trialBase;
     const changes=!fullTrialTransport&&trial&&base&&fields&&base.structure===structure
@@ -1792,6 +1793,7 @@ async function loadPreview(trial?:Trial,current=()=>true,usable=current,structur
       const detail=data.issues?.slice(0,4).map(issue=>(issue.path??'ข้อมูล')+' · '+issue.code).join(' / ');
       if(pendingPreview===request&&current())previewStatus.textContent=response.status===429?'Engine กำลังจัดหน้าอีกชุด ลองใหม่เมื่อพร้อม':
         data.error==='invalid_image'?'เปิดภาพไม่ได้ กรุณาเลือกไฟล์ PNG หรือ JPEG ที่ถูกต้อง':
+        data.error==='resume_preview_disabled'?'แล็บนี้ยังไม่ได้เปิดการจัดหน้าต่อจากจุดพัก':
         data.error==='font_not_ready'?'ฟอนต์ของโครงยังใช้จัดหน้าไม่ได้':
         detail?'ตรวจค่าตัวแปร · '+detail:'จัดหน้าทดลองไม่สำเร็จ';
       return;

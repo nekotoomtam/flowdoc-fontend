@@ -16,6 +16,8 @@ const profiles = [
   {id:'hundreds', rows:190, minPages:300},
 ];
 const transport=process.env.FLOWDOC_PREVIEW_TRANSPORT??'full';
+const engine=process.env.FLOWDOC_PREVIEW_ENGINE??'stable';
+assert.ok(['stable','resume'].includes(engine));
 assert.ok(['full','delta'].includes(transport));
 const rates = process.env.FLOWDOC_PREVIEW_20_ONLY==='1'?[20,20]:[10,20,20];
 const strokes = 40;
@@ -36,7 +38,7 @@ const evidence = {
   version:1, draftId, editorCommit:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),
   benchmarkSha256:createHash('sha256').update(await readFile(new URL(import.meta.url))).digest('hex'),
   browser:browser.version(), platform:process.platform, viewport:{width:1280,height:900}, hostUrl:hostUrl??null,
-  transport, rates, strokes, menuCodeUnits:menuText.length, profiles:[], limitations:[
+  transport, engine, rates, strokes, menuCodeUnits:menuText.length, profiles:[], limitations:[
     'CDP Thai keydown repeats model a held Thai key. Physical keyboard/IME are separate checks.',
     'Input-to-paint uses the second animation frame as a visible-paint proxy.',
     'Memory is browser JS heap and DOM counters. Engine process RSS and GPU memory are separate checks.',
@@ -138,7 +140,7 @@ async function runProfile(profile) {
     if(evidence.fingerprint)assert.equal(saved.fingerprint,evidence.fingerprint,'Definition changed during the run');
     evidence.revision=saved.revision;
     evidence.fingerprint=saved.fingerprint;
-    const editorUrl = base+'/phase1-editor.html?id='+draftId;
+    const editorUrl = base+'/phase1-editor.html?id='+draftId+(engine==='resume'?'&previewEngine=resume':'');
     await page.goto(hostUrl??editorUrl);
     const editor = hostUrl ? await page.locator('iframe').elementHandle().then(iframe=>iframe.contentFrame()) : page.mainFrame();
     assert.ok(editor);
@@ -190,7 +192,10 @@ async function runProfile(profile) {
     await painted(setup.previewId);
     result.pages=setup.pageCount;
     result.payloadBytes=Buffer.byteLength((await ready).request().postData());
-    result.setupLabMs=setup.renderMs;
+    result.setupLabMs=setup.renderMs;result.setupLayoutHash=setup.layoutHash;
+    result.setupPageKeysHash=createHash('sha256').update(JSON.stringify(setup.pageKeys??[])).digest('hex');
+    if(engine==='resume')assert.ok(setup.resume?.slices>0);
+    result.setupResume=setup.resume;
     assert.ok(setup.pageCount>=profile.minPages,'Expected '+profile.minPages+' pages, got '+setup.pageCount);
     let targetIndex=-1;
     for(let index=0;index<setup.pageCount;index++){
@@ -221,7 +226,7 @@ async function runProfile(profile) {
         responses.push(response.json().then(body=>({length,run:body.previewId,status:response.status(),
           engineMs:body.engineMs,labMs:body.renderMs,bytes:Buffer.byteLength(request.postData()),
           base:input.trialPatch?.basePreviewId,fields:input.trialPatch?.changes.map(change=>JSON.stringify(change.path)),
-          ttfbMs:request.timing().responseStart,
+          ttfbMs:request.timing().responseStart,resume:body.resume,
         }),()=>({length,status:response.status()})));
       };
       page.on('response',observe);
@@ -249,6 +254,7 @@ async function runProfile(profile) {
       const requests=await Promise.all(responses);
       for(const request of requests){
         assert.equal(request.status,200);
+        assert.equal(Boolean(request.resume),engine==='resume');
         if(transport==='delta'){
           assert.equal(request.base,acknowledged);
           assert.deepEqual(request.fields,[key]);
@@ -263,7 +269,7 @@ async function runProfile(profile) {
       pageCount=last.pageCount;
       targetIndex=last.pageIndex;
       result.bursts.push({hz,pageCount,updatesBeforeKeyup:during.length,requestStatuses:requests.map(item=>item.status),
-        requestBytes:requests.map(item=>item.bytes),requestTtfbMs:requests.map(item=>item.ttfbMs),
+        requestBytes:requests.map(item=>item.bytes),requestTtfbMs:requests.map(item=>item.ttfbMs),resume:requests.map(item=>item.resume),
         finalLayoutHash:last.layoutHash,finalPageKeysHash:createHash('sha256').update(JSON.stringify(last.pageKeys??[])).digest('hex'),
         deliveredInputIntervalMs:stats(inputs.slice(1).map((item,index)=>item.start-inputs[index].start)),
         inputToPaintMs:stats(inputs.map(item=>item.end-item.start)),

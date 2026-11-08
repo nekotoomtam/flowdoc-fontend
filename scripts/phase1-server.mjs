@@ -4,6 +4,7 @@ import {loadOriginalUat} from './original-uat-preview.mjs';
 import {trialImages} from './trial-preview-images.mjs';
 import {applyTrialValueChanges} from './trial-value-delta.mjs';
 import {layoutPreview} from './trial-engine-layout.mjs';
+import {createResumePreview} from './trial-resume-layout.mjs';
 import {markBlankRuns,previewInput,trialBindings} from './trial-preview-bindings.mjs';
 import {randomBytes, randomUUID, createHash} from 'node:crypto';
 import {readFile, mkdtemp} from 'node:fs/promises';
@@ -126,7 +127,9 @@ function projectOriginalPage(cache,index){
   return {...page,sampleImages:images??[],glyphs,lines};
 }
 
+let resumePreview;
 try {
+  if(process.env.FLOWDOC_RESUMABLE_PREVIEW==='1')resumePreview=await createResumePreview();
   assert.equal((await pool.query('SELECT current_database() AS db')).rows[0].db, database);
   const packageInfo = JSON.parse(await readFile('/candidate/package.json','utf8'));
   assert.equal(packageInfo.version, '0.5.5');
@@ -157,10 +160,12 @@ try {
 
   let previewBusy = false;
   async function render(templateId,body) {
-    const {expectedRevision,sample:mode,trialPatch}=body??{};
+    const {expectedRevision,sample:mode,trialPatch,layoutMode}=body??{};
     let trial=body?.trial;
     const custom=trial!==undefined||trialPatch!==undefined;
     if(trial!==undefined&&trialPatch!==undefined)return {status:422,body:{error:'invalid_trial_patch'}};
+    const resume=custom&&layoutMode==='resume';
+    if(resume&&!resumePreview)return {status:422,body:{error:'resume_preview_disabled'}};
     if(!custom&&templateId!==identity)return {status:400,body:{error:'trial_required'}};
     if (previewBusy) return {status:429,body:{error:'preview_busy'}};
     previewBusy = true;
@@ -216,7 +221,8 @@ try {
       const dimensions=assets?.dimensions??(assets
         ?Object.fromEntries(Object.entries(assets.provider.images).map(([id,{width,height}])=>[id,{width,height}]))
         :{[bannerId]:banner});
-      const layout=await layoutPreview(resolved,resources,dimensions);
+      const layout=resume?await resumePreview.layout(resolved,resources,dimensions,[templateId,draft.revision,draft.fingerprint]):
+        await layoutPreview(resolved,resources,dimensions);
       if(!layout.ok)return {status:422,body:layout};
       const draw=layout.value;
       const engineMs=performance.now()-engineStarted;
@@ -242,7 +248,7 @@ try {
         const identity=custom?identifyTrialPages(draw,cache.bindings,resources.fonts):{layoutHash:hash(draw.pages)};
         cache.header={revision:cache.revision,fingerprint:cache.fingerprint,pages:[first],pageIndex,paged:true,
           pageCount:draw.pages.length,pageSizes,...identity,renderPath:'engine-layout',engineMs,renderMs:performance.now()-started,
-          engineVersion:rendererIdentity.version,
+          engineVersion:rendererIdentity.version,...(layout.resume?{resume:layout.resume}:{}),
           ...(fixture?{entryCount:fixture.entryCount,imagePlacements:fixture.placements}:{})};
         if(custom){
           const id=randomUUID();
@@ -378,4 +384,4 @@ try {
     pending.add(job);void job.finally(()=>pending.delete(job));
   }
   await Promise.allSettled(pending);
-} finally {await app.close();await pool.end();}
+} finally {try{await resumePreview?.close();}finally{await app.close();await pool.end();}}

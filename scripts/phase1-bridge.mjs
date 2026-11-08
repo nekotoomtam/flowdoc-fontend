@@ -6,7 +6,11 @@ const stage='/home/ubuntu/flowdoc-library-model20-staging-20261108';
 const candidate='/home/ubuntu/flowdoc-audit-187957aecc2d/flowdoc-schema-freshapi-git055-complete-20261106/candidate';
 const reference='/home/ubuntu/flowdoc-audit-187957aecc2d/flowdoc-schema-freshapi-full-direct-fonts4-20261106';
 const nodeImage='sha256:07c71903922ef511587627683cb2a5041faa62273ee18da2cb52b434b5900388';
-const labCommand=`sudo docker run --rm -i --network none --memory 1g --cpus 2 --user 0:0 -v ${root}:/phase1:ro -v ${stage}/socket:/socket -v ${stage}/staged-fonts:/fonts:ro -v ${candidate}:/candidate:ro -v ${reference}/converted:/reference:ro -v ${reference}/candidate/lab-full/assets:/reference-assets:ro -e FONT_STORAGE_DIR=/fonts --entrypoint node ${nodeImage} /phase1/phase1-server.mjs`;
+const resumeRoot='/home/ubuntu/flowdoc-kernel-g0g1-20261107';
+const resumeMounts=process.env.FLOWDOC_RESUMABLE_PREVIEW==='1'
+  ?` -v ${resumeRoot}/flow-table-resume-v3:/resume-core:ro -v ${resumeRoot}/line-suffix-v3:/resume-runtime:ro -v ${resumeRoot}/incremental5-checks/runtime/linux-x64/flowdoc-icu4x-line-segmenter:/resume-segmenter:ro -e FLOWDOC_RESUMABLE_PREVIEW=1`
+  :'';
+const labCommand=`sudo docker run --rm -i --network none --memory 1g --cpus 2 --user 0:0 -v ${root}:/phase1:ro -v ${stage}/socket:/socket -v ${stage}/staged-fonts:/fonts:ro -v ${candidate}:/candidate:ro -v ${reference}/converted:/reference:ro -v ${reference}/candidate/lab-full/assets:/reference-assets:ro -e FONT_STORAGE_DIR=/fonts${resumeMounts} --entrypoint node ${nodeImage} /phase1/phase1-server.mjs`;
 const uuid=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
 
 export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1'}={}) {

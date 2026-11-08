@@ -34,7 +34,7 @@
 
   <div class="grid" id="editor" hidden>
     <section class="panel" aria-label="Tree โครงสร้าง"><h2>โครงสร้างเอกสาร</h2><p>เลือกจาก Tree หรือจากกระดาษ</p><div class="structure-tools"><button id="add-section" type="button">+ เพิ่ม Section</button></div><div id="tree"></div></section>
-    <section class="panel workspace" aria-label="กระดาษนิยาม"><div class="paper-toolbar"><div><h2>กระดาษนิยาม</h2><p>เลือกบนกระดาษเพื่อดูว่ารายการนั้นอยู่ตรงไหนและวางตำแหน่งอย่างไร</p></div><div class="paper-controls"><button id="zoom-out" type="button" aria-label="ย่อกระดาษ" disabled>−</button><span id="paper-zoom">100%</span><button id="zoom-in" type="button" aria-label="ขยายกระดาษ">+</button><button id="show-guides" type="button" aria-pressed="true">เส้นช่วยดูโครง</button><details class="paper-view-options"><summary>มุมมอง</summary><button id="show-handles" type="button" aria-pressed="false">แสดงจุดเลือก</button></details></div></div><div id="format-switcher" class="structure-tools"></div>
+    <section class="panel workspace" aria-label="กระดาษนิยาม"><div class="paper-toolbar"><div><h2>กระดาษนิยาม</h2><p>เลือกบนกระดาษเพื่อดูว่ารายการนั้นอยู่ตรงไหนและวางตำแหน่งอย่างไร</p></div><div class="paper-controls"><button id="zoom-out" type="button" aria-label="ย่อกระดาษ" disabled>−</button><span id="paper-zoom">100%</span><button id="zoom-in" type="button" aria-label="ขยายกระดาษ">+</button><button id="show-guides" type="button" aria-pressed="true">เส้นช่วยดูโครง</button><details class="paper-view-options"><summary>มุมมอง</summary><button id="show-handles" type="button" aria-pressed="false">แสดงจุดเลือก</button></details></div></div>
       <div id="paper-edit-tools" class="paper-edit-tools" role="group" aria-label="แก้ไขบนกระดาษ">
         <nav id="paper-path" aria-label="ตำแหน่งในโครงเอกสาร"></nav>
         <p id="paper-selection" aria-live="polite"></p>
@@ -53,7 +53,7 @@
       <div id="actions" class="structure-tools"></div>
       <div id="conflict" hidden><p>มีฉบับใหม่กว่าในระบบ การแก้ในหน้านี้ยังอยู่จนกว่าจะกดโหลดฉบับล่าสุด</p><button id="reload">โหลดฉบับล่าสุด</button></div>
       </details>
-      <details id="variable-panel" class="panel extra-panel"><summary>ตัวแปรของเอกสาร</summary><div id="variables"></div><p id="variable-detail" role="status"></p></details>
+      <details id="variable-panel" class="panel extra-panel" open><summary>ตัวแปรของเอกสาร</summary><div id="variables"></div><p id="variable-detail" role="status"></p></details>
     </aside>
   </div>
   <section id="preview" class="panel" hidden aria-label="กระดาษเสมือนจาก Engine">

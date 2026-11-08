@@ -41,13 +41,13 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
     if(composing){queued=undefined;window.clearTimeout(timer);timer=undefined;}
     else{queued=()=>undefined;schedule();}
   };
-  function collection(parent:HTMLElement,addLabel:string,make:()=>{element:HTMLElement;read:Read},seed:boolean,max=200){
+  function collection(parent:HTMLElement,addLabel:string,make:(seed?:string)=>{element:HTMLElement;read:Read},seeds:readonly string[],max=200){
     const rows=node('div');rows.className='trial-rows';
     const entries=new Map<HTMLElement,Read>();
     const add=button(addLabel,()=>addRow(true));
-    function addRow(user:boolean){
+    function addRow(user:boolean,seed?:string){
       if(rows.childElementCount>=max)return;
-      const entry=make();
+      const entry=make(seed);
       const panel=node('details');panel.open=true;
       const controls=node('div');controls.className='trial-list-controls';
       function move(up:boolean){
@@ -71,7 +71,7 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
       add.disabled=rows.childElementCount>=max;
     }
     parent.append(rows,add);
-    if(seed)addRow(false);
+    for(const seed of seeds)addRow(false,seed);
     return (context:ReadContext,path:Path)=>[...rows.children].map((panel,index)=>entries.get(panel as HTMLElement)!(context,[...path,index]));
   }
   function fields(schema:Schema){
@@ -93,7 +93,7 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
     if(field.type==='array'||field.type==='area'){
       const panel=node('fieldset');panel.append(node('legend',(field.type==='area'?'พื้นที่ ': '')+label));
       const formats=field.type==='area'?Object.values(definition.areaFormats??{}).filter(format=>format.ownerAreaId===field.areaId):[];
-      const read=collection(panel,field.type==='area'?'+ เพิ่ม Format ในพื้นที่':'+ เพิ่มรายการ',()=>{
+      const read=collection(panel,field.type==='area'?'+ เพิ่ม Format ในพื้นที่':'+ เพิ่มรายการ',seed=>{
         if(field.type==='array')return fields(field.items??{fields:{}});
         const body=node('div'),select=node('select'),slot=node('div');
         select.dataset.format='';
@@ -106,7 +106,7 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
           active=format?fields(format.inputSchema):undefined;
           slot.replaceChildren(active?.element??node('p','พื้นที่นี้ยังไม่มี Format'));
         }
-        const preferred=field.areaId&&starter.get(field.areaId);
+        const preferred=seed||(field.areaId&&starter.get(field.areaId));
         if(preferred&&formats.some(format=>format.key===preferred))select.value=preferred;
         select.addEventListener('change',show);show();
         body.append(labeled('Format',select),slot);
@@ -114,7 +114,7 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
           if(!active)throw Error('เลือก Format สำหรับ '+key);
           return {format:select.value,data:active.read(context,[...path,'data'])};
         }};
-      },field.type==='array'||formats.length>0);
+      },field.type==='array'?['']:formats.map(format=>format.key));
       return {element:panel,read(context,path){
         const entries=read(context,path);
         return entries.length||field.required?entries:undefined;
@@ -162,7 +162,7 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
     const wrapper=node('div');wrapper.append(data.element);
     if(header&&Object.keys(section.header!.inputSchema.fields).length)wrapper.append(details('ตัวแปรหัวกระดาษ',header.element));
     if(footer&&Object.keys(section.footer!.inputSchema.fields).length)wrapper.append(details('ตัวแปรท้ายกระดาษ',footer.element));
-    return {element:details(section.label,wrapper,index===0),read(context:ReadContext,path:Path){
+    return {element:details('Section '+(index+1)+' · '+section.label,wrapper,true),read(context:ReadContext,path:Path){
       return {sectionKey:section.sectionKey,instanceKey:'preview-'+(index+1),data:data.read(context,[...path,'data']),
         ...(header?{header:header.read(context,[...path,'header'])}:{}),...(footer?{footer:footer.read(context,[...path,'footer'])}:{})};
     }};
@@ -214,6 +214,13 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
   return {
     refresh,
     read(key:string){return bindings.get(key)?.value;},
+    reveal(key:string){
+      const field=bindings.get(key);
+      if(!field||!form.contains(field))return;
+      for(let panel=field.closest('details');panel;panel=panel.parentElement?.closest('details')??null)panel.open=true;
+      const viewport=fieldsPanel.getBoundingClientRect(),target=field.getBoundingClientRect();
+      if(target.top<viewport.top||target.bottom>viewport.bottom)fieldsPanel.scrollTop+=target.top-viewport.top-24;
+    },
     write(key:string,value:string,focus:()=>TrialFocus,composing:boolean){
       const input=bindings.get(key);
       if(!input||!form.contains(input))return;

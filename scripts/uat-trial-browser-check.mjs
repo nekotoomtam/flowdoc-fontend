@@ -28,6 +28,7 @@ async function nextRender(action){
   assert.equal(Object.hasOwn(body,'pdfHash'),false);
   assert.ok(body.previewId&&body.pages.length===1);
   await page.waitForFunction(run=>document.querySelector('#preview-paper').dataset.run===run,body.previewId);
+  assert.equal(await paper.locator('.preview-page').count(),body.pageCount);
   runs.push(body.previewId);
   return {body,request:reply.request().postDataJSON().trial};
 }
@@ -41,12 +42,13 @@ try{
   assert.ok(await paper.getByRole('button',{name:'พิมพ์ค่า title',exact:true}).isVisible());
   assert.equal(await form.getByRole('button',{name:'จัดหน้าจากข้อมูลนี้',exact:true}).count(),0);
   await photo('01-uat-cover-ready-from-blank');
-  const title=await nextRender(()=>form.getByLabel(/^title/).fill('ชื่อจากฟอร์ม'));
+  const cover=form.getByText('รายการ 1 · cover',{exact:true}).locator('..');
+  const title=await nextRender(()=>cover.getByLabel(/^title/).fill('ชื่อจากฟอร์ม'));
   assert.equal(title.request.sections[0].data.parts[0].data.title,'ชื่อจากฟอร์ม');
   assert.ok(await paper.getByRole('button',{name:'แก้ค่า ชื่อจากฟอร์ม',exact:true}).isVisible());
   await paper.getByRole('button',{name:'แก้ค่า ชื่อจากฟอร์ม',exact:true}).click();
   await nextRender(()=>editor.fill('ชื่อจากกระดาษ'));
-  assert.equal(await form.getByLabel(/^title/).inputValue(),'ชื่อจากกระดาษ');
+  assert.equal(await cover.getByLabel(/^title/).inputValue(),'ชื่อจากกระดาษ');
 
   // A fresh view starts from the Format selected in the saved definition editor.
   await page.reload();
@@ -54,10 +56,20 @@ try{
   await tree.getByRole('button',{name:'ขยายหรือยุบ parts',exact:true}).click();
   await tree.locator('[data-kind=format]').getByText('summary-dynamic',{exact:true}).click();
   const blankTable=await nextRender(open);
-  const sample=blankTable.request.sections[0].data.parts[0];
+  const formatIndex=blankTable.request.sections[0].data.parts.findIndex(entry=>entry.format==='summary-dynamic');
+  assert.equal(blankTable.request.sections[0].data.parts.length,14);
+  const sample=blankTable.request.sections[0].data.parts[formatIndex];
   assert.equal(sample.format,'summary-dynamic');
   assert.equal(sample.data.groups[0].members[0].menu,'');
-  assert.ok(await paper.getByRole('button',{name:'พิมพ์ค่า menu',exact:true}).isVisible());
+  let summaryPage=-1;
+  for(let index=0;index<blankTable.body.pageCount;index++){
+    const response=await page.request.get(base+path+'/preview-runs/'+blankTable.body.previewId+'/pages/'+index);
+    const projected=(await response.json()).page;
+    if(projected?.lines.some(line=>line.edit?.blank&&JSON.parse(line.edit.key).at(-1)==='menu')){summaryPage=index;break;}
+  }
+  assert.ok(summaryPage>=0);
+  await paper.locator('.preview-page').nth(summaryPage).scrollIntoViewIfNeeded();
+  await paper.getByRole('button',{name:'พิมพ์ค่า menu',exact:true}).waitFor();
   const members=form.getByRole('group',{name:/^members/});
   await nextRender(()=>members.getByRole('button',{name:'+ เพิ่มรายการ',exact:true}).click());
   const rows=members.locator(':scope > .trial-rows > details');
@@ -67,12 +79,14 @@ try{
   if(asset)await nextRender(async()=>{
     await form.getByLabel(/headerBanner/).setInputFiles({name:'trial-banner.png',mimeType:'image/png',buffer:await readFile(asset)});
   });
+  await paper.locator('.preview-page').nth(summaryPage).scrollIntoViewIfNeeded();
   const identical=paper.getByRole('button',{name:'แก้ค่า เมนูเหมือนกัน',exact:true});
+  await identical.nth(1).waitFor();
   assert.equal(await identical.count(),2);
   await identical.nth(1).click();
   await editor.evaluate(input=>input.setSelectionRange(4,4));
   const paperResult=await nextRender(()=>page.keyboard.insertText('ไทย'));
-  assert.deepEqual(paperResult.request.sections[0].data.parts[0].data.groups[0].members.map(row=>row.menu),
+  assert.deepEqual(paperResult.request.sections[0].data.parts[formatIndex].data.groups[0].members.map(row=>row.menu),
     ['เมนูเหมือนกัน','เมนูไทยเหมือนกัน']);
   assert.equal(await first.inputValue(),'เมนูเหมือนกัน');
   assert.equal(await second.inputValue(),'เมนูไทยเหมือนกัน');
@@ -100,7 +114,7 @@ try{
   assert.deepEqual(await read(),original);
   assert.deepEqual(writes,[]);
   assert.deepEqual(errors,[]);
-  const result={draftId:id,revision:original.revision,initialBlank:true,seededFromSelectedFormat:true,automaticBothDirections:true,
+  const result={draftId:id,revision:original.revision,initialBlank:true,allFormatsSeeded:true,continuousPreview:true,automaticBothDirections:true,
     renderPath:'engine-layout',pdfHashReturned:false,distinctRenderRuns:runs.length,repeatedRowOwnership:true,
     tabAndShiftTab:true,caretAfterPageReflow:true,expandedPages:expanded.body.pageCount,definitionWrites:0};
   await writeFile(join(output,'trial-preview-verification.json'),JSON.stringify(result,null,2)+'\n');

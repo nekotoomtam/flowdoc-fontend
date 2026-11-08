@@ -168,7 +168,7 @@ try{
   assert.equal(await id('paper').locator('.definition-sheet').getAttribute('data-page-size'),'A4');
   await photo('02-empty-section');
   await id('advanced-details').locator('summary').click();
-  await id('variable-panel').locator(':scope > summary').click();
+  if(await id('variable-panel').getAttribute('open')===null)await id('variable-panel').locator(':scope > summary').click();
   await act('ขนาดกระดาษและระยะขอบ').click();await form({left:36});
   await id('variables').locator('details').first().getByRole('button',{name:'+ ประกาศตัวแปร'}).click();
   await form({key:'headerBanner',type:'image',required:'yes'});

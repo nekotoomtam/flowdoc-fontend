@@ -20,7 +20,7 @@ type DrawPage = {
 };
 type TrialTab = {occurrence:string;pageIndex:number};
 type PreviewEdit = {previous?:TrialTab;next?:TrialTab;key:string;occurrence:string;start:number;end:number;blank?:boolean;contentWidth?:number;align?:string;clusters:[number,number,number][]};
-type Preview = {pageIndex?:number;previewId?:string;revision: number; fingerprint: string; engineVersion: string; engineMs: number; renderMs: number; layoutHash: string; renderPath?:string; pageCount: number; pages: DrawPage[]; paged?:boolean; entryCount?:number; imagePlacements?:number};
+type Preview = {pageSizes?:[number,number,string][];pageIndex?:number;previewId?:string;revision: number; fingerprint: string; engineVersion: string; engineMs: number; renderMs: number; layoutHash: string; renderPath?:string; pageCount: number; pages: DrawPage[]; paged?:boolean; entryCount?:number; imagePlacements?:number};
 type ServiceReply = {ok: boolean; value?: Draft; issues?: {code: string; path?:string}[]};
 const q = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id)! as T;
 const title = q('title'), status = q('status'), editor = q('editor'), tree = q('tree'), paper = q('paper'), variables = q('variables');
@@ -42,8 +42,8 @@ const treeNodes = new Map<Outline, HTMLButtonElement>();
 const rootRows=new Map<Outline,HTMLLIElement>();
 const paperNodes = new Map<Outline, HTMLElement>();
 let savedDefinition:Definition|undefined;
-let draft: Draft, selection: Outline | undefined, paperSection: Section | undefined;
-let paperFormat:Format|undefined;
+let draft: Draft, selection: Outline | undefined;
+const sectionSheets=new Map<Outline,HTMLElement>();
 const activeFormats=new Map<string,Format>();
 let roots:Outline[] = [], outlines=new Map<string,Outline>();
 const expanded=new Map<string,boolean>();
@@ -171,9 +171,9 @@ function drawBranch(items: Outline[], depth = 0) {
   return list;
 }
 const paperSizes:Record<string,[number,number]>={A4:[595.276,841.89],A3:[841.89,1190.551],Letter:[612,792],Legal:[612,1008]};
-function drawPaper(root: Outline, preferred?: Format) {
-  paperNodes.clear();
-  const switcher=q('format-switcher');switcher.replaceChildren();
+function drawSectionPaper(root: Outline, preferred?: Format) {
+  const sheet=element('div');sheet.className='definition-sheet';sheet.dataset.sectionId=root.id;
+  const switcher=element('div');switcher.className='definition-section-tools structure-tools';
   const layout=draft.definition.pageLayouts?.[root.section.pageLayoutId??draft.definition.book.defaultPageLayoutId]?.page;
   const [short,long]=paperSizes[layout?.size??'A4']??paperSizes.A4;
   const [width,height]=layout?.orientation==='landscape'?[long,short]:[short,long];
@@ -302,9 +302,8 @@ function drawPaper(root: Outline, preferred?: Format) {
     }
     return block;
   }
-  const sheet=element('div');sheet.className='definition-sheet';
-  paper.style.setProperty('--sheet-pt','calc(100cqw / '+width+')');
-  sheet.style.height=unit(height);
+  sheet.style.setProperty('--sheet-pt','calc(100cqw / '+width+')');
+  sheet.style.minHeight=unit(height);
   sheet.dataset.pageSize=layout?.size??'A4';
   const body=element('div');body.className='definition-body';
   if(root.section.source.kind==='blank'){
@@ -330,13 +329,54 @@ function drawPaper(root: Outline, preferred?: Format) {
       sheet.append(view);
     }else body.append(contents(item));
   }
-  body.style.inset=unit(top)+' '+unit(points(margin.right))+' '+unit(bottom)+' '+unit(points(margin.left));
+  body.style.padding=unit(top)+' '+unit(points(margin.right))+' '+unit(bottom)+' '+unit(points(margin.left));
   sheet.prepend(body);
   const control=choose(root,root.label+' · '+sheet.dataset.pageSize,'definition-section-control');
   switcher.prepend(control);
-  sheet.addEventListener('click',event=>{if(event.target===sheet||event.target===body)select(root,false);});
-  paper.replaceChildren(sheet);
-  paperSection=root.section;paperFormat=preferred;
+  const unitPanel=element('section');unitPanel.className='definition-section';unitPanel.append(switcher);
+  // Authored page breaks create a new sheet. Keep the original controls so the Tree
+  // and canvas continue to select the same definition IDs.
+  function split(block:HTMLElement):HTMLElement[][]{
+    if(block.dataset.kind==='page-break')return [[block],[]];
+    if(!block.classList.contains('definition-area')&&!block.classList.contains('definition-format'))return [[block]];
+    const fragments=partition([...block.children] as HTMLElement[]);
+    if(fragments.length===1)return [[block]];
+    return fragments.map(children=>{
+      if(!children.length)return [];
+      const wrapper=block.cloneNode(false) as HTMLElement;
+      wrapper.append(...children);return [wrapper];
+    });
+  }
+  function partition(blocks:HTMLElement[]){
+    const pages:HTMLElement[][]=[[]];
+    for(const block of blocks){
+      const fragments=split(block);
+      pages.at(-1)!.push(...fragments[0]);
+      pages.push(...fragments.slice(1));
+    }
+    return pages;
+  }
+  const authored=partition([...body.children] as HTMLElement[]);
+  const bands=[...sheet.querySelectorAll(':scope > .definition-band')];
+  for(const [index,blocks] of authored.entries()){
+    const page=index===0?sheet:sheet.cloneNode(false) as HTMLElement;
+    const content=index===0?body:body.cloneNode(false) as HTMLElement;
+    content.replaceChildren(...blocks);
+    if(index>0){
+      page.append(content);
+      for(const band of bands){
+        const copy=band.cloneNode(true) as HTMLElement;
+        copy.inert=true;
+        for(const control of copy.querySelectorAll('[data-paper-ref]'))control.removeAttribute('data-paper-ref');
+        page.append(copy);
+      }
+    }
+    page.dataset.authoringPage=String(index+1);
+    page.setAttribute('aria-label',root.label+' · หน้า '+(index+1));
+    page.addEventListener('click',event=>{if(event.target===page||event.target===content)select(root,false);});
+    unitPanel.append(page);
+  }
+  return unitPanel;
 }
 
 
@@ -376,51 +416,85 @@ function variableScopes(item:Outline){
   }
   return scopes;
 }
-function drawVariables(item:Outline){
-  const scopes=variableScopes(item);
-  const selectedRef=item.inline?.type==='field-ref'&&item.inline.scope&&item.inline.key
-    ? {scope:item.inline.scope,key:item.inline.key}:item.node?.type==='image'?item.node.props?.source:undefined;
+const variableGroups=new Map<Schema,HTMLElement>();
+let contextVariables:HTMLElement;
+function variableGroup(schema:Schema,scope:string,label:string,at?:Ref){
+  const container=element('details');container.className='scope';container.open=true;
+  container.dataset.scope=scope;
+  if(at)container.dataset.owner=refKey(at);
+  container.append(element('summary',label));
   const value=q('variable-detail');
-  value.textContent='';
-  const selectField=(control:HTMLButtonElement,label:string,key:string,type:string)=>{
-    variables.querySelector('[aria-current=true]')?.removeAttribute('aria-current');
-    control.setAttribute('aria-current','true');
-    value.textContent=label+' › '+key+' · '+type;
-  };
-  function fieldList(schema:Schema,scope:string,label:string,base=''):HTMLUListElement {
+  function fields(current:Schema,base=''):HTMLUListElement{
     const list=element('ul');
-    for(const [key,f] of Object.entries(schema.fields)){
-      const path=base+key;
-      const li=element('li'), field=button(key+' · '+f.type,()=>selectField(field,label,path,f.type));
+    for(const [key,definition] of Object.entries(current.fields)){
+      const path=base+key,li=element('li');
+      const field=button(key+' · '+definition.type,()=>{
+        variables.querySelector('[aria-current=true]')?.removeAttribute('aria-current');
+        field.setAttribute('aria-current','true');
+        value.textContent=label+' › '+path+' · '+definition.type;
+      });
       field.className='variable-field';
       field.dataset.variableScope=scope;field.dataset.variablePath=path;
-      if(!base&&scope===selectedRef?.scope&&key===selectedRef.key){
-        field.setAttribute('aria-current','true');
-        value.textContent=label+' › '+path+' · '+f.type;
-      }
       li.append(field);
-      if(f.items)li.append(fieldList(f.items,scope,label,path+'[].'));
+      if(definition.items)li.append(fields(definition.items,path+'[].'));
       list.append(li);
     }
     return list;
   }
-  variables.replaceChildren(...scopes.map(({label,schema,scope})=>{
-    const container=element('details');
-    container.className='scope';
-    container.open=true;
-    container.append(element('summary',label));
-    container.append(Object.keys(schema.fields).length?fieldList(schema,scope,label):element('p','ยังไม่มีตัวแปร'));
-    if(creationMode()&&['global','section','local','header','footer'].includes(scope)){
-      const add=button('+ ประกาศตัวแปร',()=>askVariable(item.ref,scope as 'global'|'section'|'local'|'header'|'footer',label));
-      add.disabled=isSaving||hasConflict;container.append(add);
-      const part:Part=scope==='global'?'globalSchema':scope==='section'?'section-schema':scope==='local'?'format-schema':'band-schema';
-      const edit=button('แก้ไข / ลบตัวแปร',()=>editPart(item.ref,part,'ตัวแปร · '+label));
-      edit.disabled=isSaving||hasConflict;container.append(edit);
-    }
-    return container;
-  }));
+  container.append(Object.keys(schema.fields).length?fields(schema):element('p','ยังไม่มีตัวแปร'));
+  if(at&&creationMode()){
+    const add=button('+ ประกาศตัวแปร',()=>askVariable(at,scope as 'global'|'section'|'local'|'header'|'footer',label));
+    const part:Part=scope==='global'?'globalSchema':scope==='section'?'section-schema':scope==='local'?'format-schema':'band-schema';
+    const edit=button('แก้ไข / ลบตัวแปร',()=>editPart(at,part,'ตัวแปร · '+label));
+    for(const control of [add,edit]){control.dataset.schemaAction='';container.append(control);}
+  }
+  variableGroups.set(schema,container);
+  return container;
 }
-
+function drawDefinitionVariables(){
+  variableGroups.clear();
+  const groups:HTMLElement[]=[variableGroup(draft.definition.globalSchema,'global','ทั้งเอกสาร',roots[0].ref)];
+  for(const [index,root] of roots.entries()){
+    const section=element('section');section.className='variable-section';section.dataset.sectionId=root.id;
+    section.append(element('h3','Section '+(index+1)+' · '+root.label),
+      variableGroup(root.section.inputSchema,'section','ตัวแปรของ Section',root.ref));
+    for(const band of ['header','footer'] as const){
+      const definition=root.section[band];
+      if(definition)section.append(variableGroup(definition.inputSchema,band,band==='header'?'หัวกระดาษ':'ท้ายกระดาษ',{...root.ref,band}));
+    }
+    function formats(item:Outline){
+      if(item.type==='area'){
+        const area=element('section');area.className='variable-area';area.append(element('h4','Area · '+item.label));
+        for(const child of item.children)if(child.format)
+          area.append(variableGroup(child.format.inputSchema,'local','Format · '+child.label,child.ref));
+        section.append(area);
+      }else item.children.forEach(formats);
+    }
+    root.children.forEach(formats);
+    groups.push(section);
+  }
+  contextVariables=element('div');
+  variables.replaceChildren(...groups,contextVariables);
+}
+function drawVariables(item:Outline){
+  const selected=item.inline?.type==='field-ref'&&item.inline.scope&&item.inline.key
+    ?{scope:item.inline.scope,key:item.inline.key}:item.node?.type==='image'?item.node.props?.source:undefined;
+  variables.querySelector('[aria-current=true]')?.removeAttribute('aria-current');
+  q('variable-detail').textContent='';
+  for(const stale of contextVariables.children){
+    for(const [schema,group] of variableGroups)if(group===stale)variableGroups.delete(schema);
+  }
+  const scopes=variableScopes(item);
+  contextVariables.replaceChildren(...scopes.filter(scope=>scope.scope==='group'||scope.scope==='item')
+    .map(({schema,scope,label})=>variableGroup(schema,scope,label)));
+  if(selected){
+    const scope=scopes.find(scope=>scope.scope===selected.scope);
+    const group=scope&&variableGroups.get(scope.schema);
+    const field=group&&[...group.querySelectorAll<HTMLButtonElement>('[data-variable-path]')]
+      .find(control=>control.dataset.variablePath===selected.key);
+    if(field&&scope){field.setAttribute('aria-current','true');q('variable-detail').textContent=scope.label+' › '+field.textContent;}
+  }
+}
 
 function select(item: Outline, measure: boolean, spacing?:'before'|'after') {
   const started=performance.now();
@@ -443,10 +517,15 @@ function select(item: Outline, measure: boolean, spacing?:'before'|'after') {
   let root=item;
   const path=[root.label];
   while(root.parent){root=root.parent;path.unshift(root.label);}
-  const preferred=item.format??(paperSection===item.section?paperFormat:undefined);
-  const onCurrentPaper=paperSection===item.section&&paper.contains(paperNodes.get(item)??null);
-  if(!onCurrentPaper&&(paperSection!==item.section||paperFormat!==preferred))drawPaper(root,preferred);
-  else if(onCurrentPaper&&item.format)paperFormat=item.format;
+  const preferred=item.format;
+  const currentSheet=sectionSheets.get(root);
+  const control=paperNodes.get(item);
+  if(preferred&&(!currentSheet?.contains(control??null)||control?.classList.contains('definition-format-choice'))){
+    for(const [candidate] of paperNodes)if(candidate.section===root.section)paperNodes.delete(candidate);
+    const nextSheet=drawSectionPaper(root,preferred);
+    currentSheet?.replaceWith(nextSheet);sectionSheets.set(root,nextSheet);
+    if(!measure){const target=paperNodes.get(item);if(target)scrollWithin(paper.parentElement!,target);}
+  }
   const treeTarget=treeNodes.get(item);
   treeTarget?.setAttribute('aria-current','true');
   if(!measure&&treeTarget)scrollWithin(tree,treeTarget);
@@ -455,8 +534,6 @@ function select(item: Outline, measure: boolean, spacing?:'before'|'after') {
   q('selection-detail').textContent=item.detail??(item.inline?.type==='text'?'แก้ข้อความนี้ได้บนกระดาษ':kinds[item.type]??item.type);
   const target=paperNodes.get(item);
   if(measure&&target&&paper.contains(target)){
-    const body=target.closest<HTMLElement>('.definition-body');
-    if(body)scrollWithin(body,target);
     scrollWithin(paper.parentElement!,target);
   }
   q('path').textContent=path.join(' › ');
@@ -487,6 +564,7 @@ function refreshButtons(){
   save.disabled=dirty||isSaving||hasConflict||!templateId;
   input.readOnly=dirty||isSaving;
   if(selection)showActions(selection);
+  for(const control of variables.querySelectorAll<HTMLButtonElement>('[data-schema-action]'))control.disabled=isSaving||hasConflict;
 }
 function showDraft(data: Draft, keep?: Ref) {
   draft=data;
@@ -513,6 +591,16 @@ function showDraft(data: Draft, keep?: Ref) {
   for(const item of rootRows.keys())if(!roots.includes(item))rootRows.delete(item);
   tree.replaceChildren(drawBranch(roots));
   tree.scrollTop=scroll;
+  const viewport=paper.parentElement!,paperScroll=viewport.scrollTop;
+  for(const [root] of sectionSheets)if(!roots.includes(root))sectionSheets.delete(root);
+  for(const [item] of paperNodes)if(outlines.get(refKey(item.ref))!==item)paperNodes.delete(item);
+  const sheets=roots.map(root=>{
+    let sheet=sectionSheets.get(root);
+    if(!sheet){sheet=drawSectionPaper(root,root.section===selected.section?selected.format:undefined);sectionSheets.set(root,sheet);}
+    return sheet;
+  });
+  paper.replaceChildren(...sheets);viewport.scrollTop=paperScroll;
+  drawDefinitionVariables();
   select(selected,false);
   refreshButtons();
   editor.hidden=showingPreview;
@@ -1200,7 +1288,7 @@ async function readDraft() {
 }
 function cancelPreview() {
   pendingPreview?.abort();pendingPreview=undefined;
-  pendingPage?.abort();pendingPage=undefined;jump.disabled=true;
+  resetPreviewPages();jump.disabled=true;
   preview=undefined;previewPaper.replaceChildren();
   delete previewPaper.dataset.revision;
   delete previewPaper.dataset.run;
@@ -1263,14 +1351,14 @@ function paintBorders(sheet:SVGElement,page:DrawPage){
 }
 const trialPaperValue=q<HTMLTextAreaElement>('trial-paper-value');
 let trialForm:ReturnType<typeof mountTrial>|undefined;
-let paperEdit:{key:string;occurrence:string;composing:boolean;previous?:TrialTab;next?:TrialTab}|undefined;
+let paperEdit:{key:string;occurrence:string;pageIndex:number;composing:boolean;previous?:TrialTab;next?:TrialTab}|undefined;
 const trialHits=new WeakMap<SVGElement,PreviewEdit>();
 function clearPaperInk(){
   for(const ink of previewPaper.querySelectorAll('.trial-ink-active'))ink.classList.remove('trial-ink-active');
 }
 function positionPaperEditor(){
   if(!paperEdit)return;
-  const hits=[...previewPaper.querySelectorAll<SVGRectElement>('[data-trial-key]')]
+  const hits=[...pageSlots[paperEdit.pageIndex]?.querySelectorAll<SVGRectElement>('[data-trial-key]')??[]]
     .filter(hit=>hit.dataset.trialOccurrence===paperEdit?.occurrence);
   if(!hits.length)return;
   const first=hits[0],bounds=first.getBoundingClientRect();
@@ -1287,11 +1375,12 @@ function positionPaperEditor(){
   for(const ink of previewPaper.querySelectorAll<SVGElement>('[data-trial-ink]'))
     if(ink.dataset.trialInk===paperEdit.occurrence)ink.classList.add('trial-ink-active');
 }
-function beginPaperEdit(edit:PreviewEdit,offset:number){
+function beginPaperEdit(edit:PreviewEdit,offset:number,index:number){
   const value=trialForm?.read(edit.key);
   if(value===undefined)return;
-  paperEdit={key:edit.key,occurrence:edit.occurrence,composing:false,previous:edit.previous,next:edit.next};
+  paperEdit={key:edit.key,occurrence:edit.occurrence,pageIndex:index,composing:false,previous:edit.previous,next:edit.next};
   trialPaperValue.value=value;
+  trialForm?.reveal(edit.key);
   trialPaperValue.hidden=false;
   positionPaperEditor();
   trialPaperValue.focus({preventScroll:true});
@@ -1304,7 +1393,7 @@ function syncPaperEdit(composing:boolean){
   if(!paperEdit)return;
   const {key,occurrence}=paperEdit,value=trialPaperValue.value;
   const offset=trialPaperValue.selectionStart;
-  const readFocus=()=>paperEdit?{key:paperEdit.key,occurrence:paperEdit.occurrence,pageIndex,offset:trialPaperValue.selectionStart}
+  const readFocus=()=>paperEdit?{key:paperEdit.key,occurrence:paperEdit.occurrence,pageIndex:paperEdit.pageIndex,offset:trialPaperValue.selectionStart}
     :{key,occurrence,pageIndex,offset};
   trialForm?.write(key,value,readFocus,composing);
 }
@@ -1316,14 +1405,15 @@ trialPaperValue.addEventListener('compositionend',()=>{
 });
 async function tabOnPaper(stop:TrialTab){
   const active=paperEdit;
-  if(stop.pageIndex!==pageIndex)await goPage(stop.pageIndex);
+  if(!await ensurePage(stop.pageIndex))return;
   if(paperEdit!==active)return;
-  const hit=[...previewPaper.querySelectorAll<SVGRectElement>('[data-trial-occurrence]')]
+  const hit=[...pageSlots[stop.pageIndex]?.querySelectorAll<SVGRectElement>('[data-trial-occurrence]')??[]]
     .find(element=>element.dataset.trialOccurrence===stop.occurrence);
   const edit=hit&&trialHits.get(hit);
   if(edit){
     hit.scrollIntoView({block:'nearest',inline:'nearest'});
-    beginPaperEdit(edit,edit.start);
+    beginPaperEdit(edit,edit.start,stop.pageIndex);
+    reportPage(stop.pageIndex);
   }
 }
 trialPaperValue.addEventListener('keydown',event=>{
@@ -1337,9 +1427,9 @@ trialPaperValue.addEventListener('keydown',event=>{
 trialPaperValue.addEventListener('blur',closePaperEdit);
 window.addEventListener('resize',positionPaperEditor);
 window.addEventListener('scroll',positionPaperEditor,true);
-function showPage(page:DrawPage) {
+function showPage(page:DrawPage,index:number) {
   if(!preview)return;
-  const sheet=svg('svg',{viewBox:'0 0 '+page.widthPt+' '+page.heightPt,role:preview.previewId?'group':'img','aria-label':'กระดาษ Engine หน้า '+(pageIndex+1)});
+  const sheet=svg('svg',{viewBox:'0 0 '+page.widthPt+' '+page.heightPt,role:preview.previewId?'group':'img','aria-label':'กระดาษ Engine หน้า '+(index+1)});
   sheet.append(svg('rect',{width:page.widthPt,height:page.heightPt,fill:color(page.backgroundColor)}));
   for(const f of page.fills??[])sheet.append(svg('rect',{x:f.xPt,y:f.yPt,width:f.widthPt,height:f.heightPt,fill:color(f.color)}));
   paintBorders(sheet,page);
@@ -1386,46 +1476,145 @@ function showPage(page:DrawPage) {
         const end=edit.clusters[i+1]?.[0]??line.widthPt;
         if(x<(start+end)/2){offset=from;break;}
       }
-      beginPaperEdit(edit,offset);
+      beginPaperEdit(edit,offset,index);
     });
     hit.addEventListener('keydown',event=>{
       const key=(event as KeyboardEvent).key;
-      if(key==='Enter'||key===' '){event.preventDefault();beginPaperEdit(edit,edit.start);}
+      if(key==='Enter'||key===' '){event.preventDefault();beginPaperEdit(edit,edit.start,index);}
     });
     sheet.append(hit);
   }
-  previewPaper.replaceChildren(sheet);
-  positionPaperEditor();
-  previewPaper.dataset.revision=String(preview.revision);
-  if(preview.previewId)previewPaper.dataset.run=preview.previewId;
-  q('page-number').textContent=(pageIndex+1)+' / '+preview.pageCount;
-  jump.value=String(pageIndex+1);jump.max=String(preview.pageCount);jump.disabled=false;
-  previous.disabled=pageIndex===0;next.disabled=pageIndex===preview.pageCount-1;
+  pageSlots[index]?.replaceChildren(sheet);
+  mountedPages.add(index);
+  if(paperEdit?.pageIndex===index)positionPaperEditor();
+}
+let pageSlots:HTMLElement[]=[];
+let pageObserver:IntersectionObserver|undefined;
+const nearbyPages=new Set<number>(),mountedPages=new Set<number>();
+const pageLoads=new Map<number,Promise<boolean>>();
+function resetPreviewPages(){
+  pendingPage?.abort();pendingPage=undefined;
+  pageObserver?.disconnect();pageObserver=undefined;
+  nearbyPages.clear();mountedPages.clear();pageLoads.clear();pageSlots=[];
+}
+function reportPage(index:number){
+  if(!preview)return;
+  pageIndex=index;
+  q('page-number').textContent=(index+1)+' / '+preview.pageCount;
+  jump.value=String(index+1);jump.max=String(preview.pageCount);jump.disabled=false;
+  previous.disabled=index===0;next.disabled=index===preview.pageCount-1;
+  prunePages();
+}
+function prunePages(){
+  if(!pageObserver)return;
+  for(const index of mountedPages){
+    if(nearbyPages.has(index)||index===pageIndex||index===paperEdit?.pageIndex)continue;
+    pageSlots[index]?.replaceChildren();mountedPages.delete(index);
+  }
+}
+function pumpPages(){
+  if(!showingPreview)return;
+  for(const index of [...nearbyPages].sort((a,b)=>Math.abs(a-pageIndex)-Math.abs(b-pageIndex))){
+    if(pageLoads.size>=2)break;
+    if(!pageSlots[index]?.childElementCount)void ensurePage(index);
+  }
+}
+function ensurePage(index:number):Promise<boolean>{
+  const slot=pageSlots[index],result=preview,controller=pendingPage;
+  if(!slot||!result||!controller)return Promise.resolve(false);
+  if(slot.childElementCount)return Promise.resolve(true);
+  const ongoing=pageLoads.get(index);
+  if(ongoing)return ongoing;
+  const run=(async()=>{
+    try{
+      let page=result.paged?(index===(result.pageIndex??0)?result.pages[0]:undefined):result.pages[index];
+      if(!page){
+        const route=result.previewId?'/preview-runs/'+encodeURIComponent(result.previewId)+'/pages/'+index:'/preview-pages/'+result.revision+'/'+index;
+        const response=await fetch(endpoint+route,{signal:AbortSignal.any([controller.signal,AbortSignal.timeout(15000)])});
+        const data=await response.json();
+        if(!response.ok||data.revision!==result.revision||data.index!==index||!data.page)throw Error('Page unavailable');
+        page=data.page as DrawPage;
+      }
+      await readyImages(page,result.previewId);
+      if(preview!==result||controller.signal.aborted||!showingPreview)return false;
+      showPage(page,index);
+      return true;
+    }catch{
+      if(!controller.signal.aborted&&preview===result){
+        nearbyPages.delete(index);
+        const retry=button('ลองเปิดหน้า '+(index+1)+' อีกครั้ง',()=>{slot.replaceChildren();void ensurePage(index);});
+        retry.className='preview-page-retry';slot.replaceChildren(retry);
+      }
+      return false;
+    }
+  })();
+  pageLoads.set(index,run);
+  void run.finally(()=>{
+    if(preview===result&&pageLoads.get(index)===run){pageLoads.delete(index);pumpPages();}
+  });
+  return run;
+}
+function mountPreview(result:Preview,focusPage?:number){
+  const prior=preview,oldIndex=pageIndex;
+  resetPreviewPages();
+  pendingPage=new AbortController();
+  preview=result;
+  const start=result.pageIndex??0,selected=focusPage??start;
+  const initial=result.pages[0];
+  const sections:HTMLElement[]=[];
+  for(let i=0;i<result.pageCount;i++){
+    const data=result.pageSizes?.[i]??[result.pages[i]?.widthPt??initial.widthPt,result.pages[i]?.heightPt??initial.heightPt,''];
+    const page=element('section');page.className='preview-page';page.dataset.pageIndex=String(i);
+    const label='หน้า '+(i+1)+(data[2]?' · '+data[2]:'');
+    page.setAttribute('aria-label',label);
+    const caption=element('p',label);caption.className='preview-page-label';
+    const sheet=element('div');sheet.className='preview-page-sheet';sheet.style.aspectRatio=data[0]+'/'+data[1];
+    sheet.dataset.pageIndex=String(i);page.append(caption,sheet);
+    pageSlots.push(sheet);sections.push(page);
+  }
+  previewPaper.replaceChildren(...sections);
+  previewPaper.dataset.revision=String(result.revision);
+  if(result.previewId)previewPaper.dataset.run=result.previewId;
+  if(paperEdit)paperEdit.pageIndex=selected;
+  showPage(initial,start);
+  reportPage(selected);
+  if(selected!==start)void ensurePage(selected);
+  if(prior&&selected!==oldIndex)pageSlots[selected]?.parentElement?.scrollIntoView({block:'start'});
+  const activeObserver=new IntersectionObserver(entries=>{
+    if(preview!==result||pageObserver!==activeObserver)return;
+    for(const entry of entries){
+      const index=Number((entry.target as HTMLElement).dataset.pageIndex);
+      if(entry.isIntersecting)nearbyPages.add(index);
+      else nearbyPages.delete(index);
+    }
+    prunePages();pumpPages();
+  },{rootMargin:'600px 0px'});
+  pageObserver=activeObserver;
+  for(const slot of pageSlots)activeObserver.observe(slot);
 }
 async function goPage(index:number,stillCurrent=()=>true){
-  if(!preview||index<0||index>=preview.pageCount||index===pageIndex)return;
-  const current=preview, revision=current.revision;
-  pendingPage?.abort();
-  const controller=new AbortController();pendingPage=controller;
-  try{
-    let page=current.paged?(index===(current.pageIndex??0)?current.pages[0]:undefined):current.pages[index];
-    if(current.paged&&!page){
-      const route=current.previewId?'/preview-runs/'+encodeURIComponent(current.previewId)+'/pages/'+index:'/preview-pages/'+revision+'/'+index;
-      const response=await fetch(endpoint+route,
-        {signal:AbortSignal.any([controller.signal,AbortSignal.timeout(15000)])});
-      const data=await response.json();
-      if(!response.ok||data.revision!==revision||data.index!==index||!data.page)throw Error('Page unavailable');
-      page=data.page;
-    }
-    if(!page)throw Error('Page unavailable');
-    await readyImages(page,current.previewId);
-    if(pendingPage!==controller||preview!==current||!stillCurrent()||!showingPreview)return;
-    pageIndex=index;showPage(page);
-    previewStatus.textContent='Core '+current.engineVersion+' · Revision '+revision+' · '+current.pageCount+' หน้า';
-  }catch{
-    if(!controller.signal.aborted)previewStatus.textContent='เปิดหน้านี้ไม่ได้ ลองจัดหน้าใหม่';
-  }finally{if(pendingPage===controller)pendingPage=undefined;}
+  const result=preview,slot=pageSlots[index];
+  if(!result||!slot)return false;
+  if(!await ensurePage(index)||preview!==result||!stillCurrent())return false;
+  slot.parentElement?.scrollIntoView({block:'start'});
+  reportPage(index);
+  return true;
 }
+let trackPageFrame=0;
+window.addEventListener('scroll',()=>{
+  if(!showingPreview||!preview||trackPageFrame)return;
+  trackPageFrame=requestAnimationFrame(()=>{
+    trackPageFrame=0;
+    let best=pageIndex,distance=Infinity;
+    for(const index of nearbyPages){
+      const box=pageSlots[index]?.getBoundingClientRect();
+      if(!box||box.bottom<0||box.top>window.innerHeight)continue;
+      const score=Math.abs((box.top+box.bottom)/2-window.innerHeight/2);
+      if(score<distance){distance=score;best=index;}
+    }
+    if(best!==pageIndex)reportPage(best);
+  });
+},{passive:true});
 
 async function loadPreview(trial?:Trial,current=()=>true) {
   if(!draft||pendingPreview||!showingPreview||isDirty())return;
@@ -1453,9 +1642,7 @@ async function loadPreview(trial?:Trial,current=()=>true) {
     if(pendingPreview!==request||!current()||draft.revision!==revision||!showingPreview)return;
     const desired=trial?.focus&&paperEdit&&paperEdit.occurrence!==trial.focus.occurrence
       ?Math.min(pageIndex,data.pageCount-1):undefined;
-    preview=data;pageIndex=data.pageIndex??0;
-    if(desired!==undefined&&desired!==pageIndex)await goPage(desired,current);
-    else showPage(data.pages[0]);
+    mountPreview(data,desired);
     if(!current()||pendingPreview!==request)return;
     previewStatus.textContent='Core '+data.engineVersion+' · Revision '+revision+' · '+data.pageCount+' หน้า';
     afterPaint('flowdoc:engine-preview',started,{revision,pageCount:data.pageCount,engineMs:data.engineMs,renderMs:data.renderMs,layoutHash:data.layoutHash,renderPath:data.renderPath});
@@ -1494,8 +1681,8 @@ function openPreview(){
 function changeMode(toPreview: boolean) {
   showingPreview=toPreview;previewPanel.hidden=!toPreview;editor.hidden=toPreview;
   defineTab.setAttribute('aria-pressed',String(!toPreview));previewTab.setAttribute('aria-pressed',String(toPreview));
-  if(toPreview)openPreview();
-  if(!toPreview){closePaperEdit();pendingPage?.abort();pendingPage=undefined;}
+  if(toPreview){openPreview();pumpPages();}
+  if(!toPreview)closePaperEdit();
   if(!toPreview&&pendingPreview){
     cancelPreview();refreshPreview.disabled=false;
     if(!benchmark)previewStatus.textContent='กำลังรอเปิดกระดาษทดลอง';

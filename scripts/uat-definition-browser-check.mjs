@@ -36,7 +36,7 @@ try{
   await mkdir(output,{recursive:true});
   await page.goto(base+'/library.html?phase1=1');
   await page.locator('[data-doc-key=stage6-uat-editor-phase1]').getByRole('button',{name:/^เปิดแก้ไข UAT/}).click();
-  const sectionControl=page.locator('#format-switcher .definition-section-control');
+  const sectionControl=page.locator('.definition-section-tools .definition-section-control');
   await sectionControl.waitFor();
   assert.equal(apiCalls.length,2);
   assert.ok(apiCalls.every(call=>call.method==='GET'&&!call.path.includes('preview')));
@@ -48,7 +48,7 @@ try{
   assert.match(await page.locator('#paper .definition-format').textContent(),/^cover/);
   const box=await page.locator('#paper .definition-sheet').evaluate(sheet=>({
     width:sheet.getBoundingClientRect().width,height:sheet.getBoundingClientRect().height,
-    top:sheet.querySelector('.definition-band').style.top,margin:getComputedStyle(sheet.querySelector('.definition-body')).left
+    top:sheet.querySelector('.definition-band').style.top,margin:getComputedStyle(sheet.querySelector('.definition-body')).paddingLeft
   }));
   assert.ok(Math.abs(box.height/box.width-841.89/595.276)<.05,JSON.stringify(box));
   assert.ok(Math.abs(parseFloat(box.margin)/box.width-36/595.276)<.003,JSON.stringify(box));
@@ -71,8 +71,8 @@ try{
   await token.focus();await page.keyboard.press('Enter');
   assert.match(await page.locator('#tree [aria-current=true]').textContent(),/menu/);
   assert.match(await page.locator('#variable-detail').textContent(),/members\[\].*menu/);
-  await page.locator('#variable-panel > summary').click();
-  await page.locator('#variables [data-variable-scope=local][data-variable-path="totals[].pass"]').click();
+  if(await page.locator('#variable-panel').getAttribute('open')===null)await page.locator('#variable-panel > summary').click();
+  await page.locator('#variables .scope').filter({has:page.getByText('Format · summary-dynamic',{exact:true})}).locator('[data-variable-path="totals[].pass"]').click();
   assert.match(await page.locator('#variable-detail').textContent(),/totals\[\]\.pass/);
   await token.click();
   assert.match(await page.locator('#variable-detail').textContent(),/members\[\].*menu/);

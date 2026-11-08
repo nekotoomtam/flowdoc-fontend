@@ -170,6 +170,9 @@ try {
       if(!layout.ok)return {status:422,body:layout};
       const draw=layout.value;
       const engineMs=performance.now()-engineStarted;
+      const sections=new Map(resolved.sections.map(section=>[section.sectionId,section.sectionKey]));
+      const labels=new Map(draft.definition.sections.map(section=>[section.sectionKey,section.label]));
+      const pageSizes=draw.pages.map(({widthPt,heightPt,sectionId})=>[widthPt,heightPt,labels.get(sections.get(sectionId))??'']);
       if(assets){
         const paths=await glyphPaths(draw,resources);
         const cache={revision:draft.revision,fingerprint:draft.fingerprint,draw,paths,fonts:Object.keys(paths)};
@@ -188,7 +191,7 @@ try {
         const first=projectOriginalPage(cache,pageIndex);
         const layoutHash=hash(draw.pages);
         cache.header={revision:cache.revision,fingerprint:cache.fingerprint,pages:[first],pageIndex,paged:true,
-          pageCount:draw.pages.length,layoutHash,renderPath:'engine-layout',engineMs,renderMs:performance.now()-started,
+          pageCount:draw.pages.length,pageSizes,layoutHash,renderPath:'engine-layout',engineMs,renderMs:performance.now()-started,
           engineVersion:rendererIdentity.version,
           ...(fixture?{entryCount:fixture.entryCount,imagePlacements:fixture.placements}:{})};
         if(custom){
@@ -217,7 +220,7 @@ try {
         })};
       });
       return {status:200,body:{revision:draft.revision,fingerprint:draft.fingerprint,pages,
-        pageCount:draw.pages.length,layoutHash:hash(pages),renderPath:'engine-layout',engineMs,
+        pageCount:draw.pages.length,pageSizes,layoutHash:hash(pages),renderPath:'engine-layout',engineMs,
         renderMs:performance.now()-started,engineVersion:rendererIdentity.version}};
     } finally { previewBusy = false; }
   }

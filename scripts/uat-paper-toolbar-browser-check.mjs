@@ -38,7 +38,7 @@ try{
   const orderTools=page.locator('#paper-order');
   assert.equal(await orderTools.getByRole('button',{name:'เลื่อนขึ้น',exact:true}).count(),0);
   assert.equal(await page.locator('#advanced-details').getAttribute('open'),null);
-  assert.equal(await page.locator('#variable-panel').getAttribute('open'),null);
+  assert.notEqual(await page.locator('#variable-panel').getAttribute('open'),null);
   assert.equal(await tree.locator('[data-kind=format]').count(),0);
   assert.ok(await paper.getByRole('button',{name:'เลือกตาราง 1',exact:true}).isVisible());
   await photo('08-quiet-editor-on-open');
@@ -116,7 +116,7 @@ try{
 
   await tree.locator('[data-kind=format]').getByText('cover',{exact:true}).click();
   const variables=page.locator('#variables');
-  await page.locator('#variable-panel > summary').click();
+  if(await page.locator('#variable-panel').getAttribute('open')===null)await page.locator('#variable-panel > summary').click();
   await command('เพิ่มเติม','นิยามตัวแปร');
   assert.match(await dialog.getByRole('heading').textContent(),/ตัวแปร.*cover/);
   await dialog.getByRole('button',{name:'+ เพิ่มตัวแปร',exact:true}).click();

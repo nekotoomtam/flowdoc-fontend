@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {readFile,mkdir,writeFile} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {chromium} from '@playwright/test';
+import {visualValue} from '../src/editor-visual-authoring.ts';
 
 const base=process.env.FLOWDOC_PHASE1_URL??'http://127.0.0.1:5175';
 const reference=process.env.FLOWDOC_UAT_DEFINITION;
@@ -33,12 +34,99 @@ async function form(values){
   }
   await id('structure-form').getByRole('button',{name:'ยืนยัน',exact:true}).click();
 }
-async function component(label,value){
-  const advanced=id('actions').locator('.authoring-advanced');
-  if(!await advanced.evaluate(e=>e.open))await advanced.locator('summary').click();
-  await advanced.getByRole('button',{name:label,exact:true}).click();
-  await form({definition:JSON.stringify(value)});
-  await id('structure-dialog').waitFor({state:'hidden'});
+async function component(label,part,value){
+  try{await act(label).click();}catch(cause){console.error({label,selection:await id('selection').textContent(),actions:await id('actions').textContent(),errors});throw cause;}
+  const dialog=id('visual-definition-dialog');
+  await dialog.waitFor();
+  assert.equal(await dialog.locator('textarea, [name=definition]').count(),0);
+  const visual=visualValue(part,value);
+  // Interact only with actual form elements. Reference values never enter application state directly.
+  const filled=await dialog.locator('.visual-form-body > [data-visual-kind]').evaluate((root,value)=>{
+    const find=(parent,selector)=>parent.querySelector(':scope > '+selector);
+    let edits=0;
+    function set(input,value){
+      const checked=input.type==='checkbox';
+      if(input.disabled)return;
+      if(checked){if(input.checked!==value)input.click();}
+      else {
+        input.focus();
+        input.value=String(value);
+        if(input.value!==String(value))throw Error('Unavailable control value '+value);
+        input.dispatchEvent(new Event('input',{bubbles:true}));
+        input.dispatchEvent(new Event('change',{bubbles:true}));
+      }
+      edits++;
+    }
+    function fill(control,value,path){
+      if(!control)throw Error('Missing control '+path);
+      switch(control.dataset.visualKind){
+        case 'object': {
+          const fields=Array.from(control.children);
+          for(const wrapper of fields){
+            const key=wrapper.dataset.visualField;
+            const v=value[key];
+            const input=wrapper.querySelector(':scope > label > [data-visual-present]');
+            if(input)set(input,v!==undefined);
+            if(v!==undefined)fill(find(wrapper,'[data-visual-kind]'),v,path+'.'+key);
+          }
+          break;
+        }
+        case 'choice': {
+          const select=find(control,'[data-visual-choice]');
+          const tag=typeof value==='object'?(value.type??'variable'):'literal';
+          set(select,tag);
+          fill(find(find(control,'[data-visual-choice-body]'),'[data-visual-kind]'),value,path+'.'+tag);
+          break;
+        }
+        case 'list': {
+          const rows=find(control,'[data-visual-rows]');
+          const keyed=!Array.isArray(value);
+          const existing=new Map(Array.from(rows.children,row=>[row.querySelector(':scope > div > label > [data-visual-key]')?.value,row]));
+          for(const row of Array.from(rows.children)){
+            if(keyed&&Object.hasOwn(value,row.querySelector(':scope > div > label > [data-visual-key]')?.value??''))continue;
+            row.querySelector(':scope > div > .visual-row-actions > [data-visual-remove]').click();
+          }
+          for(const [key,entry] of Object.entries(value)){
+            let row=keyed?existing.get(key):null;
+            if(!row){find(control,'[data-visual-add]').click();row=rows.lastElementChild;}
+            row.open=true;
+            const body=find(row,'div');
+            if(keyed)set(body.querySelector(':scope > label > [data-visual-key]'),key);
+            fill(find(body,'[data-visual-kind]'),entry,path+'['+key+']');
+            row.open=false;
+          }
+          break;
+        }
+        default:set(find(control,'[data-visual-value]'),value);
+      }
+    }
+    fill(root,value,'definition');
+    return edits;
+  },visual);
+  assert.ok(filled>0,part);
+  if(part==='styles'){
+    const row=dialog.locator('[data-visual-row]').first();
+    await row.locator(':scope > summary').click();
+    const field=row.locator('[data-visual-field=releaseId]');
+    await field.locator('[data-visual-value]').fill('');
+    await field.getByRole('button',{name:'เลือกจากรายการ'}).click();
+    const release=Object.values(value)[0].font.releaseId;
+    const picker=field.locator('[data-picker-options] select');
+    assert.match(await picker.locator('option[value="'+release+'"]').textContent(),/Sarabun/);
+    await picker.selectOption(release);
+    await photo('03-styles-from-font-library');
+  }
+  if(part==='format'&&value.rowGroups?.length){
+    await dialog.locator('[data-visual-field=rowGroups] [data-visual-row]').first().locator(':scope > summary').click();
+    const field=dialog.locator('[data-visual-field=rowGroups] [data-visual-field=emptyRowTemplateId]');
+    const expected=value.rowGroups[0].memberRepeat.emptyRowTemplateId;
+    await field.locator('[data-visual-value]').fill('');
+    await field.getByRole('button',{name:'เลือกจากรายการ'}).click();
+    await field.locator('[data-picker-options] select').selectOption(expected);
+    await photo('04-repeat-group-controls');
+  }
+  await dialog.getByRole('button',{name:'ใช้กับโครงเอกสาร',exact:true}).click();
+  if(await dialog.isVisible()){await photo('failed-form');throw Error(part+': '+await dialog.locator('.visual-error').textContent());}
 }
 function comparable(definition){
   const d=structuredClone(definition);
@@ -66,8 +154,8 @@ try{
   await start.waitFor();
   assert.equal(calls.filter(c=>c.method==='POST').length,0);
   await photo('01-blank-setup');
-  const name='UAT สร้างจากศูนย์ '+mark;
-  const values={name,key:'uat-zero-'+mark,section:source.label,size:actualPage.size,orientation:actualPage.orientation,
+  const name='UAT สร้างด้วยปุ่ม '+mark;
+  const values={name,key:'uat-visual-'+mark,section:source.label,size:actualPage.size,orientation:actualPage.orientation,
     ...Object.fromEntries(Object.entries(actualPage.margin).map(([side,length])=>[side,length.value]))};
   for(const [key,value] of Object.entries(values)){
     const field=start.locator('[name="'+key+'"]');
@@ -97,32 +185,25 @@ try{
   assert.equal(await id('tree').locator('[data-kind=format]').count(),1);
   await photo('03-first-area');
 
-  // Enter complex authored sections individually. The editor never loads the reference.
   await byKind('section').click();
-  await component('ตัวแปรทั้งเอกสาร',original.globalSchema);
-  await component('สไตล์เอกสาร',original.styles);
-  await component('กฎของ Section',Object.fromEntries(Object.entries(source).filter(([key])=>['nameBase','numbering','headerMode','footerMode','role'].includes(key))));
+  await component('ตัวแปรทั้งเอกสาร','globalSchema',original.globalSchema);
+  await component('สไตล์เอกสาร','styles',original.styles);
+  await component('กฎของ Section','section-settings',Object.fromEntries(Object.entries(source).filter(([key])=>['nameBase','numbering','headerMode','footerMode','role'].includes(key))));
+  await component('ตัวแปรของ Section','section-schema',source.inputSchema);
   const areaButton=byKind('area');
-  const areaRef=JSON.parse(await areaButton.getAttribute('data-ref'));
-  await byKind('header').click();await component('นิยามเฉพาะหัว–ท้าย',source.header);
-  await byKind('footer').click();await component('นิยามเฉพาะหัว–ท้าย',source.footer);
+  await byKind('header').click();await component('จัดเนื้อหาและรูปแบบหัว–ท้าย','band',source.header);
+  await byKind('footer').click();await component('จัดเนื้อหาและรูปแบบหัว–ท้าย','band',source.footer);
   const formats=Object.values(original.areaFormats);
   for(const f of formats){
     if(f.key==='cover')await tree('format','cover').click();
     else {await areaButton.click();await act('+ เพิ่ม Format').click();await form({key:f.key});}
     assert.equal(await id('selection').textContent(),f.label??f.key);
     const {key,ownerAreaId,...part}=f;
-    await component('นิยามเฉพาะ Format',part);
+    await component('จัดเนื้อหา ตัวแปร และการวนแถว','format',part);
+    console.log('Authored '+key);
   }
   await byKind('section').click();
-  const advanced=id('actions').locator('.authoring-advanced');
-  await advanced.locator('summary').click();
-  await advanced.getByRole('button',{name:'ตัวแปรของ Section',exact:true}).click();
-  const currentSchema=JSON.parse(await id('structure-form').locator('[name=definition]').inputValue());
-  await form({definition:JSON.stringify({...source.inputSchema,fields:{...source.inputSchema.fields,
-    parts:{...source.inputSchema.fields.parts,areaId:currentSchema.fields.parts.areaId}}})});
-  assert.equal(await id('tree').locator('[data-kind=format]').count(),14);
-  assert.ok(areaRef[3]);
+assert.equal(await id('tree').locator('[data-kind=format]').count(),14);
   const response=page.waitForResponse(r=>r.request().method()==='POST'&&r.url().endsWith('/api/editor-phase1/drafts'));
   await page.getByRole('button',{name:'บันทึกโครง',exact:true}).click();
   const saved=await response,reply=await saved.json();
@@ -130,7 +211,9 @@ try{
   assert.equal(reply.value.revision,1);
   assert.deepEqual(comparable(reply.value.definition),comparable(original));
   await page.goto(base+'/library.html?phase1=1');
+  const read=page.waitForResponse(r=>r.request().method()==='GET'&&r.url().endsWith('/drafts/'+reply.value.templateId));
   await page.getByRole('button',{name:'เปิดแก้ไข '+name,exact:true}).click();
+  assert.deepEqual(comparable((await (await read).json()).value.definition),comparable(original));
   await id('tree').locator('[data-kind=format]').first().waitFor();
   assert.equal(await id('tree').locator('[data-kind=format]').count(),14);
   assert.match(await id('revision').textContent(),/Revision 1/);
@@ -145,7 +228,7 @@ try{
     formatNodes:formats.reduce((n,f)=>n+Object.keys(f.fragment.nodes).length,0),
     identityNormalization:['templateId','docKey','name','pageLayoutId','section id','areaId','area placement node id','Format map IDs'],
     equivalentModel20Definition:true,createdFromBlank:true,reopenedFromCatalog:true,
-    complexPartsEnteredThroughScopedJson:true,generationRequests:0};
+    complexPartsEnteredThroughVisualControls:true,advancedJson:false,generationRequests:0};
   await writeFile(join(output,'creation-verification.json'),JSON.stringify(result,null,2)+'\n');
   console.log(JSON.stringify(result));
 }finally{await browser.close();}

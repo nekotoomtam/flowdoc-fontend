@@ -1,6 +1,7 @@
 import './phase1-editor.css';
 import {addBand,addVariable,applyPart,changePage,newDefinition,partValue,settings} from './editor-creation';
 import type {Part} from './editor-creation';
+import {openVisualAuthoring} from './editor-visual-authoring';
 
 import {applyStructureChange, groupSources, refKey} from './editor-structure';
 import type {Band, Change, Definition, DocNode, Format, Fragment, Host, Inline, Length, Ref, Schema, Section} from './editor-structure';
@@ -485,14 +486,14 @@ function showDraft(data: Draft, keep?: Ref) {
   document.body.dataset.revision=String(data.revision);
 }
 const dialog=q<HTMLDialogElement>('structure-dialog'), actionForm=q<HTMLFormElement>('structure-form');
-type FormField={key:string;label:string;options?:[string,string][];value?:string;multiline?:boolean};
+type FormField={key:string;label:string;options?:[string,string][];value?:string};
 function ask(title:string, fields:FormField[], run:(values:Record<string,string>)=>void, note?:string){
   actionForm.replaceChildren(element('h2',title));
   if(note)actionForm.append(element('p',note));
-  const controls=new Map<string,HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>();
+  const controls=new Map<string,HTMLInputElement|HTMLSelectElement>();
   for(const field of fields){
     const label=element('label',field.label);
-    const control=field.options?element('select'):field.multiline?element('textarea'):element('input');
+    const control=field.options?element('select'):element('input');
     control.required=true;control.name=field.key;
     if(control instanceof HTMLSelectElement)for(const [value,text] of field.options??[]){
       const option=element('option',text);option.value=value;control.append(option);
@@ -547,10 +548,33 @@ function askVariable(at:Ref,scope:'global'|'section'|'local'|'header'|'footer',l
     {key:'required',label:'การส่งค่า',options:[['no','ไม่บังคับ'],['yes','บังคับ']]}],
     v=>stageDefinition(addVariable(draft.definition,at,scope,v),at,'variable'));
 }
-function editPart(at:Ref,part:Part,label:string){
-  ask(label,[{key:'definition',label:'นิยามเฉพาะส่วนนี้ (JSON)',multiline:true,value:JSON.stringify(partValue(draft.definition,at,part),null,2)}],
-    v=>stageDefinition(applyPart(draft.definition,at,part,JSON.parse(v.definition)),at,'part'),
-    'ใช้สำหรับรายละเอียดขั้นสูงของส่วนที่เลือก เช่น การวนแถว ตัวแปรซ้อน หรือสไตล์');
+type FontOption={releaseId:string;familyName:string;version:number;faces:{weight:number;style:string}[]};
+let fontCatalog:Promise<FontOption[]>|undefined;
+function listFonts(){
+  return fontCatalog??=fetch('/api/editor-phase1/fonts').then(async response=>{
+    if(!response.ok)throw Error('เปิดคลังฟอนต์ไม่ได้');
+    const body=await response.json();
+    return body.value.releases as FontOption[];
+  }).catch(()=>{fontCatalog=undefined;return [];});
+}
+async function editPart(at:Ref,part:Part,label:string){
+  const fonts=part==='styles'?await listFonts():[];
+  if(isSaving||hasConflict)return;
+  const section=draft.definition.sections.find(s=>s.id===at.sectionId)!;
+  const variables=new Set<string>();
+  function names(schema:Schema|undefined){
+    for(const [key,field] of Object.entries(schema?.fields??{})){
+      variables.add(key);
+      if(field.items)names(field.items);
+    }
+  }
+  for(const schema of [draft.definition.globalSchema,section.inputSchema,section.header?.inputSchema,
+    section.footer?.inputSchema,draft.definition.areaFormats?.[at.formatId??'']?.inputSchema])names(schema);
+  openVisualAuthoring(q<HTMLDialogElement>('visual-definition-dialog'),part,label,partValue(draft.definition,at,part),{
+    font:fonts.map(font=>({value:font.releaseId,label:font.familyName+' · '+font.version+' · '+font.faces.map(face=>face.weight+' '+face.style).join(', ')})),
+    style:Object.keys(draft.definition.styles).map(key=>({value:key,label:key})),
+    variable:[...variables].map(key=>({value:key,label:key})),
+  },value=>stageDefinition(applyPart(draft.definition,at,part,value),at,'part'));
 }
 function paperSettings(item:Outline){
   const at=item.ref;
@@ -669,12 +693,12 @@ function showActions(item:Outline){
     });
   }
   if(creationMode()){
-    const advanced=element('details');advanced.className='authoring-advanced';advanced.append(element('summary','นิยามขั้นสูง'));
-    const part=(key:Part,label:string)=>{const control=button(label,()=>editPart(at,key,label));control.disabled=isSaving||hasConflict;advanced.append(control);};
+    const group=element('div');group.className='visual-authoring-actions';
+    const part=(key:Part,label:string)=>{const control=button(label,()=>editPart(at,key,label));control.disabled=isSaving||hasConflict;group.append(control);};
     if(item.type==='section'){part('globalSchema','ตัวแปรทั้งเอกสาร');part('section-schema','ตัวแปรของ Section');part('styles','สไตล์เอกสาร');part('section-settings','กฎของ Section');}
-    if(item.type==='format')part('format','นิยามเฉพาะ Format');
-    if(item.type==='header'||item.type==='footer')part('band','นิยามเฉพาะหัว–ท้าย');
-    if(advanced.childElementCount>1)actions.append(advanced);
+    if(item.type==='format')part('format','จัดเนื้อหา ตัวแปร และการวนแถว');
+    if(item.type==='header'||item.type==='footer')part('band','จัดเนื้อหาและรูปแบบหัว–ท้าย');
+    if(group.childElementCount)actions.append(group);
   }
   if(item.type!=='table-cell'){
     add('ลบรายการนี้',()=>ask('ลบ '+item.label,[],()=>stage({kind:'delete',at}),

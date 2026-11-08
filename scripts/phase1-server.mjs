@@ -193,6 +193,19 @@ try {
   }
   async function dispatch(packet) {
     if(packet.action==='create')return createDraft(packet.body);
+    if(packet.action==='fonts'){
+      const releases=[];
+      let cursor;
+      do {
+        const result=await app.inject({method:'GET',url:'/authoring/fonts?limit=100'+(cursor?'&cursor='+encodeURIComponent(cursor):''),
+          headers:{authorization:'Bearer '+token}});
+        if(result.statusCode!==200)return {status:result.statusCode,body:result.json()};
+        const value=take(result.json());
+        releases.push(...value.releases);
+        cursor=value.nextCursor;
+      }while(cursor);
+      return {status:200,body:{value:{releases}}};
+    }
     if (packet.action === 'catalog') {
       const {rows} = await pool.query(
         'SELECT t.id AS "templateId", t.doc_key AS "docKey", t.name, c.revision, c.updated_at AS "updatedAt" ' +

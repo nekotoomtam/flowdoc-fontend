@@ -99,7 +99,7 @@ export function partValue(definition:Definition,at:Ref,part:Part):unknown{
   return Object.fromEntries(Object.entries(format).filter(([key])=>!['key','ownerAreaId'].includes(key)));
 }
 export function applyPart(source:Definition,at:Ref,part:Part,input:unknown){
-  if(!object(input))return invalid('กรอกนิยามส่วนนี้เป็น JSON object');
+  if(!object(input))return invalid('นิยามส่วนนี้ไม่ครบ');
   const definition=structuredClone(source);
   const section=definition.sections.find(s=>s.id===at.sectionId)??invalid('ไม่พบ Section');
   if(part==='globalSchema')definition.globalSchema=schema(input);
@@ -114,6 +114,8 @@ export function applyPart(source:Definition,at:Ref,part:Part,input:unknown){
     section.inputSchema=next;
   }else if(part==='section-settings'){
     for(const key of Object.keys(input))if(!['nameBase','numbering','headerMode','footerMode','role'].includes(key))invalid('ตั้งค่าเฉพาะ Section นี้');
+    for(const key of ['numbering','headerMode','footerMode','role'] as const)
+      if(!Object.hasOwn(input,key))delete section[key];
     Object.assign(section,input);
   }else if(part==='band'){
     const kind=at.band??invalid('เลือกหัวหรือท้ายกระดาษ');

@@ -64,6 +64,7 @@ export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1'}={
       const assetRoute=/^\/drafts\/([^/]+)\/preview-assets\/([a-f0-9-]+)$/.exec(req.url??'');
       let action,templateId,body;
       if(req.method==='GET'&&req.url==='/catalog')action='catalog';
+      else if(req.method==='GET'&&req.url==='/fonts')action='fonts';
       else if(req.method==='POST'&&req.url==='/drafts')action='create';
       else if(match&&uuid.test(match[1])){
         templateId=match[1];

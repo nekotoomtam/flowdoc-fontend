@@ -110,7 +110,7 @@ const font=()=>object({kind:field('แหล่งฟอนต์',()=>select('l
   style:field('ลักษณะ',()=>select('normal','italic'),true)});
 const textStyle=()=>object({font:field('ฟอนต์',font),fontSize:len('ขนาด',false),lineHeightPt:field('ความสูงบรรทัด (pt)',()=>number(18))});
 const forms:Record<string,()=>Form>={
-  globalSchema:schema,'section-schema':schema,
+  globalSchema:schema,'section-schema':schema,'format-schema':schema,'band-schema':schema,
   styles:()=>list('เพิ่มสไตล์ข้อความ',textStyle,true),
   'section-settings':()=>object({nameBase:field('ชื่อพื้นฐาน',text),
     role:field('ประเภท Section',()=>select('body','cover'),true),

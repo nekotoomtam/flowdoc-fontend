@@ -8,7 +8,7 @@ const object=(x:unknown):x is Record<string,unknown>=>x!==null&&typeof x==='obje
 const invalid=(message:string):never=>{throw Error(message);};
 const idPattern=/^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 export type PaperSettings={size:string;orientation:string;margin:Record<Edge,Length>};
-export type Part='globalSchema'|'styles'|'section-settings'|'section-schema'|'format'|'band';
+export type Part='globalSchema'|'styles'|'section-settings'|'section-schema'|'format-schema'|'band-schema'|'format'|'band';
 export function settings(values:Record<string,string>):PaperSettings{
   if(!['A4','Letter'].includes(values.size)||!['portrait','landscape'].includes(values.orientation))
     invalid('เลือกขนาดและแนวกระดาษ');
@@ -91,6 +91,8 @@ export function partValue(definition:Definition,at:Ref,part:Part):unknown{
   const section=definition.sections.find(s=>s.id===at.sectionId)!;
   if(part==='globalSchema'||part==='styles')return definition[part];
   if(part==='section-schema')return section.inputSchema;
+  if(part==='format-schema')return definition.areaFormats![at.formatId!]!.inputSchema;
+  if(part==='band-schema')return section[at.band!]!.inputSchema;
   if(part==='section-settings'){
     return Object.fromEntries(Object.entries(section).filter(([key])=>['nameBase','numbering','headerMode','footerMode','role'].includes(key)));
   }
@@ -112,6 +114,10 @@ export function applyPart(source:Definition,at:Ref,part:Part,input:unknown){
       if(field.type==='area'&&(next.fields[key]?.type!=='area'||next.fields[key].areaId!==field.areaId))
         invalid('จัดการความสัมพันธ์ของ Area จากกระดาษ');
     section.inputSchema=next;
+  }else if(part==='format-schema'){
+    definition.areaFormats![at.formatId!]!.inputSchema=schema(input);
+  }else if(part==='band-schema'){
+    section[at.band!]!.inputSchema=schema(input);
   }else if(part==='section-settings'){
     for(const key of Object.keys(input))if(!['nameBase','numbering','headerMode','footerMode','role'].includes(key))invalid('ตั้งค่าเฉพาะ Section นี้');
     for(const key of ['numbering','headerMode','footerMode','role'] as const)

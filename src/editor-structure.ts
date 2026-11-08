@@ -117,6 +117,10 @@ function plainTable(host:Host,f:Fragment,table:DocNode){
   return staticHorizontalTable(host,f,table)&&(table.rowIds??[]).every(id=>
     f.nodes[id].cellIds!.every(cell=>(f.nodes[cell].props?.colSpan??1)===1));
 }
+export function canAddPlainRows(definition:Definition,at:Ref){
+  const {host,node,fragment}=resolve(definition,at);
+  return Boolean(node?.type==='table'&&fragment&&plainTable(host,fragment,node));
+}
 export function groupSources(def:Definition,at:Ref){
   const {section,format}=resolve(def,at);
   const scopes=[['global',def.globalSchema],['section',section.inputSchema],['local',format?.inputSchema]] as const;
@@ -210,6 +214,30 @@ function reorder<T>(list:T[],item:T,delta:number,min=0){
   const i=list.indexOf(item),next=i+delta;
   if(i<0||next<min||next>=list.length)fail('ถึงขอบเขตที่ย้ายได้แล้ว');
   [list[i],list[next]]=[list[next],list[i]];
+}
+function nodeReorder(host:Host,fragment:Fragment,node:DocNode,list:string[],delta:-1|1){
+  canDetach(host,fragment,node);
+  const parent=owner(fragment,node.id);
+  reorder(list,node.id,delta,parent?.type==='table'?(parent.props?.headerRowCount??0):0);
+  if(fragment.rootIds.includes(node.id)&&
+    list.slice(0,-1).some(id=>fragment.nodes[id].props?.verticalAlign==='bottom'))
+    fail('Area ท้ายหน้าต้องอยู่ท้าย Section');
+}
+export function structureOrder(definition:Definition,at:Ref){
+  if(at.part)return;
+  const {node,fragment,host,format}=resolve(definition,at);
+  if(!node&&(format||at.band))return;
+  const ids=node&&fragment?nodeList(fragment,node.id):definition.sections.map(section=>section.id);
+  const id=node?.id??at.sectionId;
+  const check=(delta:-1|1)=>{
+    try{
+      const copy=[...ids];
+      if(node&&fragment)nodeReorder(host,fragment,node,copy,delta);
+      else reorder(copy,id,delta);
+      return '';
+    }catch(error){return error instanceof Error?error.message:'จัดลำดับไม่ได้';}
+  };
+  return {ids,index:ids.indexOf(id),up:check(-1),down:check(1)};
 }
 function addNode(def:Definition,at:Ref,type:string,source?:{scope:string;key:string},pageField?:'current'|'total',position?:{anchor:string;side:'before'|'after'}):Ref {
   const {section,host,node,fragment,format}=resolve(def,at);
@@ -391,11 +419,7 @@ export function applyStructureChange(source:Definition,change:Change):{definitio
   }else if(change.kind==='reorder'){
     const {section,host,fragment:f,node,format}=resolve(def,change.at);
     if(node&&f){
-      canDetach(host,f,node);
-      const list=nodeList(f,node.id),parent=owner(f,node.id);
-      const min=parent?.type==='table'?(parent.props?.headerRowCount??0):0;
-      reorder(list,node.id,change.delta,min);
-      if(list===f.rootIds&&list.slice(0,-1).some(id=>f.nodes[id].props?.verticalAlign==='bottom'))fail('Area ท้ายหน้าต้องอยู่ท้าย Section');
+      nodeReorder(host,f,node,nodeList(f,node.id),change.delta);
     }else if(!format&&!change.at.band)reorder(def.sections,section,change.delta);
     else fail('รายการนี้ไม่มีลำดับให้จัดใหม่');
     selection=change.at;

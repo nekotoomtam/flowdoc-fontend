@@ -3,7 +3,7 @@ import {addBand,addVariable,applyPart,changePage,newDefinition,partValue,setting
 import type {Part} from './editor-creation';
 import {openVisualAuthoring} from './editor-visual-authoring';
 
-import {applyStructureChange, groupSources, refKey} from './editor-structure';
+import {applyStructureChange, canAddPlainRows, groupSources, refKey, structureOrder} from './editor-structure';
 import type {Band, Change, Definition, DocNode, Format, Fragment, Host, Inline, Length, Ref, Schema, Section} from './editor-structure';
 
 type Draft = {templateId:string;docKey?:string;name:string;revision:number;fingerprint:string;definition:Definition};
@@ -389,6 +389,9 @@ function drawVariables(item:Outline){
     if(creationMode()&&['global','section','local','header','footer'].includes(scope)){
       const add=button('+ ประกาศตัวแปร',()=>askVariable(item.ref,scope as 'global'|'section'|'local'|'header'|'footer',label));
       add.disabled=isSaving||hasConflict;container.append(add);
+      const part:Part=scope==='global'?'globalSchema':scope==='section'?'section-schema':scope==='local'?'format-schema':'band-schema';
+      const edit=button('แก้ไข / ลบตัวแปร',()=>editPart(item.ref,part,'ตัวแปร · '+label));
+      edit.disabled=isSaving||hasConflict;container.append(edit);
     }
     return container;
   }));
@@ -628,14 +631,76 @@ function askBinding(item:Outline){
     const [scope,key]=values.field.split(':');stage({kind:'binding',at:item.ref,scope,key});
   });
 }
+const editorTitle=document.querySelector<HTMLElement>('.editor-title')!;
+const titleSize=new ResizeObserver(()=>document.documentElement.style.setProperty('--editor-title-height',editorTitle.offsetHeight+'px'));
+titleSize.observe(editorTitle);
+function itemType(item:Outline){return item.type==='text-block'?'กล่องข้อความ':kinds[item.type]??item.type;}
+function showPaperLocation(item:Outline){
+  const path=q('paper-path'),order=q('paper-order');
+  path.replaceChildren();order.replaceChildren();
+  const ancestors:Outline[]=[];
+  for(let parent=item.parent;parent;parent=parent.parent)ancestors.unshift(parent);
+  for(const ancestor of ancestors){
+    const type=itemType(ancestor);
+    const jump=button(ancestor.label.startsWith(type)?ancestor.label:type+' '+ancestor.label,()=>select(ancestor,true));
+    jump.title=outlinePath(ancestor);
+    path.append(jump,element('span','›'));
+  }
+  path.hidden=!ancestors.length;path.scrollLeft=path.scrollWidth;
+  const selected=q('paper-selection');
+  const type=itemType(item);
+  selected.replaceChildren(element('span',type));
+  if(item.label!==type)selected.append(document.createTextNode(item.label));
+  selected.title=outlinePath(item);
+
+  const ordered=item.inline&&item.parent?item.parent:item;
+  const state=structureOrder(draft.definition,ordered.ref);
+  if(!state){
+    if(item.type==='format')order.append(element('p','Format เป็นรูปแบบที่เลือกใช้ใน Area จัดลำดับองค์ประกอบภายใน Format ได้'));
+    return;
+  }
+  const peers=ordered.parent?.children??roots;
+  const label=(index:number)=>{
+    const peer=peers.find(candidate=>candidate.id===state.ids[index]);
+    return peer?(index+1)+'. '+peer.label:undefined;
+  };
+  const previous=label(state.index-1),next=label(state.index+1);
+  const position=(ordered===item?'ลำดับ':('ลำดับ'+itemType(ordered)))+' '+(state.index+1)+' จาก '+state.ids.length;
+  order.append(element('strong',position));
+  const neighbors=[previous&&'ก่อนหน้า '+previous,next&&'ถัดไป '+next].filter(Boolean).join(' · ');
+  if(neighbors){
+    const detail=element('span',neighbors);detail.title=neighbors;order.append(detail);
+  }
+  const controls=element('div');
+  for(const [delta,name,reason] of [[-1,'เลื่อนขึ้น',state.up],[1,'เลื่อนลง',state.down]] as const){
+    const control=button(name,()=>{
+      const keyboard=document.activeElement===control;
+      tryStage({kind:'reorder',at:ordered.ref,delta});
+      if(keyboard){
+        const buttons=order.querySelectorAll<HTMLButtonElement>('button:not(:disabled)');
+        const next=Array.from(buttons).find(candidate=>candidate.dataset.delta===String(delta))??buttons[0];
+        next?.focus({preventScroll:true});
+      }
+    });
+    control.dataset.delta=String(delta);
+    control.title=reason||'สลับกับ '+(delta===-1?previous:next);
+    control.disabled=Boolean(reason)||isSaving||hasConflict;
+    controls.append(control);
+  }
+  order.append(controls);
+  if(state.up&&state.down){
+    const reason=state.ids.length===1&&state.up==='ถึงขอบเขตที่ย้ายได้แล้ว'?'มีรายการเดียวในตำแหน่งนี้':state.up;
+    order.append(element('p',reason));
+  }
+}
 function showActions(item:Outline){
   const actions=q('actions'),paperActions=q('paper-actions');
   actions.replaceChildren();paperActions.replaceChildren();
-  q('paper-selection').textContent=(kinds[item.type]??item.type)+' ที่เลือก · '+item.label;
+  showPaperLocation(item);
   const groups={
     add:element('details'),edit:element('details'),move:element('details'),
   };
-  const labels={add:'+ เพิ่ม',edit:'แก้ไข',move:'จัดตำแหน่ง'};
+  const labels={add:'+ เพิ่ม',edit:'แก้ไข',move:'ย้ายไปส่วนอื่น'};
   for(const key of ['add','edit','move'] as const){
     const menu=groups[key];
     const label=element('summary',labels[key]);
@@ -647,30 +712,60 @@ function showActions(item:Outline){
   }
   if(item.parent){
     const parent=item.parent;
-    paperActions.append(button('เลือกส่วนแม่',()=>select(parent,true)));
+    const up=button('เลือก '+itemType(parent),()=>select(parent,true));
+    up.title='เลือกส่วนที่ครอบรายการนี้';paperActions.append(up);
+  }
+  if(creationMode()){
+    const part:Part=item.ref.formatId?'format-schema':item.ref.band?'band-schema':'section-schema';
+    const owner=item.format?.label??item.format?.key??(item.ref.band?(item.ref.band==='header'?'หัวกระดาษ':'ท้ายกระดาษ'):item.section.label);
+    const control=button('นิยามตัวแปร',()=>editPart(item.ref,part,'ตัวแปร · '+owner));
+    control.disabled=isSaving||hasConflict;paperActions.append(control);
   }
   const add=(name:string,run:()=>void,kind:keyof typeof groups='edit',sidebar=true)=>{
     const invoke=()=>{groups[kind].open=false;run();};
     for(const target of [groups[kind].lastElementChild!,...(sidebar?[actions]:[])]){
-      const control=button(name,invoke);
+      const label=target===actions?name:name.replace('เพิ่ม node','เพิ่มองค์ประกอบ');
+      const control=button(label,invoke);
       control.disabled=isSaving||hasConflict;target.append(control);
     }
   };
   function finish(){
-    const empty={add:'เลือก Section, Area, Format หรือเซลล์เพื่อเพิ่มในส่วนนั้น',edit:'เลือกรายการที่มีรายละเอียดให้แก้',move:'เลือกกล่องข้อความ แถว หรือส่วนแม่เพื่อจัดตำแหน่ง'};
+    const empty={add:'เพิ่มรายการใหม่ในส่วนที่ครอบรายการนี้',edit:'เลือกรายการที่มีรายละเอียดให้แก้',move:''};
     for(const key of ['add','edit','move'] as const){
       const menu=groups[key],commands=menu.lastElementChild!;
-      if(!commands.childElementCount)commands.append(element('p',empty[key]));
+      if(!commands.childElementCount){
+        if(key==='move'){menu.hidden=true;continue;}
+        commands.append(element('p',empty[key]));
+        if(key==='add'){
+          let parent=item.parent;
+          while(parent&&!['section','area','format','header','footer','table','table-cell'].includes(parent.type))parent=parent.parent;
+          if(parent){
+            const destination=parent;
+            commands.append(button('ไปที่ '+itemType(destination)+' เพื่อเพิ่ม',()=>select(destination,true)));
+          }
+        }
+      }
     }
   }
+  function addInlineContentEditor(){
+    if(!creationMode()||!item.parent||(!item.ref.formatId&&!item.ref.band))return;
+    const parent=item.parent;
+    const {sectionId,formatId,band}=item.ref;
+    add('เพิ่มหรือลบส่วนของข้อความ',()=>editPart({sectionId,formatId,band},
+      band?'band':'format','แก้เนื้อหา · '+parent.label,parent.id),'edit',false);
+  }
   if(item.inline?.type==='text'){
-    add('แก้ข้อความ',()=>openInlineEditor(item));finish();return;
+    add('แก้ข้อความ',()=>openInlineEditor(item));
+    addInlineContentEditor();
+    finish();return;
   }
   if(item.inline?.type==='field-ref'&&creationMode()){
-    add('เปลี่ยนตัวแปรที่ผูก',()=>askBinding(item));finish();return;
+    add('เปลี่ยนตัวแปรที่ผูก',()=>askBinding(item));
+    addInlineContentEditor();
+    finish();return;
   }
   if(item.ref.part){finish();return;}
-const at=item.ref;
+  const at=item.ref;
   const promptKey=(label:string,run:(key:string)=>void)=>ask(label,[{key:'key',label:'ชื่อในนิยาม'}],v=>run(v.key));
   if(item.type==='section')add('+ เพิ่ม Section',addSection,'add',false);
   if(item.type==='section'||(item.type==='table-cell'&&!at.formatId&&!at.band)){
@@ -700,7 +795,11 @@ const at=item.ref;
     const editable=item.children.filter(child=>child.inline?.type==='text');
     if(editable.length===1)add('แก้ข้อความ',()=>openInlineEditor(editable[0]),'edit',false);
   }
-  if(item.type==='table'){
+  const plainRows=item.type==='table'&&canAddPlainRows(draft.definition,at);
+  if(item.type==='table'&&!plainRows&&creationMode()&&at.formatId){
+    add('จัดแถวและกฎการวนใน Format',()=>editPart({sectionId:at.sectionId,formatId:at.formatId},'format','จัดแถว · '+item.label,item.id),'add',false);
+  }
+  if(plainRows){
     add('+ เพิ่มแถว',()=>tryStage({kind:'node',at,type:'table-row'}),'add');
     add('+ เพิ่ม Row Group',()=>{
       const sources=groupSources(draft.definition,at);
@@ -716,13 +815,14 @@ const at=item.ref;
     add('แยกเซลล์',()=>tryStage({kind:'split',at}));
   }
   if(item.type==='section'||(item.node&&item.type!=='table-cell')){
-    add('เลื่อนขึ้น',()=>tryStage({kind:'reorder',at,delta:-1}),'move');
-    add('เลื่อนลง',()=>tryStage({kind:'reorder',at,delta:1}),'move');
+    for(const control of q('paper-order').querySelectorAll('button')){
+      const copy=button(control.textContent??'',()=>control.click());
+      copy.disabled=control.disabled;copy.title=control.title;actions.append(copy);
+    }
   }
-  if(['area','format','text-block','image'].includes(item.type)){
+  const targets=destinations(item);
+  if(targets.length){
     add('ย้ายไป…',()=>{
-      const targets=destinations(item);
-      if(!targets.length){status.textContent='ไม่มีปลายทางสำหรับรายการนี้';return;}
       ask('ย้าย '+item.label,[{key:'target',label:'ตำแหน่งใหม่',options:targets.map(x=>[refKey(x.ref),outlinePath(x)])}],
         v=>stage({kind:'move',at,to:outlines.get(v.target)!.ref}));
     },'move');
@@ -736,10 +836,19 @@ const at=item.ref;
     if(item.node&&at.band)add('แก้รูปแบบรายการนี้',()=>editPart({sectionId:at.sectionId,band:at.band},'band','แก้รูปแบบ · '+item.label,item.id),'edit',false);
   }
   if(item.type!=='table-cell'){
-    add('ลบรายการนี้',()=>ask('ลบ '+item.label,[],()=>stage({kind:'delete',at}),
-      item.children.length?'รายการย่อยของส่วนนี้จะถูกลบไปด้วย · '+outlinePath(item):outlinePath(item)));
+    const label='ลบ '+itemType(item);
+    const remove=()=>ask(label+' · '+item.label,[],()=>stage({kind:'delete',at}),
+      outlinePath(item)+(item.children.length?' · รายการย่อยจะถูกลบด้วย':'')+' · ย้อนกลับได้ก่อนบันทึก');
+    const locked=item.type==='section'&&roots.length===1;
+    for(const target of [paperActions,actions]){
+      const control=button(target===actions?'ลบรายการนี้':label,remove);
+      control.className='paper-remove';
+      control.disabled=locked||isSaving||hasConflict;
+      if(locked)control.title='เอกสารต้องมีอย่างน้อยหนึ่ง Section';
+      target.append(control);
+    }
   }
-  finish();
+finish();
 }
 const inlineEditor=q<HTMLFormElement>('inline-editor'), inlineInput=q<HTMLInputElement>('inline-value');
 let inlineTarget:Outline|undefined;

@@ -1,3 +1,46 @@
+import {randomUUID} from 'node:crypto';
+
+export const blankGlyph='\u00a0';
+export function previewInput(sample,paths=[]){
+  if(!Array.isArray(paths)||paths.length>50000)throw Error('invalid_blank_fields');
+  const marks=new Set();
+  if(!paths.length)return {input:sample,marks};
+  const input=structuredClone(sample),prefix='trial-'+randomUUID()+'-';
+  for(const path of paths){
+    if(!Array.isArray(path)||!path.length||path.length>32||!['data','sections'].includes(path[0]))throw Error('invalid_blank_path');
+    let parent=input;
+    for(const key of path.slice(0,-1)){
+      if(!parent||!Object.hasOwn(parent,key))throw Error('invalid_blank_path');
+      parent=parent[key];
+    }
+    const key=path.at(-1);
+    if(!parent||!Object.hasOwn(parent,key)||parent[key]!=='')throw Error('invalid_blank_value');
+    const marker=prefix+marks.size;
+    marks.add(marker);parent[key]=marker;
+  }
+  return {input,marks};
+}
+export function markBlankRuns(resolved,marks){
+  if(!marks.size)return;
+  const omittedAnchors=new Set();
+  const hosts=[resolved.nodes,...resolved.sections.flatMap(section=>[section.header?.nodes,section.footer?.nodes])];
+  for(const host of hosts){
+    for(const node of Object.values(host??{})){
+      if(node.type!=='text-block')continue;
+      let changed=false;
+      for(const child of node.children)if(child.type==='text'&&marks.has(child.text)){child.text=blankGlyph;changed=true;}
+      if(changed&&node.children.length===1){
+        delete node.props.toc;
+        if(node.props.anchorId!==undefined){omittedAnchors.add(node.props.anchorId);delete node.props.anchorId;}
+      }
+    }
+  }
+  if(omittedAnchors.size)for(const host of hosts)for(const node of Object.values(host??{})){
+    if(node.type==='text-block')node.children=node.children.map(child=>child.type==='reference'&&omittedAnchors.has(child.target)
+      ?{id:child.id,type:'text',text:child.text}:child);
+  }
+}
+
 // Project whole-field text blocks back to the input occurrence the Engine expanded.
 export function trialBindings(definition,resolved,sample,draw){
   const hosts=new Map(), sections=new Map();
@@ -57,7 +100,18 @@ export function trialBindings(definition,resolved,sample,draw){
     path=[...path,field.key];
     const value=path.reduce((current,key)=>current&&Object.hasOwn(current,key)?current[key]:undefined,sample);
     if(typeof value!=='string')return;
-    return {key:JSON.stringify(path),value:value.replace(/\r\n?/g,'\n').replace(/\t/g,' '),end:0,commands:[],valid:true};
+    const cell=owner.fragment.nodes[owner.parents.get(source.sourceId)];
+    const row=cell&&owner.fragment.nodes[owner.parents.get(cell.id)];
+    const table=row&&owner.fragment.nodes[owner.parents.get(row.id)];
+    let contentWidth;
+    if(cell?.type==='table-cell'&&row?.type==='table-row'&&table?.type==='table'){
+      const point=value=>value.unit==='mm'?value.value*72/25.4:value.value;
+      const column=cell.props.columnIndex??row.cellIds.indexOf(cell.id);
+      contentWidth=table.columns.slice(column,column+(cell.props.colSpan??1)).reduce((sum,col)=>sum+point(col.width),0)
+        -(cell.props.padding?.left?point(cell.props.padding.left):4)-(cell.props.padding?.right?point(cell.props.padding.right):4);
+    }
+    return {key:JSON.stringify(path),value:value.replace(/\r\n?/g,'\n').replace(/\t/g,' '),end:0,commands:[],valid:true,
+      blank:value==='',contentWidth,align:block.props.textAlign??'left'};
   }
   for(const [pageIndex,page] of draw.pages.entries()){
     for(const line of page.commands){
@@ -66,6 +120,11 @@ export function trialBindings(definition,resolved,sample,draw){
       const edit=cache.get(id);
       if(!edit?.valid)continue;
       // A split line must occur at this exact source position. Fail closed on synthetic text.
+      if(edit.blank){
+        if(line.text===blankGlyph)edit.commands.push({line,start:0,pageIndex});
+        else edit.valid=false;
+        continue;
+      }
       let start=edit.end;
       while(edit.value[start]==='\n')start++;
       if(!edit.value.startsWith(line.text,start)){edit.valid=false;continue;}
@@ -73,13 +132,14 @@ export function trialBindings(definition,resolved,sample,draw){
       edit.commands.push({line,start,pageIndex});
     }
   }
-  for(const edit of cache.values()){
+  for(const [occurrence,edit] of cache){
     if(!edit?.valid||edit.value.slice(edit.end).replace(/\n/g,'')!=='')continue;
     let positions=locations.get(edit.key);
     if(!positions){positions=[];locations.set(edit.key,positions);}
     for(const {line,start,pageIndex} of edit.commands){
-      lines.set(line,{key:edit.key,start,end:start+line.text.length});
-      positions.push({pageIndex,start,end:start+line.text.length});
+      const end=edit.blank?0:start+line.text.length;
+      lines.set(line,{key:edit.key,occurrence,start,end,blank:edit.blank,contentWidth:edit.contentWidth,align:edit.align});
+      positions.push({pageIndex,start,end,occurrence});
     }
   }
   return {lines,locations};

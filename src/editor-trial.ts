@@ -3,10 +3,10 @@ import type {Definition,Field,Schema} from './editor-structure';
 type SampleData=Record<string,unknown>;
 type Upload={id:string;bytes:string};
 type Path=(string|number)[];
-type ReadContext={files:Map<string,File>;fields:Map<string,HTMLTextAreaElement>};
+type ReadContext={files:Map<string,File>;fields:Map<string,HTMLTextAreaElement>;blanks:Path[]};
 type Read=(context:ReadContext,path:Path)=>unknown;
-export type TrialFocus={key:string;offset:number;pageIndex:number};
-export type Trial={data:SampleData;sections:SampleData[];images:Upload[];focus?:TrialFocus};
+export type TrialFocus={key:string;occurrence:string;offset:number;pageIndex:number};
+export type Trial={data:SampleData;sections:SampleData[];images:Upload[];blanks:Path[];focus?:TrialFocus};
 const maxImageBytes=1024*1024;
 const maxImagesBytes=2*1024*1024;
 const node=<K extends keyof HTMLElementTagNameMap>(tag:K,label?:string)=>{
@@ -119,7 +119,7 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,changed:()
       const id=crypto.randomUUID();
       return {element:labeled(label+' · PNG หรือ JPEG',input),read(context){
         const file=input.files?.[0];
-        if(!file){if(field.required)throw Error('เลือกรูปสำหรับ '+key);return undefined;}
+        if(!file)return field.required?id:undefined;
         if(file.size>maxImageBytes)throw Error('รูป '+key+' ต้องมีขนาดไม่เกิน 1 MB');
         context.files.set(id,file);return id;
       }};
@@ -145,8 +145,8 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,changed:()
     const input=node('textarea');input.rows=2;
     return {element:labeled(label,input),read(context,path){
       context.fields.set(JSON.stringify(path),input);
-      if(!input.value&&field.required&&!field.allowEmpty)throw Error('กรอกตัวแปร '+key);
-      return input.value||field.required?input.value:undefined;
+      if(!input.value)context.blanks.push(path);
+      return input.value;
     }};
   }
   const global=fields(definition.globalSchema);
@@ -180,7 +180,7 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,changed:()
     const version=editVersion;
     const current=()=>version===editVersion;
     try{
-      const context:ReadContext={files:new Map(),fields:new Map()};
+      const context:ReadContext={files:new Map(),fields:new Map(),blanks:[]};
       const data=global.read(context,['data']),values=sections.map((section,i)=>section.read(context,['sections',i]));
       const files=[...context.files];
       if(files.reduce((total,[,file])=>total+file.size,0)>maxImagesBytes)
@@ -190,7 +190,7 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,changed:()
         if(!bytes){bytes=fileBytes(file);encoded.set(file,bytes);}
         return {id,bytes:await bytes};
       }));
-      if(current()){bindings=context.fields;await render({data,sections:values,images,focus},current);}
+      if(current()){bindings=context.fields;await render({data,sections:values,images,blanks:context.blanks,focus},current);}
     }catch(cause){
       if(current())error.textContent=cause instanceof Error?cause.message:'จัดหน้าทดลองไม่สำเร็จ';
     }finally{running=false;submit.disabled=false;schedule();}

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
 import {loadOriginalUat} from './original-uat-preview.mjs';
 import {trialImages} from './trial-preview-images.mjs';
-import {trialBindings} from './trial-preview-bindings.mjs';
+import {markBlankRuns,previewInput,trialBindings} from './trial-preview-bindings.mjs';
 import {randomBytes, randomUUID, createHash} from 'node:crypto';
 import {readFile, mkdtemp} from 'node:fs/promises';
 import {createInterface} from 'node:readline';
@@ -82,7 +82,7 @@ function projectOriginalPage(cache,index){
     if(owner){
       let x=0;
       const clusters=run.map(g=>{
-        const cluster=[x,owner.start+g.clusterStartOffset,owner.start+g.clusterEndOffset];
+        const cluster=[x,owner.blank?0:owner.start+g.clusterStartOffset,owner.blank?0:owner.start+g.clusterEndOffset];
         x+=g.advancePt;return cluster;
       });
       edit={...owner,clusters};
@@ -144,11 +144,17 @@ try {
       const sample=custom?{...identityFields,data:trial.data,sections:trial.sections}
         :fixture?{...fixture.request,...identityFields}
         :{...request,...identityFields,data:{...request.data,headerBanner:bannerId,docVersion:'Phase 1'}};
-      const prepared=core.prepareGeneration(validated,sample);
+      let previewSample={input:sample,marks:new Set()};
+      if(custom){
+        try{previewSample=previewInput(sample,trial.blanks);}
+        catch{return {status:422,body:{error:'invalid_blank_fields'}};}
+      }
+      const prepared=core.prepareGeneration(validated,previewSample.input);
       if(!prepared.ok)return {status:422,body:prepared};
       const composed=core.composeDocument(validated,prepared.value);
       if(!composed.ok)return {status:422,body:composed};
       const resolved=composed.value;
+      if(custom)markBlankRuns(resolved,previewSample.marks);
       let assets=fixture;
       if(custom){
         try{assets=await trialImages(trial.images,core.PDF_STREAM_CONTRACT);}
@@ -173,7 +179,9 @@ try {
         const cache={revision:draft.revision,fingerprint:draft.fingerprint,draw,paths,fonts:Object.keys(paths)};
         if(custom)cache.bindings=trialBindings(draft.definition,resolved,sample,draw);
         const focus=trial?.focus;
-        const positions=typeof focus?.key==='string'?cache.bindings?.locations.get(focus.key):undefined;
+        const candidates=typeof focus?.key==='string'?cache.bindings?.locations.get(focus.key):undefined;
+        const matching=candidates?.filter(position=>position.occurrence===focus.occurrence);
+        const positions=matching?.length?matching:candidates;
         const preferred=Number.isSafeInteger(focus?.pageIndex)?Math.min(Math.max(0,focus.pageIndex),draw.pages.length-1):0;
         const caret=Number.isSafeInteger(focus?.offset)?focus.offset:0;
         const position=positions?.find(p=>p.pageIndex===preferred&&p.start<=caret&&caret<=p.end)

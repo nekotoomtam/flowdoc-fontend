@@ -18,7 +18,7 @@ type DrawPage = {
   borders?: {x1Pt: number; y1Pt: number; x2Pt: number; y2Pt: number; widthPt: number; color: string; style?:string}[];
   lines: {text: string; xPt: number; yPt: number; widthPt:number; heightPt:number; fontSizePt: number; baselineOffsetPt: number; color: string; weight?: number; scale?:number; glyphUses?:[string,number,number][]; edit?:PreviewEdit}[];
 };
-type PreviewEdit = {key:string;start:number;end:number;clusters:[number,number,number][]};
+type PreviewEdit = {key:string;occurrence:string;start:number;end:number;blank?:boolean;contentWidth?:number;align?:string;clusters:[number,number,number][]};
 type Preview = {pageIndex?:number;previewId?:string;revision: number; fingerprint: string; engineVersion: string; engineMs: number; renderMs: number; layoutHash: string; pdfHash: string; pageCount: number; pages: DrawPage[]; paged?:boolean; entryCount?:number; imagePlacements?:number};
 type ServiceReply = {ok: boolean; value?: Draft; issues?: {code: string; path?:string}[]};
 const q = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id)! as T;
@@ -169,12 +169,12 @@ function drawBranch(items: Outline[], depth = 0) {
   }
   return list;
 }
+const paperSizes:Record<string,[number,number]>={A4:[595.276,841.89],A3:[841.89,1190.551],Letter:[612,792],Legal:[612,1008]};
 function drawPaper(root: Outline, preferred?: Format) {
   paperNodes.clear();
   const switcher=q('format-switcher');switcher.replaceChildren();
   const layout=draft.definition.pageLayouts?.[root.section.pageLayoutId??draft.definition.book.defaultPageLayoutId]?.page;
-  const sizes:Record<string,[number,number]>={A4:[595.276,841.89],A3:[841.89,1190.551],Letter:[612,792],Legal:[612,1008]};
-  const [short,long]=sizes[layout?.size??'A4']??sizes.A4;
+  const [short,long]=paperSizes[layout?.size??'A4']??paperSizes.A4;
   const [width,height]=layout?.orientation==='landscape'?[long,short]:[short,long];
   const points=(value?:Length)=>value?(value.unit==='mm'?value.value*72/25.4:value.value):0;
   const unit=(n:number)=>'calc('+n+' * var(--sheet-pt))';
@@ -1259,40 +1259,47 @@ function paintBorders(sheet:SVGElement,page:DrawPage){
     else paint(w);
   }
 }
-const trialPaperEditor=q('trial-paper-editor'),trialPaperValue=q<HTMLTextAreaElement>('trial-paper-value');
+const trialPaperValue=q<HTMLTextAreaElement>('trial-paper-value');
 let trialForm:ReturnType<typeof mountTrial>|undefined;
-let paperEdit:{key:string;composing:boolean}|undefined;
+let paperEdit:{key:string;occurrence:string;composing:boolean}|undefined;
+function clearPaperInk(){
+  for(const ink of previewPaper.querySelectorAll('.trial-ink-active'))ink.classList.remove('trial-ink-active');
+}
 function positionPaperEditor(){
   if(!paperEdit)return;
-  const caret=trialPaperValue.selectionStart;
   const hits=[...previewPaper.querySelectorAll<SVGRectElement>('[data-trial-key]')]
-    .filter(hit=>hit.dataset.trialKey===paperEdit?.key);
-  const hit=hits.find(hit=>Number(hit.dataset.start)<=caret&&caret<=Number(hit.dataset.end))??hits[0];
-  const bounds=hit?.getBoundingClientRect();
-  const width=Math.min(300,window.innerWidth-24);
-  const left=bounds?Math.max(12,Math.min(bounds.left,window.innerWidth-width-12)):12;
-  const top=bounds?Math.max(90,Math.min(bounds.bottom+3,window.innerHeight-trialPaperEditor.offsetHeight-12))
-    :Math.max(12,window.innerHeight-trialPaperEditor.offsetHeight-12);
-  Object.assign(trialPaperEditor.style,{left:left+'px',top:top+'px',width:width+'px'});
+    .filter(hit=>hit.dataset.trialOccurrence===paperEdit?.occurrence);
+  if(!hits.length)return;
+  const first=hits[0],bounds=first.getBoundingClientRect();
+  const height=Math.max(bounds.height,hits.at(-1)!.getBoundingClientRect().bottom-bounds.top);
+  const scale=bounds.height/Number(first.getAttribute('height'));
+  Object.assign(trialPaperValue.style,{
+    left:bounds.left+'px',top:bounds.top+'px',width:bounds.width+'px',height:height+'px',
+    fontSize:Number(first.dataset.fontSize)*scale+'px',lineHeight:bounds.height+'px',
+    textAlign:first.dataset.align??'left',color:first.dataset.inkColor??'#172b21',
+  });
+  clearPaperInk();
+  for(const ink of previewPaper.querySelectorAll<SVGElement>('[data-trial-ink]'))
+    if(ink.dataset.trialInk===paperEdit.occurrence)ink.classList.add('trial-ink-active');
 }
 function beginPaperEdit(edit:PreviewEdit,offset:number){
   const value=trialForm?.read(edit.key);
   if(value===undefined)return;
-  paperEdit={key:edit.key,composing:false};
+  paperEdit={key:edit.key,occurrence:edit.occurrence,composing:false};
   trialPaperValue.value=value;
-  trialPaperEditor.hidden=false;
+  trialPaperValue.hidden=false;
+  positionPaperEditor();
   trialPaperValue.focus({preventScroll:true});
   trialPaperValue.setSelectionRange(offset,offset);
-  positionPaperEditor();
 }
 function closePaperEdit(){
-  paperEdit=undefined;trialPaperEditor.hidden=true;
+  paperEdit=undefined;trialPaperValue.hidden=true;clearPaperInk();
 }
 function syncPaperEdit(composing:boolean){
   if(!paperEdit)return;
-  const {key}=paperEdit,value=trialPaperValue.value;
+  const {key,occurrence}=paperEdit,value=trialPaperValue.value;
   const offset=trialPaperValue.selectionStart;
-  const readFocus=()=>({key,pageIndex,offset:paperEdit?.key===key?trialPaperValue.selectionStart:offset});
+  const readFocus=()=>({key,occurrence,pageIndex,offset:paperEdit?.occurrence===occurrence?trialPaperValue.selectionStart:offset});
   trialForm?.write(key,value,readFocus,composing);
 }
 trialPaperValue.addEventListener('compositionstart',()=>{if(paperEdit)paperEdit.composing=true;});
@@ -1304,7 +1311,7 @@ trialPaperValue.addEventListener('compositionend',()=>{
 trialPaperValue.addEventListener('keydown',event=>{
   if(event.key==='Escape'&&!paperEdit?.composing){event.preventDefault();closePaperEdit();}
 });
-q('trial-paper-done').addEventListener('click',closePaperEdit);
+trialPaperValue.addEventListener('blur',closePaperEdit);
 window.addEventListener('resize',positionPaperEditor);
 window.addEventListener('scroll',positionPaperEditor,true);
 function showPage(page:DrawPage) {
@@ -1316,6 +1323,7 @@ function showPage(page:DrawPage) {
   for(const line of page.lines){
     if(line.glyphUses){
       const run=svg('g',{fill:color(line.color),'aria-label':line.text});
+      if(line.edit)run.dataset.trialInk=line.edit.occurrence;
       for(const [glyph,x,y] of line.glyphUses)
         run.append(svg('use',{href:'#'+glyph,transform:'translate('+x+' '+y+') scale('+line.scale+' -'+line.scale+')'}));
       sheet.append(run);
@@ -1338,13 +1346,17 @@ function showPage(page:DrawPage) {
   for(const line of page.lines){
     const edit=line.edit;
     if(!edit||trialForm?.read(edit.key)===undefined)continue;
-    const hit=svg('rect',{x:line.xPt,y:line.yPt,width:Math.max(line.widthPt,5),
-      height:line.heightPt,fill:'transparent',tabindex:0,role:'button','aria-label':'แก้ค่า '+line.text});
+    const width=Math.max(line.widthPt,edit.contentWidth??(edit.blank?80:line.widthPt),5);
+    const left=edit.align==='right'?width-line.widthPt:edit.align==='center'?(width-line.widthPt)/2:0;
+    const hit=svg('rect',{x:line.xPt-left,y:line.yPt,width,
+      height:line.heightPt,fill:'transparent',tabindex:0,role:'button','aria-label':edit.blank?'พิมพ์ค่า '+JSON.parse(edit.key).at(-1):'แก้ค่า '+line.text});
+    hit.dataset.fontSize=String(line.fontSizePt);hit.dataset.align=edit.align??'left';hit.dataset.inkColor=color(line.color);
+    if(edit.blank)hit.classList.add('trial-field-blank');
     hit.classList.add('trial-field-hit');
-    hit.dataset.trialKey=edit.key;hit.dataset.start=String(edit.start);hit.dataset.end=String(edit.end);
+    hit.dataset.trialKey=edit.key;hit.dataset.trialOccurrence=edit.occurrence;hit.dataset.start=String(edit.start);hit.dataset.end=String(edit.end);
     hit.addEventListener('click',event=>{
       const mouse=event as MouseEvent,rect=hit.getBoundingClientRect();
-      const x=(mouse.clientX-rect.left)*Math.max(line.widthPt,5)/rect.width;
+      const x=(mouse.clientX-rect.left)*width/rect.width-left;
       let offset=edit.end;
       for(let i=0;i<edit.clusters.length;i++){
         const [start,from]=edit.clusters[i];
@@ -1430,6 +1442,10 @@ function openPreview(){
   q('trial-input').hidden=!custom;
   q('legacy-preview-description').hidden=custom;
   q('trial-edit-hint').hidden=!custom;
+  const blankSheet=q('trial-empty-sheet');blankSheet.hidden=!custom;
+  const page=draft.definition.pageLayouts?.[draft.definition.sections[0]?.pageLayoutId??draft.definition.book.defaultPageLayoutId]?.page;
+  const [short,long]=paperSizes[page?.size??'A4']??paperSizes.A4;
+  blankSheet.style.aspectRatio=page?.orientation==='landscape'?long+'/'+short:short+'/'+long;
   refreshPreview.hidden=custom;
   if(!custom){if(!preview)void loadPreview();return;}
   const version=templateId+'/'+draft.revision+'/'+draft.fingerprint;

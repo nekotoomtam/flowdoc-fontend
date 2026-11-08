@@ -65,21 +65,18 @@
       </aside>
       <div class="trial-result">
         <h2>กระดาษเสมือนจาก Engine</h2>
-        <p id="trial-edit-hint" hidden>คลิกข้อความตัวแปรบนกระดาษเพื่อแก้ค่าในฟอร์มและจัดหน้าใหม่</p>
+        <p id="trial-edit-hint" hidden>เลือก Format แล้วจัดหน้า จากนั้นคลิกข้อความหรือช่องเปล่าบนกระดาษเพื่อพิมพ์</p>
         <p id="legacy-preview-description">ใช้ข้อมูลและภาพจากชุด UAT ต้นฉบับกับนิยามฉบับที่บันทึกแล้ว</p>
         <p id="preview-status" role="status"></p>
         <div class="pager"><button id="previous-page" disabled>หน้าก่อน</button><span id="page-number"></span><label for="jump-page">ไปหน้า</label><input id="jump-page" type="number" min="1" step="1" disabled><button id="next-page" disabled>หน้าถัดไป</button></div>
         <div id="preview-paper"></div>
+        <div id="trial-empty-sheet" hidden aria-label="กระดาษทดลองเปล่า"></div>
         <button id="refresh-preview">ลองจัดหน้าใหม่</button>
       </div>
     </div>
   </section>
 </main>
-<div id="trial-paper-editor" hidden role="group" aria-label="แก้ค่าบนกระดาษ">
-  <label for="trial-paper-value">แก้ค่าตัวแปร</label>
-  <textarea id="trial-paper-value" rows="2"></textarea>
-  <button id="trial-paper-done" type="button">เสร็จ</button>
-</div>
+<textarea id="trial-paper-value" hidden rows="1" aria-label="พิมพ์บนกระดาษ"></textarea>
 <form id="inline-editor" hidden><label for="inline-value">แก้ข้อความบนกระดาษ</label><input id="inline-value" required><p id="inline-error" role="alert"></p><div><button type="submit" class="primary">ใช้ข้อความนี้</button><button id="inline-cancel" type="button">ยกเลิก</button></div></form>
 <dialog id="visual-definition-dialog"></dialog>
 <dialog id="structure-dialog"><form id="structure-form"></form></dialog>

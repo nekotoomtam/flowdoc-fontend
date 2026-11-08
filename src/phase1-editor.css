@@ -228,7 +228,10 @@ main{padding:0 14px 24px}
 @media(max-width:760px){.trial-input-scroll{max-height:50vh}}
 .trial-field-hit{cursor:text}
 .trial-field-hit:hover,.trial-field-hit:focus-visible{fill:#9acabb35;stroke:#27745b;stroke-width:1;outline:none}
-#trial-paper-editor{position:fixed;z-index:12;display:grid;gap:5px;padding:8px;background:#fff;border:1px solid #26765c;border-radius:7px;box-shadow:0 5px 20px #243e3340}
-#trial-paper-editor label{font-size:12px;color:#215c4c}
-#trial-paper-editor textarea{width:100%;min-width:0;resize:vertical;font:inherit;font-family:FlowDocLab,sans-serif;border:1px solid #a5b9af;padding:5px}
-#trial-paper-editor button{justify-self:end;padding:4px 10px;font-size:12px}
+
+#preview-paper:empty{display:none}
+#preview-paper:not(:empty)+#trial-empty-sheet{display:none}
+#trial-empty-sheet{margin:8px auto;width:min(100%,650px);aspect-ratio:595.276/841.89;background:#fff;box-shadow:0 2px 10px #152b2826}
+#trial-paper-value{position:fixed;z-index:12;resize:none;box-sizing:border-box;padding:0;margin:0;border:0;outline:1px solid #39846a;background:#f4fbf6;color:#172b21;font-family:FlowDocLab,sans-serif;overflow:auto;scrollbar-width:none}
+.trial-ink-active{visibility:hidden}
+.trial-field-blank{fill:#d9eddf32;stroke:#80a892;stroke-width:.65;stroke-dasharray:3 2}

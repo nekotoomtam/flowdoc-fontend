@@ -37,9 +37,23 @@ try{
   const original=await read();
   await page.goto(base+'/phase1-editor.html?id='+id);
   await page.getByRole('button',{name:'ลองข้อมูล / Preview',exact:true}).click();
+  assert.ok(await page.locator('#trial-empty-sheet').isVisible());
+  const heading=await sectionEntry('heading');
+  const blankResult=await preview();
+  assert.deepEqual(blankResult.request.trial.sections[0].data.parts[0].data,{title:'',anchor:''});
+  const blank=paper.getByRole('button',{name:'พิมพ์ค่า title',exact:true});
+  await blank.click();
+  const blankEditor=page.locator('#trial-paper-value');
+  assert.equal(await blankEditor.inputValue(),'');
+  const [hitBox,editorBox]=await Promise.all([blank.boundingBox(),blankEditor.boundingBox()]);
+  assert.ok(hitBox&&editorBox&&Math.abs(hitBox.y-editorBox.y)<1&&Math.abs(hitBox.x-editorBox.x)<1);
+  await page.keyboard.insertText('เริ่มพิมพ์');
+  assert.equal(await heading.getByLabel(/title/).inputValue(),'เริ่มพิมพ์');
+  await paper.getByRole('button',{name:'แก้ค่า เริ่มพิมพ์',exact:true}).waitFor();
+  await page.screenshot({path:join(output,'preview-in-place-blank-start.png')});
+  await blankEditor.press('Escape');
   await form.getByLabel(/headerBanner/).setInputFiles({name:'trial-banner.png',mimeType:'image/png',buffer:await readFile(asset)});
   await form.getByLabel(/docVersion/).fill('ทดลอง 42');
-  const heading=await sectionEntry('heading');
   await heading.getByLabel(/title/).fill('ทดสอบกระดาษเสมือน');
   await heading.getByLabel(/anchor/).fill('trial-heading');
   await sectionEntry('break');
@@ -54,8 +68,24 @@ try{
     await member.getByLabel(new RegExp('^'+name)).fill(value);
   await group.getByRole('button',{name:'+ เพิ่มรายการ',exact:true}).click();
   const sibling=group.locator('fieldset .trial-rows > details').nth(1);
-  for(const [name,value] of Object.entries({menu:'เมนูทดสอบ',cases:'8',pass:'7',fail:'1'}))
+  for(const [name,value] of Object.entries({menu:'',cases:'8',pass:'7',fail:'1'}))
     await sibling.getByLabel(new RegExp('^'+name)).fill(value);
+  const blankMemberRun=await preview();
+  const blankMemberResponse=page.waitForResponse(r=>r.url().includes('/preview-runs/'+blankMemberRun.body.previewId+'/pages/1'));
+  await page.getByRole('button',{name:'หน้าถัดไป',exact:true}).click();
+  await blankMemberResponse;
+  const blankMember=paper.getByRole('button',{name:'พิมพ์ค่า menu',exact:true});
+  await blankMember.waitFor();
+  await page.screenshot({path:join(output,'preview-blank-member-slot.png')});
+  await blankMember.click();
+  const inPlace=page.locator('#trial-paper-value');
+  const [memberHit,memberEditor]=await Promise.all([blankMember.boundingBox(),inPlace.boundingBox()]);
+  assert.ok(memberHit&&memberEditor&&Math.abs(memberHit.x-memberEditor.x)<1&&Math.abs(memberHit.y-memberEditor.y)<1);
+  await page.keyboard.insertText('เมนูทดสอบ');
+  assert.equal(await sibling.getByLabel(/^menu/).inputValue(),'เมนูทดสอบ');
+  assert.equal(await member.getByLabel(/^menu/).inputValue(),'เมนูทดสอบ');
+  await paper.getByRole('button',{name:'แก้ค่า เมนูทดสอบ',exact:true}).nth(1).waitFor();
+  await inPlace.press('Escape');
   const result=await preview();
   assert.ok(result.body.previewId&&result.body.pageCount>=2);
   assert.deepEqual(result.request.trial.sections[0].data.parts.map(part=>part.format),['heading','break','summary-dynamic']);
@@ -130,7 +160,7 @@ try{
   await page.screenshot({path:join(output,'preview-paper-edit-cross-page.png')});
   await editor.fill('เมนูไทยต่อรอใหม่ทดสอบ');
   await paper.getByRole('button',{name:'แก้ค่า เมนูไทยต่อรอใหม่ทดสอบ',exact:true}).waitFor();
-  await page.getByRole('button',{name:'เสร็จ',exact:true}).click();
+  await editor.press('Escape');
   await heading.getByLabel(/title/).fill('ทดลองฉบับใหม่');
   assert.equal(await paper.locator('svg').count(),0);
   const updated=await preview();
@@ -139,7 +169,7 @@ try{
   assert.deepEqual(await read(),original);
   assert.deepEqual(errors,[]);assert.deepEqual(writes,[]);
   const proof={draftId:id,revision:original.revision,pages:result.body.pageCount,realEngine:result.body.engineVersion,
-    nestedArray:true,editReturnedToCorrectMember:true,caretSurvivedReflow:true,supersededResultDiscarded:true,expandedPages:expanded.pageCount,imageUpload:true,orderedFormats:true,changedInputRerendered:true,definitionWrites:0};
+    nestedArray:true,editReturnedToCorrectMember:true,caretSurvivedReflow:true,emptyPaper:true,emptyFieldEditedInPlace:true,emptyRepeatedMemberEditedInPlace:true,supersededResultDiscarded:true,expandedPages:expanded.pageCount,imageUpload:true,orderedFormats:true,changedInputRerendered:true,definitionWrites:0};
   await writeFile(join(output,'trial-preview-verification.json'),JSON.stringify(proof,null,2)+'\n');
   console.log(JSON.stringify(proof));
 }finally{await browser.close();}

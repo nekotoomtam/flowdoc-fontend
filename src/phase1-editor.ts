@@ -3,7 +3,7 @@ import {addBand,addVariable,applyPart,changePage,newDefinition,partValue,setting
 import type {Part} from './editor-creation';
 import {openVisualAuthoring} from './editor-visual-authoring';
 
-import {applyStructureChange, canAddPlainRows, groupSources, refKey, structureOrder} from './editor-structure';
+import {applyStructureChange, canAddPlainRows, defaultCellPadding, groupSources, lengthInPoints, paddingSides, refKey, structureOrder} from './editor-structure';
 import type {Band, Change, Definition, DocNode, Format, Fragment, Host, Inline, Length, Ref, Schema, Section} from './editor-structure';
 
 type Draft = {templateId:string;docKey?:string;name:string;revision:number;fingerprint:string;definition:Definition};
@@ -237,7 +237,7 @@ function drawPaper(root: Outline, preferred?: Format) {
           if(props?.borderWidth)td.style.borderWidth=length(props.borderWidth);
           for(const side of ['top','right','bottom','left'] as const){
             const padding=cellProps?.padding?.[side];
-            if(padding)td.style.setProperty('padding-'+side,length(padding));
+            td.style.setProperty('padding-'+side,padding?length(padding):unit(defaultCellPadding));
           }
           td.addEventListener('click',event=>{if(!(event.target as HTMLElement).closest('button'))select(cell,false);});
           if(cellIndex===0)td.append(rowButton);
@@ -276,7 +276,7 @@ function drawPaper(root: Outline, preferred?: Format) {
         block.style.setProperty(side==='before'?'padding-top':'padding-bottom',length(value));
         if(points(value)<12)continue;
         const note=(side==='before'?'เว้นก่อนเส้น ':'เว้นหลังเส้น ')+displayLength(value);
-        const guide=button(note,()=>select(item,false,side));
+        const guide=button(note,()=>{select(item,false,side);editLineSpacing(item,side);});
         guide.className='spacing-guide spacing-'+side;
         guide.style.height=length(value);
         guide.setAttribute('aria-label',note);
@@ -420,6 +420,10 @@ function drawVariables(item:Outline){
 
 function select(item: Outline, measure: boolean, spacing?:'before'|'after') {
   const started=performance.now();
+  if(paper.classList.contains('has-column-highlight')){
+    for(const cell of paper.querySelectorAll('.column-highlight'))cell.classList.remove('column-highlight');
+    paper.classList.remove('has-column-highlight');
+  }
   if(selection) {
     treeNodes.get(selection)?.removeAttribute('aria-current');
     paperNodes.get(selection)?.removeAttribute('aria-current');
@@ -510,15 +514,18 @@ function showDraft(data: Draft, keep?: Ref) {
   document.body.dataset.revision=String(data.revision);
 }
 const dialog=q<HTMLDialogElement>('structure-dialog'), actionForm=q<HTMLFormElement>('structure-form');
-type FormField={key:string;label:string;options?:[string,string][];value?:string};
-function ask(title:string, fields:FormField[], run:(values:Record<string,string>)=>void, note?:string){
-  actionForm.replaceChildren(element('h2',title));
+type FormField={key:string;label:string;options?:[string,string][];value?:string;numeric?:boolean};
+type FormControls=Map<string,HTMLInputElement|HTMLSelectElement>;
+function ask(title:string, fields:FormField[], run:(values:Record<string,string>)=>void, note?:string, setup?:(controls:FormControls)=>void){
+  const heading=element('h2',title);heading.id='structure-dialog-title';
+  dialog.setAttribute('aria-labelledby',heading.id);actionForm.replaceChildren(heading);
   if(note)actionForm.append(element('p',note));
-  const controls=new Map<string,HTMLInputElement|HTMLSelectElement>();
+  const controls:FormControls=new Map();
   for(const field of fields){
     const label=element('label',field.label);
     const control=field.options?element('select'):element('input');
     control.required=true;control.name=field.key;
+    if(control instanceof HTMLInputElement&&field.numeric){control.type='number';control.min='0';control.step='any';}
     if(control instanceof HTMLSelectElement)for(const [value,text] of field.options??[]){
       const option=element('option',text);option.value=value;control.append(option);
     }
@@ -533,6 +540,7 @@ function ask(title:string, fields:FormField[], run:(values:Record<string,string>
     try{run(Object.fromEntries([...controls].map(([key,el])=>[key,el.value.trim()])));dialog.close();}
     catch(e){error.textContent=e instanceof Error?e.message:'แก้โครงไม่สำเร็จ';}
   };
+  setup?.(controls);
   dialog.showModal();
 }
 function stage(change:Change){
@@ -653,8 +661,115 @@ function askBinding(item:Outline){
   });
 }
 function displayLength(value:Length){return new Intl.NumberFormat('th-TH',{maximumFractionDigits:3}).format(value.value)+' '+value.unit;}
+function editLineSpacing(item:Outline,side:'before'|'after'){
+  if(isSaving||hasConflict)return;
+  const before=side==='before';
+  const prior=(before?item.node?.props?.spaceBefore:item.node?.props?.spaceAfter)??{value:0,unit:'pt'};
+  const label=before?'ระยะเว้นก่อนเส้น':'ระยะเว้นหลังเส้น';
+  ask('ปรับ'+label,[{key:'length',label:label+' ('+prior.unit+')',numeric:true,value:String(prior.value)}],values=>{
+    const value=Number(values.length);
+    if(value!==prior.value)stage({kind:'line-spacing',at:item.ref,side,length:{value,unit:prior.unit}});
+  },outlinePath(item)+' · ใส่ 0 เพื่อนำระยะเว้นนี้ออก');
+}
+const paddingNames={top:'บน',right:'ขวา',bottom:'ล่าง',left:'ซ้าย'};
+function inspectColumn(table:Outline,index:number){
+  select(table,true);
+  const width=table.node?.columns?.[index]?.width;
+  if(width){
+    const description=element('p','คอลัมน์ '+(index+1)+' · กว้าง '+displayLength(width));
+    description.className='layout-column-result';description.setAttribute('role','status');
+    q('layout-facts').prepend(description);
+  }
+  const view=paperNodes.get(table)?.closest('.definition-table');
+  paper.classList.toggle('has-column-highlight',Boolean(view));
+  for(const cell of view?.querySelectorAll<HTMLTableCellElement>(':scope > table > tbody > tr > td')??[]){
+    const start=Number(cell.dataset.authoredColumn)-1;
+    cell.classList.toggle('column-highlight',start<=index&&index<start+cell.colSpan);
+  }
+}
+function editTableRow(table:Outline,current?:Outline){
+  const rows=table.children.filter(child=>child.type==='table-row');
+  const headerCount=table.node?.props?.headerRowCount??0;
+  const available=rows.slice(headerCount);
+  const chosen=current&&available.includes(current)?current:available[0];
+  if(!chosen)return;
+  ask('แก้แถวในตาราง',[
+    {key:'row',label:'แถวต้นแบบ',value:chosen.id,options:available.map((row,index)=>[row.id,'แถว '+(index+headerCount+1)])},
+    {key:'break',label:'เมื่อแถวไม่พอดีท้ายหน้า',options:[['keep','ย้ายทั้งแถวไปหน้าถัดไป'],['split','อนุญาตให้แบ่งแถวข้ามหน้า']]},
+  ],values=>{
+    const row=available.find(item=>item.id===values.row)!;
+    const allowBreak=values.break==='split';
+    if(allowBreak!==Boolean(row.node?.props?.allowBreak))stage({kind:'row-break',at:row.ref,allowBreak});
+  },'การตั้งค่านี้ใช้กับแถวต้นแบบที่เลือก รวมถึงทุกครั้งที่แถวนี้ถูกนำมาวนซ้ำ'+
+    (headerCount?' · หัวตารางอยู่ด้วยกันเสมอ':''),controls=>{
+    const picker=controls.get('row')!,setting=controls.get('break')!;
+    const update=()=>{
+      const row=available.find(item=>item.id===picker.value)!;
+      setting.value=row.node?.props?.allowBreak?'split':'keep';
+      select(row,true);
+    };
+    picker.addEventListener('change',update);update();
+  });
+}
+function editTableColumn(table:Outline,chosen:number){
+  const columns=table.node?.columns??[];
+  if(!columns.length)return;
+  const index=chosen<columns.length?chosen:0;
+  ask('แก้ความกว้างคอลัมน์',[
+    {key:'column',label:'คอลัมน์',value:String(index),options:columns.map((_,i)=>[String(i),'คอลัมน์ '+(i+1)])},
+    {key:'width',label:'ความกว้าง (pt)',numeric:true},
+  ],values=>{
+    const column=Number(values.column),value=Number(values.width);
+    const prior=columns[column]?.width;
+    if(prior&&value===lengthInPoints(prior))return;
+    stage({kind:'column-width',at:table.ref,column,length:{value,unit:'pt'}});
+    const updated=outlines.get(refKey(table.ref));
+    if(updated)inspectColumn(updated,column);
+  },'เปลี่ยนความกว้างของคอลัมน์นี้ตลอดทั้งตาราง',controls=>{
+    const picker=controls.get('column')!,width=controls.get('width')!;
+    const update=()=>{
+      const column=Number(picker.value),prior=columns[column]?.width;
+      width.value=prior?String(lengthInPoints(prior)):'';
+      inspectColumn(table,column);
+    };
+    picker.addEventListener('change',update);update();
+  });
+}
+function editTableCell(table:Outline,current?:Outline){
+  const targets=table.children.filter(child=>child.type==='table-row').flatMap((row,index)=>
+    row.children.filter(child=>child.type==='table-cell').map((cell,position)=>({
+      cell,label:'แถว '+(index+1)+' · คอลัมน์ '+((cell.node?.props?.columnIndex??position)+1)+
+        ((cell.node?.props?.colSpan??1)>1?' (เซลล์ผสาน)':''),
+    })));
+  const chosen=targets.find(target=>target.cell===current)??targets[0];
+  if(!chosen)return;
+  const padding=(cell:Outline,side:typeof paddingSides[number])=>{
+    const prior=cell.node?.props?.padding?.[side];
+    return prior?lengthInPoints(prior):defaultCellPadding;
+  };
+  ask('แก้ระยะขอบในเซลล์',[
+    {key:'cell',label:'เซลล์',value:chosen.cell.id,options:targets.map(({cell,label})=>[cell.id,label])},
+    ...paddingSides.map(side=>({key:side,label:'ขอบ'+paddingNames[side]+' (pt)',numeric:true})),
+  ],values=>{
+    const {cell}=targets.find(target=>target.cell.id===values.cell)!;
+    const changed=paddingSides.flatMap(side=>{
+      const value=Number(values[side]);
+      return value===padding(cell,side)?[]:[[side,{value,unit:'pt' as const}]];
+    });
+    if(changed.length)stage({kind:'cell-padding',at:cell.ref,padding:Object.fromEntries(changed)});
+  },'ระยะจากขอบเซลล์ถึงเนื้อหาภายใน · ใช้กับเซลล์ที่เลือก',controls=>{
+    const picker=controls.get('cell')!;
+    const update=()=>{
+      const {cell}=targets.find(target=>target.cell.id===picker.value)!;
+      for(const side of paddingSides)controls.get(side)!.value=String(padding(cell,side));
+      select(cell,true);
+    };
+    picker.addEventListener('change',update);update();
+  });
+}
 function showLayoutFacts(item:Outline,spacing?:'before'|'after'){
-  const panel=q('layout-facts'),summary=q('paper-layout-summary');
+  const panel=q('layout-facts'),summary=q('paper-layout-summary'),actions=q('paper-layout-actions');
+  actions.replaceChildren();
   panel.replaceChildren();summary.textContent='';summary.hidden=true;
   const note=(label:string,value:string)=>{
     const block=element('div');block.className='layout-fact';
@@ -662,6 +777,9 @@ function showLayoutFacts(item:Outline,spacing?:'before'|'after'){
     if(summary.hidden&&item.type!=='section'){summary.textContent=label+' · '+value;summary.hidden=false;}
   };
   const navigate=(label:string,target:Outline)=>panel.append(button(label,()=>select(target,true)));
+  const edit=(label:string,run:()=>void)=>{
+    const control=button(label,run);control.disabled=isSaving||hasConflict;actions.append(control);return control;
+  };
   const lineage:Outline[]=[];
   for(let current:Outline|undefined=item;current;current=current.parent)lineage.push(current);
   const table=lineage.find(current=>current.type==='table');
@@ -677,19 +795,31 @@ function showLayoutFacts(item:Outline,spacing?:'before'|'after'){
     const position=[rowNumber?'แถว '+rowNumber+(rowNumber<=(table.node?.props?.headerRowCount??0)?' (หัวตาราง)':''):'',
       column?'คอลัมน์ '+column+(cell?.node?.props?.colSpan&&cell.node.props.colSpan>1?' ครอบ '+cell.node.props.colSpan+' คอลัมน์':''):''].filter(Boolean);
     note(position.length?'อยู่ในตาราง · '+position.join(' · '):'ตาราง',rows+' แถวต้นแบบ × '+columns+' คอลัมน์');
+    actions.append(element('strong','แก้ตาราง'));
+    const editRow=edit('การแบ่งหน้าแถว',()=>editTableRow(table,row));
+    if(rows<=(table.node?.props?.headerRowCount??0)){
+      editRow.disabled=true;editRow.title='ตารางนี้มีเฉพาะหัวตาราง';
+    }
+    edit('ความกว้างคอลัมน์',()=>editTableColumn(table,Math.max(0,column-1)));
+    edit('ระยะขอบในเซลล์',()=>editTableCell(table,cell));
+    if(row)note('การแบ่งหน้า',
+      rowNumber<=(table.node?.props?.headerRowCount??0)?'หัวตารางอยู่ด้วยกัน':
+      row.node?.props?.allowBreak?'อนุญาตให้แบ่งแถวข้ามหน้า':'ย้ายทั้งแถวไปหน้าถัดไปเมื่อพื้นที่ไม่พอ');
     if(table.node?.props?.borderColor?.toUpperCase()==='FFFFFF')
       note('เส้นขอบสีขาว','ตารางนี้กำหนดเส้นขอบสีขาวไว้ กรอบสีเขียวอ่อนบนกระดาษช่วยให้เห็นโครงของตาราง');
     const rules=table.children.filter(child=>child.type==='row-group'||child.type==='repeat');
     if(rules.length)note('ตารางนี้มีแถววนซ้ำ',rules.map(rule=>rule.label).join(' · '));
     const padding=cell?.node?.props?.padding;
-    if(padding){
-      const values=(['top','right','bottom','left'] as const).flatMap((side,i)=>padding[side]?[[ 'บน','ขวา','ล่าง','ซ้าย'][i]+' '+displayLength(padding[side])]:[]);
-      if(values.length)note('ระยะขอบในเซลล์',values.join(' · '));
+    if(cell){
+      const values=paddingSides.map(side=>paddingNames[side]+' '+(padding?.[side]?displayLength(padding[side]):defaultCellPadding+' pt'));
+      note('ระยะขอบในเซลล์',values.join(' · '));
     }
     if(cell&&cell!==item)navigate('เลือกเซลล์',cell);
     if(table!==item)navigate('เลือกตาราง',table);
   }
   if(item.type==='line'){
+    edit('ปรับระยะก่อนเส้น',()=>editLineSpacing(item,'before'));
+    edit('ปรับระยะหลังเส้น',()=>editLineSpacing(item,'after'));
     const lengths=[props?.spaceBefore&&'ก่อนเส้น '+displayLength(props.spaceBefore),
       props?.spaceAfter&&'หลังเส้น '+displayLength(props.spaceAfter)].filter(Boolean);
     const chosen=spacing==='before'?props?.spaceBefore:spacing==='after'?props?.spaceAfter:undefined;

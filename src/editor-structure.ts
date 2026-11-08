@@ -2,12 +2,16 @@ export type Field = {type:string; items?:Schema; areaId?:string; required?:boole
 export type Schema = {type?:'object'; fields:Record<string,Field>};
 export type Inline = {id?:string; type:string; text?:string; key?:string; scope?:string; field?:string;value?:unknown;target?:unknown;url?:unknown};
 export type Length = {unit:'pt'|'mm';value:number};
+export const paddingSides=['top','right','bottom','left'] as const;
+type CellPadding=Partial<Record<typeof paddingSides[number],Length>>;
+export const defaultCellPadding=4;
+export const lengthInPoints=(value:Length)=>value.unit==='mm'?value.value*72/25.4:value.value;
 export type DocNode = {
   id:string; type:string; role?:{role:string};
   props?:{areaId?:string;verticalAlign?:string;colSpan?:number;rowSpan?:number;columnIndex?:number;
     anchorId?:unknown;headerRowCount?:number;repeatHeaderRows?:boolean;allowBreak?:boolean;textStyleId?:string;
     width?:Length;height?:Length;gap?:Length;borderWidth?:Length;borderColor?:string;headerFillColor?:string;fillColor?:string;
-    textAlign?:string;align?:string;color?:string;thickness?:Length;spaceBefore?:Length;spaceAfter?:Length;padding?:Partial<Record<'top'|'right'|'bottom'|'left',Length>>;source?:{scope:string;key:string}};
+    textAlign?:string;align?:string;color?:string;thickness?:Length;spaceBefore?:Length;spaceAfter?:Length;padding?:CellPadding;source?:{scope:string;key:string}};
   rowIds?:string[];cellIds?:string[];childIds?:string[];
   columns?:{width?:Length;childIds?:string[];weight?:number}[];children?:Inline[];
 };
@@ -30,6 +34,10 @@ export type Ref = {sectionId:string;formatId?:string;band?:'header'|'footer';nod
 export type Change = {kind:'section';label:string} | {kind:'area';at:Ref;key:string;format:string}
   | {kind:'format';at:Ref;key:string} | {kind:'node';at:Ref;type:string;source?:{scope:string;key:string};pageField?:'current'|'total';position?:{anchor:string;side:'before'|'after'}}
   | {kind:'inline-text';at:Ref;text:string}
+  | {kind:'line-spacing';at:Ref;side:'before'|'after';length:Length}
+  | {kind:'row-break';at:Ref;allowBreak:boolean}
+  | {kind:'column-width';at:Ref;column:number;length:Length}
+  | {kind:'cell-padding';at:Ref;padding:CellPadding}
   | {kind:'binding';at:Ref;scope:string;key:string}
   | {kind:'group';at:Ref;scope:'global'|'section'|'local';key:string;member:string}
   | {kind:'merge'|'split';at:Ref}
@@ -347,6 +355,23 @@ function move(def:Definition,at:Ref,to:Ref):Ref {
   const list=nodeList(f,node.id);list.splice(list.indexOf(node.id),1);toCell.childIds!.push(node.id);
   return {...to,nodeId:node.id};
 }
+function layoutLength(length:Length){
+  if(!['pt','mm'].includes(length.unit)||!Number.isFinite(lengthInPoints(length))||length.value<0)fail('กรอกระยะตั้งแต่ 0 ขึ้นไป');
+}
+function ensureCellContentWidth(table:DocNode,fragment:Fragment){
+  const widths=(table.columns??[]).map(column=>column.width?lengthInPoints(column.width):0);
+  for(const rowId of table.rowIds??[]){
+    const row=fragment.nodes[rowId];
+    for(const [index,cellId] of (row.cellIds??[]).entries()){
+      const cell=fragment.nodes[cellId],props=cell.props;
+      const start=props?.columnIndex??index;
+      const width=widths.slice(start,start+(props?.colSpan??1)).reduce((sum,value)=>sum+value,0);
+      const left=props?.padding?.left,right=props?.padding?.right;
+      const inset=(left?lengthInPoints(left):defaultCellPadding)+(right?lengthInPoints(right):defaultCellPadding);
+      if(!Number.isFinite(width)||width<=inset)fail('คอลัมน์แคบเกินระยะขอบในเซลล์ · เหลือพื้นที่ให้เนื้อหาด้วย');
+    }
+  }
+}
 export function applyStructureChange(source:Definition,change:Change):{definition:Definition;selection:Ref}{
   const affected=new Set<string>(), formats=new Set<string>();
   if('at' in change&&!(change.kind==='reorder'&&!change.at.nodeId)){
@@ -391,6 +416,39 @@ export function applyStructureChange(source:Definition,change:Change):{definitio
     selection={sectionId:change.at.sectionId,formatId:id};
   }else if(change.kind==='node'){
     selection=addNode(def,change.at,change.type,change.source,change.pageField,change.position);
+  }else if(change.kind==='line-spacing'){
+    const {node}=resolve(def,change.at);
+    if(node?.type!=='line')return fail('เลือกเส้นที่กำหนดระยะเว้น');
+    layoutLength(change.length);
+    (node.props??={})[change.side==='before'?'spaceBefore':'spaceAfter']=change.length;
+    selection=change.at;
+  }else if(change.kind==='row-break'){
+    const {node,fragment}=resolve(def,change.at);
+    if(node?.type!=='table-row'||!fragment)return fail('เลือกแถวในตาราง');
+    const table=owner(fragment,node.id);
+    if(!table||table.type!=='table'||table.rowIds!.indexOf(node.id)<(table.props?.headerRowCount??0))
+      return fail('หัวตารางต้องอยู่ด้วยกัน');
+    (node.props??={}).allowBreak=change.allowBreak;
+    selection=change.at;
+  }else if(change.kind==='column-width'){
+    const {node,fragment}=resolve(def,change.at);
+    const column=node?.columns?.[change.column];
+    if(node?.type!=='table'||!fragment||!column)return fail('เลือกคอลัมน์ในตาราง');
+    layoutLength(change.length);
+    if(change.length.value===0)return fail('ความกว้างคอลัมน์ต้องมากกว่า 0');
+    column.width=change.length;
+    ensureCellContentWidth(node,fragment);
+    selection=change.at;
+  }else if(change.kind==='cell-padding'){
+    const {node,fragment}=resolve(def,change.at);
+    if(node?.type!=='table-cell'||!fragment)return fail('เลือกเซลล์ในตาราง');
+    const row=owner(fragment,node.id),table=row&&owner(fragment,row.id);
+    if(table?.type!=='table')return fail('ไม่พบตารางของเซลล์');
+    for(const value of Object.values(change.padding))layoutLength(value);
+    const props=node.props??={};
+    props.padding={...props.padding,...change.padding};
+    ensureCellContentWidth(table,fragment);
+    selection=change.at;
   }else if(change.kind==='inline-text'){
     const {node}=resolve(def,change.at);
     const index=node?.children?.findIndex((inline,i)=>'inline:'+(inline.id??i)===change.at.part)??-1;

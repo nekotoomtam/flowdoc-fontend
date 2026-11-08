@@ -10,6 +10,7 @@ const baseline=process.env.FLOWDOC_PHASE1_BASELINE;
 await mkdir(output,{recursive:true});
 const browser=await chromium.launch({channel:'msedge'});
 const context=await browser.newContext({viewport:{width:1440,height:900}});
+await context.addInitScript(()=>sessionStorage.setItem('flowdoc:benchmark-preview','1'));
 const rows=[], errors=[], mutation=[], saves=[];
 const by=(p,id)=>p.locator('#'+id);
 const ref=(sectionId,formatId='',band='',nodeId='')=>JSON.stringify([sectionId,formatId,band,nodeId]);

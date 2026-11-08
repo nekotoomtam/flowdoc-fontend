@@ -5,12 +5,12 @@
 <header class="topbar"><a class="brand" href="/library.html?phase1=1">FlowDoc</a><span class="badge">UAT · ฉบับทดสอบ · จัดโครง</span></header>
 <main>
   <div class="title"><div><a href="/library.html?phase1=1">‹ กลับคลังโครงทดสอบ</a><h1 id="title">กำลังเปิดโครงเอกสาร</h1><p id="revision"></p></div>
-  <nav aria-label="โหมดเอกสาร"><button id="define-tab" aria-pressed="true">นิยามเอกสาร</button><button id="preview-tab" aria-pressed="false" disabled>ลองข้อมูล · Engine</button></nav></div>
+  <nav aria-label="โหมดเอกสาร"><button id="define-tab" aria-pressed="true">นิยามเอกสาร</button><button id="preview-tab" aria-pressed="false" disabled>ดู UAT ฉบับเต็ม · Engine</button></nav></div>
   <div id="structure-pending" class="structure-tools" hidden><strong>มีการแก้โครงที่ยังไม่บันทึก</strong><button id="save-structure" class="primary" type="button">ตรวจและบันทึกโครง</button><button id="undo-structure" type="button">ย้อนขั้นล่าสุด</button><button id="discard-structure" type="button">ทิ้งการแก้โครง</button></div>
   <p id="status" role="status"></p>
   <div class="grid" id="editor" hidden>
     <section class="panel" aria-label="Tree โครงสร้าง"><h2>โครงสร้างเอกสาร</h2><p>เลือกส่วนเอกสารเพื่อแก้ชื่อ</p><div class="structure-tools"><button id="add-section" type="button">+ เพิ่ม Section</button></div><div id="tree"></div></section>
-    <section class="panel workspace" aria-label="กระดาษนิยาม"><h2>กระดาษนิยาม</h2><p>แผนผังโครงและชื่อตัวแปร</p><article id="paper"></article></section>
+    <section class="panel workspace" aria-label="กระดาษนิยาม"><h2>แผนผังนิยาม</h2><p>ดูตำแหน่งโครงและชื่อตัวแปร · เปิด UAT ฉบับเต็มจากแท็บ Engine</p><article id="paper"></article></section>
     <aside>
       <section class="panel" aria-label="รายการที่เลือก"><h2 id="selection"></h2><p id="path"></p>
       <form id="rename" hidden><label for="section-name">ชื่อส่วนเอกสาร</label><input id="section-name" required maxlength="128"><button class="primary" id="save" type="submit">บันทึกชื่อ Section</button></form>
@@ -21,9 +21,9 @@
     </aside>
   </div>
   <section id="preview" class="panel" hidden aria-label="กระดาษเสมือนจาก Engine">
-    <h2>กระดาษเสมือนจาก Engine</h2><p>ใช้ชุดข้อมูลทดสอบ UAT สำหรับตรวจผลจัดหน้าของฉบับที่บันทึกแล้ว</p>
+    <h2>กระดาษเสมือนจาก Engine</h2><p>ใช้ข้อมูลและภาพจากชุด UAT ต้นฉบับกับนิยามฉบับที่บันทึกแล้ว</p>
     <p id="preview-status" role="status"></p>
-    <div class="pager"><button id="previous-page" disabled>หน้าก่อน</button><span id="page-number"></span><button id="next-page" disabled>หน้าถัดไป</button></div>
+    <div class="pager"><button id="previous-page" disabled>หน้าก่อน</button><span id="page-number"></span><label for="jump-page">ไปหน้า</label><input id="jump-page" type="number" min="1" step="1" disabled><button id="next-page" disabled>หน้าถัดไป</button></div>
     <div id="preview-paper"></div>
     <button id="refresh-preview">ลองจัดหน้าใหม่</button>
   </section>

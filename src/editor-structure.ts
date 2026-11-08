@@ -1,12 +1,13 @@
 export type Field = {type:string; items?:Schema; areaId?:string; required?:boolean};
 export type Schema = {type?:'object'; fields:Record<string,Field>};
-export type Inline = {id?:string; type:string; text?:string; key?:string; scope?:string};
+export type Inline = {id?:string; type:string; text?:string; key?:string; scope?:string; field?:string};
 type Length = {unit:'pt'|'mm';value:number};
 export type DocNode = {
   id:string; type:string; role?:{role:string};
   props?:{areaId?:string;verticalAlign?:string;colSpan?:number;rowSpan?:number;columnIndex?:number;
     anchorId?:unknown;headerRowCount?:number;repeatHeaderRows?:boolean;allowBreak?:boolean;textStyleId?:string;
-    width?:Length;height?:Length;source?:{scope:string;key:string}};
+    width?:Length;height?:Length;borderWidth?:Length;borderColor?:string;headerFillColor?:string;fillColor?:string;
+    textAlign?:string;padding?:Partial<Record<'top'|'right'|'bottom'|'left',Length>>;source?:{scope:string;key:string}};
   rowIds?:string[];cellIds?:string[];childIds?:string[];
   columns?:{width?:Length;childIds?:string[]}[];children?:Inline[];
 };

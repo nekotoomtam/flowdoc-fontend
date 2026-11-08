@@ -8,6 +8,7 @@ const output=resolve(process.env.FLOWDOC_PHASE1_EVIDENCE??'experiments/phase1-lo
 await mkdir(output,{recursive:true});
 const browser=await chromium.launch({channel:'msedge'});
 const context=await browser.newContext({viewport:{width:1440,height:900}});
+await context.addInitScript(()=>sessionStorage.setItem('flowdoc:benchmark-preview','1'));
 const errors=[];
 const rounded=n=>Math.round(n*10)/10;
 const measures=(page,name)=>page.evaluate(key=>performance.getEntriesByName(key).map(e=>({ms:e.duration,detail:e.detail})),name);

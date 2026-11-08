@@ -1,15 +1,10 @@
 import './phase1-editor.css';
 
-type Field = {type: string; items?: Schema; areaId?: string};
-type Schema = {fields: Record<string, Field>};
-type Inline = {type: string; text?: string; key?: string};
-type DocNode = {id: string; type: string; props?: {areaId?: string; colSpan?: number; rowSpan?: number}; rowIds?: string[]; cellIds?: string[]; childIds?: string[]; columns?: {childIds?: string[]}[]; children?: Inline[]};
-type Fragment = {rootIds: string[]; nodes: Record<string, DocNode>};
-type Format = {key: string; label?: string; ownerAreaId: string; inputSchema: Schema; fragment: Fragment};
-type Band = {inputSchema: Schema; fragment: Fragment};
-type Section = {id: string; label: string; sectionKey: string; inputSchema: Schema; source: {fragment?: Fragment}; header?: Band; footer?: Band};
-type Draft = {templateId: string; name: string; revision: number; fingerprint: string; definition: {nodeModelVersion: number; sections: Section[]; areaFormats?: Record<string, Format>; globalSchema: Schema}};
-type Outline = {id: string; label: string; type: string; section: Section; format?: Format; children: Outline[]; parent?: Outline; node?: DocNode; band?: Band};
+import {applyStructureChange, groupSources, refKey} from './editor-structure';
+import type {Band, Change, Definition, DocNode, Format, Fragment, Ref, Schema, Section} from './editor-structure';
+
+type Draft = {templateId:string;name:string;revision:number;fingerprint:string;definition:Definition};
+type Outline = {id:string;ref:Ref;label:string;type:string;section:Section;format?:Format;children:Outline[];parent?:Outline;node?:DocNode;band?:Band};
 type DrawPage = {
   widthPt: number; heightPt: number; backgroundColor: string;
   sampleImages?: {xPt:number; yPt:number; widthPt:number; heightPt:number; color:string}[];
@@ -18,7 +13,7 @@ type DrawPage = {
   lines: {text: string; xPt: number; yPt: number; fontSizePt: number; baselineOffsetPt: number; color: string; weight: number}[];
 };
 type Preview = {revision: number; fingerprint: string; engineVersion: string; engineMs: number; renderMs: number; layoutHash: string; pdfHash: string; pageCount: number; pages: DrawPage[]};
-type ServiceReply = {ok: boolean; value?: Draft; issues?: {code: string}[]};
+type ServiceReply = {ok: boolean; value?: Draft; issues?: {code: string; path?:string}[]};
 const q = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id)! as T;
 const title = q('title'), status = q('status'), editor = q('editor'), tree = q('tree'), paper = q('paper'), variables = q('variables');
 const form = q<HTMLFormElement>('rename'), input = q<HTMLInputElement>('section-name'), save = q<HTMLButtonElement>('save');
@@ -29,8 +24,14 @@ const templateId = new URLSearchParams(location.search).get('id');
 const endpoint = '/api/editor-phase1/drafts/' + encodeURIComponent(templateId ?? '');
 const kinds: Record<string,string> = {section:'Section',area:'Area',format:'Format',table:'ตาราง','table-row':'แถว','table-cell':'เซลล์','text-block':'ข้อความ','page-break':'ขึ้นหน้าใหม่',image:'ภาพ',line:'เส้น','table-of-contents':'สารบัญ'};
 const treeNodes = new Map<Outline, HTMLButtonElement>();
+const rootRows=new Map<Outline,HTMLLIElement>();
 const paperNodes = new Map<Outline, HTMLButtonElement>();
+let savedDefinition:Definition|undefined;
 let draft: Draft, selection: Outline | undefined, paperSection: Section | undefined;
+let roots:Outline[] = [], outlines=new Map<string,Outline>();
+const expanded=new Map<string,boolean>();
+const history:{definition:Definition;selection:Ref}[]=[];
+let variableContext:Outline|undefined;
 let isSaving = false, isLoading = false, hasConflict = false, showingPreview = false;
 let preview: Preview | undefined, pendingPreview: AbortController | undefined, pageIndex = 0;
 
@@ -49,7 +50,7 @@ function afterPaint(name: string, started: number, detail?: unknown) {
   requestAnimationFrame(() => requestAnimationFrame(() => performance.measure(name, {start:started, detail})));
 }
 function outline(section: Section): Outline {
-  const root: Outline = {id:section.id, label:section.label, type:'section',section,children:[]};
+  const root: Outline = {id:section.id, ref:{sectionId:section.id},label:section.label, type:'section',section,children:[]};
   function nodes(fragment: Fragment, ids: string[], parent: Outline, format?: Format): Outline[] {
     return ids.map((id, position) => {
       const node = fragment.nodes[id];
@@ -57,10 +58,10 @@ function outline(section: Section): Outline {
         .find(([,f])=>f.type==='area'&&f.areaId===node.props?.areaId)?.[0] : undefined;
       const inline = node.children?.map(x=>x.type==='field-ref'?'{{'+x.key+'}}':x.text??'').join('');
       const label = areaField ?? (inline || (['table-row','table-cell'].includes(node.type) ? kinds[node.type]+' '+(position+1) : kinds[node.type]??node.type));
-      const result: Outline = {id,label,type:node.type,section,node,format,parent,band:parent.band,children:[]};
+      const result: Outline = {id,ref:{...parent.ref,nodeId:id},label,type:node.type,section,node,format,parent,band:parent.band,children:[]};
       if (node.type==='area') {
         result.children = Object.entries(draft.definition.areaFormats??{}).filter(([,f])=>f.ownerAreaId===node.props?.areaId).map(([formatId,f])=>{
-          const item: Outline = {id:formatId,label:f.label??f.key,type:'format',section,parent:result,format:f,children:[]};
+          const item: Outline = {id:formatId,ref:{sectionId:section.id,formatId},label:f.label??f.key,type:'format',section,parent:result,format:f,children:[]};
           item.children=nodes(f.fragment,f.fragment.rootIds,item,f);
           return item;
         });
@@ -72,7 +73,7 @@ function outline(section: Section): Outline {
   }
   const fragment=section.source.fragment;
   const makeBand = (band:Band, type:string, label:string) => {
-    const part:Outline={id:section.id+'-'+type,label,type,section,parent:root,band,children:[]};
+    const part:Outline={id:section.id+'-'+type,ref:{sectionId:section.id,band:type as 'header'|'footer'},label,type,section,parent:root,band,children:[]};
     part.children=nodes(band.fragment,band.fragment.rootIds,part);
     return part;
   };
@@ -85,11 +86,14 @@ function drawBranch(items: Outline[], depth = 0) {
   const list = element('ul');
   list.className='tree';
   for (const item of items) {
+    const prior=depth===0?rootRows.get(item):undefined;
+    if(prior){list.append(prior);continue;}
     const li=element('li'), row=element('div');
     row.className='tree-row';
     const itemButton=button(item.label,()=>select(item,true));
     itemButton.dataset.kind=item.type;
     itemButton.dataset.nodeId=item.id;
+    itemButton.dataset.ref=refKey(item.ref);
     treeNodes.set(item,itemButton);
     const type=element('small',kinds[item.type]??item.type);
     type.className='type';
@@ -97,20 +101,23 @@ function drawBranch(items: Outline[], depth = 0) {
       if (!branch) branch=li.appendChild(drawBranch(item.children,depth+1));
       branch.hidden=toggle.getAttribute('aria-expanded')==='true';
       toggle.setAttribute('aria-expanded',String(!branch.hidden));
+      expanded.set(refKey(item.ref),!branch.hidden);
       toggle.textContent=branch.hidden?'▸':'▾';
       if(selection)treeNodes.get(selection)?.setAttribute('aria-current','true');
     });
     toggle.className='toggle';
     toggle.setAttribute('aria-label','ขยายหรือยุบ '+item.label);
-    toggle.setAttribute('aria-expanded',String(depth<2&&item.children.length>0));
+    const open=item.children.length>0&&(expanded.get(refKey(item.ref))??depth<2);
+    toggle.setAttribute('aria-expanded',String(open));
     toggle.hidden=!item.children.length;
     row.append(toggle,itemButton,type);
     li.append(row);
     let branch: HTMLUListElement|undefined;
-    if(depth<2&&item.children.length){
+    if(open){
       branch=li.appendChild(drawBranch(item.children,depth+1));
       toggle.textContent='▾';
     }
+    if(depth===0)rootRows.set(item,li);
     list.append(li);
   }
   return list;
@@ -145,6 +152,8 @@ function drawPaper(root: Outline) {
   paperSection=root.section;
 }
 function drawVariables(item: Outline) {
+  if(variableContext?.section===item.section&&variableContext.format===item.format&&variableContext.band===item.band)return;
+  variableContext=item;
   const scopes: [string,Schema][]=[['ทั้งเอกสาร',draft.definition.globalSchema],['ส่วนเอกสาร',item.section.inputSchema]];
   if(item.band)scopes.push(['หัว–ท้ายกระดาษ',item.band.inputSchema]);
   if(item.format)scopes.push(['รูปแบบ · '+item.format.key,item.format.inputSchema]);
@@ -173,6 +182,12 @@ function select(item: Outline, measure: boolean) {
     paperNodes.get(selection)?.removeAttribute('aria-current');
   }
   selection=item;
+  const currentControl=treeNodes.get(item);
+  if(!currentControl||currentControl.closest("[hidden]")){
+    reveal(item);
+    const scroll=tree.scrollTop;
+    treeNodes.clear();rootRows.clear();tree.replaceChildren(drawBranch(roots));tree.scrollTop=scroll;
+  }
   let root=item;
   const path=[root.label];
   while(root.parent){root=root.parent;path.unshift(root.label);}
@@ -185,20 +200,192 @@ function select(item: Outline, measure: boolean) {
   if(item.type==='section'&&!hasConflict) input.value=item.label;
   if(!hasConflict)status.textContent='';
   drawVariables(item);
+  showActions(item);
   if(measure)afterPaint('flowdoc:tree-selection',started,{type:item.type});
 }
-function showDraft(data: Draft, keepSectionId?: string) {
+function reveal(item:Outline){
+  for(let parent=item.parent;parent;parent=parent.parent)expanded.set(refKey(parent.ref),true);
+}
+const isDirty=()=>Boolean(draft&&draft.definition!==savedDefinition);
+function confirmNavigation(event:BeforeUnloadEvent){event.preventDefault();event.returnValue='';}
+function refreshButtons(){
+  const dirty=isDirty();
+  q('structure-pending').hidden=!dirty;
+  if(dirty)window.addEventListener('beforeunload',confirmNavigation);
+  else window.removeEventListener('beforeunload',confirmNavigation);
+  q<HTMLButtonElement>('save-structure').disabled=isSaving||hasConflict;
+  q<HTMLButtonElement>('undo-structure').disabled=isSaving||hasConflict||!history.length;
+  q<HTMLButtonElement>('discard-structure').disabled=isSaving||hasConflict;
+  q<HTMLButtonElement>('add-section').disabled=isSaving||hasConflict;
+  previewTab.disabled=dirty;
+  save.disabled=dirty||isSaving||hasConflict;
+  input.readOnly=dirty||isSaving;
+  if(selection)showActions(selection);
+}
+function showDraft(data: Draft, keep?: Ref) {
   draft=data;
   title.textContent=data.name;
   q('revision').textContent='Model 20 · Revision '+data.revision;
-  const roots=data.definition.sections.map(outline);
-  treeNodes.clear();selection=undefined;paperSection=undefined;
+  const prior=new Map(roots.map(root=>[root.section,root]));
+  roots=data.definition.sections.map(section=>prior.get(section)??outline(section));
+  outlines=new Map();
+  const index=(item:Outline)=>{outlines.set(refKey(item.ref),item);item.children.forEach(index);};
+  roots.forEach(index);
+  for(const key of expanded.keys())if(!outlines.has(key))expanded.delete(key);
+  const selected=(keep&&outlines.get(refKey(keep)))??roots[0];
+  reveal(selected);
+  const scroll=tree.scrollTop;
+  if(selection){
+    treeNodes.get(selection)?.removeAttribute('aria-current');
+    paperNodes.get(selection)?.removeAttribute('aria-current');
+  }
+  selection=undefined;
+  for(const item of treeNodes.keys())if(outlines.get(refKey(item.ref))!==item)treeNodes.delete(item);
+  for(const item of rootRows.keys())if(!roots.includes(item))rootRows.delete(item);
   tree.replaceChildren(drawBranch(roots));
-  select(roots.find(x=>x.id===keepSectionId)??roots[0],false);
-  previewTab.disabled=false;
+  tree.scrollTop=scroll;
+  select(selected,false);
+  refreshButtons();
   editor.hidden=showingPreview;
   document.body.dataset.revision=String(data.revision);
 }
+const dialog=q<HTMLDialogElement>('structure-dialog'), actionForm=q<HTMLFormElement>('structure-form');
+type FormField={key:string;label:string;options?:[string,string][]};
+function ask(title:string, fields:FormField[], run:(values:Record<string,string>)=>void, note?:string){
+  actionForm.replaceChildren(element('h2',title));
+  if(note)actionForm.append(element('p',note));
+  const controls=new Map<string,HTMLInputElement|HTMLSelectElement>();
+  for(const field of fields){
+    const label=element('label',field.label);
+    const control=field.options?element('select'):element('input');
+    control.required=true;control.name=field.key;
+    if(control instanceof HTMLSelectElement)for(const [value,text] of field.options??[]){
+      const option=element('option',text);option.value=value;control.append(option);
+    }
+    controls.set(field.key,control);label.append(control);actionForm.append(label);
+  }
+  const error=element('p');error.id='structure-error';error.setAttribute('role','alert');
+  const submit=element('button','ยืนยัน');submit.type='submit';submit.className='primary';
+  actionForm.append(error,submit,button('ยกเลิก',()=>dialog.close()));
+  actionForm.onsubmit=event=>{
+    event.preventDefault();
+    try{run(Object.fromEntries([...controls].map(([key,el])=>[key,el.value.trim()])));dialog.close();}
+    catch(e){error.textContent=e instanceof Error?e.message:'แก้โครงไม่สำเร็จ';}
+  };
+  dialog.showModal();
+}
+function stage(change:Change){
+  if(isSaving||hasConflict)return;
+  const started=performance.now();
+  const result=applyStructureChange(draft.definition,change);
+  history.push({definition:draft.definition,selection:selection!.ref});
+  if(history.length>20)history.shift();
+  cancelPreview();
+  showDraft({...draft,definition:result.definition},result.selection);
+  status.textContent='ปรับในฉบับร่างแล้ว · กดตรวจและบันทึกโครงเมื่อพร้อม';
+  afterPaint('flowdoc:structure-edit',started,{action:change.kind});
+}
+function outlinePath(item:Outline){
+  const labels=[item.label];for(let p=item.parent;p;p=p.parent)labels.unshift(p.label);
+  return labels.join(' › ');
+}
+function destinations(item:Outline){
+  if(item.type==='area')return roots.filter(x=>x.section!==item.section);
+  if(item.type==='format')return [...outlines.values()].filter(x=>x.type==='area'&&x!==item.parent);
+  if(['text-block','image'].includes(item.type)&&item.parent?.type==='table-cell')
+    return (item.parent.parent?.children??[]).filter(x=>x!==item.parent);
+  return [];
+}
+function showActions(item:Outline){
+  const actions=q('actions');actions.replaceChildren();
+  const add=(name:string,run:()=>void)=>{
+    const control=button(name,run);control.disabled=isSaving||hasConflict;actions.append(control);
+  };
+  const at=item.ref;
+  const promptKey=(label:string,run:(key:string)=>void)=>ask(label,[{key:'key',label:'ชื่อในนิยาม'}],v=>run(v.key));
+  if(item.type==='section'||(item.type==='table-cell'&&!at.formatId&&!at.band)){
+    add('+ เพิ่ม Area',()=>ask('เพิ่ม Area พร้อม Format แรก',[{key:'key',label:'ชื่อ Area'},{key:'format',label:'ชื่อ Format แรก'}],v=>stage({kind:'area',at,key:v.key,format:v.format}),
+      'Core ต้องมี Format อย่างน้อยหนึ่งตัวต่อ Area'));
+  }
+  if(item.type==='area')add('+ เพิ่ม Format',()=>promptKey('เพิ่ม Format ใน '+item.label,key=>stage({kind:'format',at,key})));
+  const options:[string,string][] = item.type==='table-cell'?[['text-block','ข้อความ']]
+    : ['header','footer'].includes(item.type)?[['text-block','ข้อความ'],['line','เส้น']]
+    : ['section','format'].includes(item.type)?[['text-block','ข้อความ'],['table','ตาราง 2 คอลัมน์'],['line','เส้น'],['page-break','ขึ้นหน้าใหม่']]:[];
+  if(options.length)add('+ เพิ่ม node',()=>ask('เพิ่ม node ใน '+item.label,[{key:'type',label:'ชนิด node',options}],v=>stage({kind:'node',at,type:v.type})));
+  if(item.type==='table'){
+    add('+ เพิ่มแถว',()=>tryStage({kind:'node',at,type:'table-row'}));
+    add('+ เพิ่ม Row Group',()=>{
+      const sources=groupSources(draft.definition,at);
+      if(!sources.length){status.textContent='ตารางนี้ต้องมีตัวแปรรายการกลุ่มและรายการสมาชิกที่ประกาศไว้ก่อน';return;}
+      ask('สร้าง Row Group',[{key:'source',label:'ตัวแปรกลุ่ม → รายการสมาชิก',
+        options:sources.map((x,i)=>[String(i),x.scope+': '+x.key+'[] › '+x.member+'[]'])}],
+        v=>stage({kind:'group',at,...sources[Number(v.source)]}),
+        'เพิ่มแถวเริ่มกลุ่ม แถวสมาชิก และแถวกรณีไม่มีสมาชิกเป็นชุดเดียวกัน');
+    });
+  }
+  if(item.type==='table-cell'){
+    add('ผสานกับเซลล์ขวา',()=>tryStage({kind:'merge',at}));
+    add('แยกเซลล์',()=>tryStage({kind:'split',at}));
+  }
+  if(item.type==='section'||(item.node&&item.type!=='table-cell')){
+    add('เลื่อนขึ้น',()=>tryStage({kind:'reorder',at,delta:-1}));
+    add('เลื่อนลง',()=>tryStage({kind:'reorder',at,delta:1}));
+  }
+  if(['area','format','text-block','image'].includes(item.type)){
+    add('ย้ายไป…',()=>{
+      const targets=destinations(item);
+      if(!targets.length){status.textContent='ไม่มีปลายทางสำหรับรายการนี้';return;}
+      ask('ย้าย '+item.label,[{key:'target',label:'ตำแหน่งใหม่',options:targets.map(x=>[refKey(x.ref),outlinePath(x)])}],
+        v=>stage({kind:'move',at,to:outlines.get(v.target)!.ref}));
+    });
+  }
+  if(item.type!=='table-cell'){
+    add('ลบรายการนี้',()=>ask('ลบ '+item.label,[],()=>stage({kind:'delete',at}),
+      item.children.length?'รายการย่อยของส่วนนี้จะถูกลบไปด้วย · '+outlinePath(item):outlinePath(item)));
+  }
+}
+function tryStage(change:Change){
+  try{stage(change);}catch(e){status.textContent=e instanceof Error?e.message:'แก้โครงไม่สำเร็จ';}
+}
+q('add-section').addEventListener('click',()=>ask('เพิ่ม Section',[{key:'label',label:'ชื่อส่วนเอกสาร'}],v=>stage({kind:'section',label:v.label})));
+q('undo-structure').addEventListener('click',()=>{
+  if(isSaving||hasConflict)return;
+  const prior=history.pop();
+  if(!prior)return;
+  showDraft({...draft,definition:prior.definition},prior.selection);
+  status.textContent='ย้อนการแก้โครงขั้นล่าสุดแล้ว';
+});
+q('discard-structure').addEventListener('click',()=>{
+  if(isSaving||hasConflict||!savedDefinition)return;
+  ask('ยกเลิกการแก้โครงทั้งหมด',[],()=>{
+    history.length=0;showDraft({...draft,definition:savedDefinition!},selection?.ref);
+    status.textContent='กลับไปใช้โครงที่บันทึกล่าสุดแล้ว';
+  },'การแก้ในหน้านี้จะถูกทิ้ง');
+});
+q('save-structure').addEventListener('click',async()=>{
+  if(!isDirty()||isSaving||hasConflict)return;
+  const started=performance.now(), keep=selection?.ref;
+  isSaving=true;refreshButtons();
+  status.textContent='กำลังตรวจโครงกับ Core และบันทึก…';
+  try{
+    const response=await fetch(endpoint+'/structure',{method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({definition:draft.definition,expectedRevision:draft.revision,idempotencyKey:crypto.randomUUID()}),
+      signal:AbortSignal.timeout(20000)});
+    const result=await response.json() as ServiceReply;
+    if(response.status===409&&result.issues?.[0]?.code==='STALE_CURRENT'){
+      hasConflict=true;conflict.hidden=false;status.textContent='มีฉบับใหม่กว่า · การแก้โครงในหน้านี้ยังอยู่';return;
+    }
+    if(!response.ok||!result.ok||!result.value){
+      const issue=result.issues?.[0];
+      status.textContent=issue?'Core ไม่รับโครงนี้ · '+issue.code+' · '+(issue.path??''):'ยังยืนยันผลบันทึกไม่ได้ · การแก้ยังอยู่';
+      return;
+    }
+    history.length=0;savedDefinition=result.value.definition;cancelPreview();showDraft(result.value,keep);
+    status.textContent='ตรวจและบันทึกโครงแล้ว · Revision '+draft.revision;
+    afterPaint('flowdoc:structure-save',started,{revision:draft.revision});
+  }catch{status.textContent='ยังยืนยันผลบันทึกไม่ได้ · การแก้ยังอยู่';}
+  finally{isSaving=false;refreshButtons();}
+});
 async function readDraft() {
   const response=await fetch(endpoint,{signal:AbortSignal.timeout(15000)});
   const reply=await response.json() as ServiceReply;
@@ -221,7 +408,7 @@ async function load() {
   try{
     const data=await readDraft();
     cancelPreview();
-    hasConflict=false;conflict.hidden=true;input.readOnly=false;save.disabled=false;
+    hasConflict=false;history.length=0;savedDefinition=data.definition;conflict.hidden=true;
     showDraft(data);
     const fromCard=Number(sessionStorage.getItem('flowdoc:open:'+templateId));
     sessionStorage.removeItem('flowdoc:open:'+templateId);
@@ -291,9 +478,9 @@ function changeMode(toPreview: boolean) {
 form.addEventListener('submit',async event=>{
   event.preventDefault();
   const item=selection,label=input.value.trim();
-  if(!item||item.type!=='section'||!label||isSaving||hasConflict)return;
+  if(!item||item.type!=='section'||!label||isSaving||hasConflict||isDirty())return;
   if(label===item.section.label){status.textContent='ชื่อส่วนยังเหมือนเดิม';return;}
-  isSaving=true;input.readOnly=true;save.disabled=true;
+  isSaving=true;refreshButtons();
   status.textContent='กำลังบันทึก…';
   try{
     const response=await fetch(endpoint,{method:'PUT',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(15000),
@@ -307,13 +494,14 @@ form.addEventListener('submit',async event=>{
     }
     if(!response.ok||!reply.ok||!reply.value||reply.value.templateId!==templateId)throw Error('Save failed');
     const data=reply.value;
-    cancelPreview();showDraft(data,item.id);
+    savedDefinition=data.definition;
+    cancelPreview();showDraft(data,item.ref);
     status.textContent='บันทึกแล้ว · Revision '+data.revision;
     if(showingPreview)void loadPreview();
   }catch{
     status.textContent='ยังยืนยันผลบันทึกไม่ได้ ชื่อที่พิมพ์ยังอยู่';
   }finally{
-    isSaving=false;input.readOnly=false;save.disabled=hasConflict;
+    isSaving=false;refreshButtons();
   }
 });
 q('reload').addEventListener('click',()=>void load());

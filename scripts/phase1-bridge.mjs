@@ -58,14 +58,15 @@ export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1'}={
         (req.headers['sec-fetch-site']&&!['same-origin','none'].includes(req.headers['sec-fetch-site'])))
         return send(403,{error:'forbidden'});
       if(!enabled)return send(503,{error:'phase1_disabled'});
-      const match=/^\/drafts\/([^/]+)(\/preview)?$/.exec(req.url??'');
+      const match=/^\/drafts\/([^/]+)(\/(?:preview|structure))?$/.exec(req.url??'');
       let action,templateId;
       if(req.method==='GET'&&req.url==='/catalog')action='catalog';
       else if(match&&uuid.test(match[1])){
         templateId=match[1];
         if(req.method==='GET'&&!match[2])action='get';
         if(req.method==='PUT'&&!match[2])action='rename';
-        if(req.method==='POST'&&match[2])action='preview';
+        if(req.method==='POST'&&match[2]==='/preview')action='preview';
+        if(req.method==='PUT'&&match[2]==='/structure')action='structure';
       }
       if(!action)return send(404,{error:'not_found'});
       let body;
@@ -73,7 +74,7 @@ export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1'}={
         if(!/^application\/json(?:;|$)/i.test(req.headers['content-type']??''))return send(415,{error:'invalid_content_type'});
         try{
           const chunks=[];let bytes=0;
-          for await(const chunk of req){bytes+=chunk.length;if(bytes>4096)return send(413,{error:'body_too_large'});chunks.push(chunk);}
+          for await(const chunk of req){bytes+=chunk.length;if(bytes>(action==='structure'?2*1024*1024:4096))return send(413,{error:'body_too_large'});chunks.push(chunk);}
           body=JSON.parse(Buffer.concat(chunks).toString('utf8'));
         }catch{return send(400,{error:'invalid_json'});}
       }

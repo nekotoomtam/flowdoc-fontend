@@ -134,6 +134,10 @@ try {
       const result=await service('PUT',route,{definition:draft.definition,expectedRevision,idempotencyKey});
       return {status:result.statusCode,body:result.json()};
     }
+    if (packet.action === 'structure') {
+      const result = await service('PUT',route,packet.body);
+      return {status:result.statusCode,body:result.json()};
+    }
     if (packet.action === 'preview') return render(packet.body?.expectedRevision);
     return {status:404,body:{error:'not_found'}};
   }

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
 import {loadOriginalUat} from './original-uat-preview.mjs';
 import {trialImages} from './trial-preview-images.mjs';
+import {applyTrialValueChanges} from './trial-value-delta.mjs';
 import {layoutPreview} from './trial-engine-layout.mjs';
 import {markBlankRuns,previewInput,trialBindings} from './trial-preview-bindings.mjs';
 import {randomBytes, randomUUID, createHash} from 'node:crypto';
@@ -156,8 +157,10 @@ try {
 
   let previewBusy = false;
   async function render(templateId,body) {
-    const {expectedRevision,sample:mode,trial}=body??{};
-    const custom=trial!==undefined;
+    const {expectedRevision,sample:mode,trialPatch}=body??{};
+    let trial=body?.trial;
+    const custom=trial!==undefined||trialPatch!==undefined;
+    if(trial!==undefined&&trialPatch!==undefined)return {status:422,body:{error:'invalid_trial_patch'}};
     if(!custom&&templateId!==identity)return {status:400,body:{error:'trial_required'}};
     if (previewBusy) return {status:429,body:{error:'preview_busy'}};
     previewBusy = true;
@@ -169,6 +172,15 @@ try {
       if(!custom&&mode!=='benchmark'&&originalPreview?.revision===draft.revision&&originalPreview.fingerprint===draft.fingerprint)
         return {status:200,body:originalPreview.header};
       const started = performance.now();
+      if(trialPatch!==undefined){
+        const base=trialPreviews.get(trialPatch?.basePreviewId);
+        if(!base?.trial||base.templateId!==templateId||base.revision!==draft.revision||base.fingerprint!==draft.fingerprint)
+          return {status:409,body:{error:'trial_base_unavailable'}};
+        try{
+          trial=applyTrialValueChanges(base.trial,trialPatch);
+          if(Buffer.byteLength(JSON.stringify(trial))>4*1024*1024)return {status:413,body:{error:'body_too_large'}};
+        }catch{return {status:422,body:{error:'invalid_trial_patch'}};}
+      }
       const validated = take(core.validateTemplate(draft.definition));
       if(custom&&(!trial||typeof trial!=='object'||!Array.isArray(trial.sections)||!Array.isArray(trial.images)))
         return {status:422,body:{error:'invalid_trial'}};
@@ -234,8 +246,8 @@ try {
           ...(fixture?{entryCount:fixture.entryCount,imagePlacements:fixture.placements}:{})};
         if(custom){
           const id=randomUUID();
-          cache.header.previewId=id;
-          trialPreviews.set(id,{...cache,templateId,assets:assets.assets});
+          cache.header.previewId=id;cache.header.trialPatchBase=true;
+          trialPreviews.set(id,{...cache,templateId,assets:assets.assets,trial});
           setTimeout(()=>trialPreviews.delete(id),20*60*1000).unref();
           if(trialPreviews.size>2)trialPreviews.delete(trialPreviews.keys().next().value);
         }else originalPreview=cache;

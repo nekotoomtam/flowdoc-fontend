@@ -29,7 +29,7 @@ async function fileBytes(file:File){
   for(let i=0;i<bytes.length;i+=16384)binary+=String.fromCharCode(...bytes.subarray(i,i+16384));
   return btoa(binary);
 }
-export function mountTrial(form:HTMLFormElement,definition:Definition,starter:ReadonlyMap<string,string>,changed:(structural:boolean)=>void,render:(trial:Trial,current:()=>boolean,usable:()=>boolean)=>Promise<void>){
+export function mountTrial(form:HTMLFormElement,definition:Definition,starter:ReadonlyMap<string,string>,changed:(structural:boolean)=>void,render:(trial:Trial,current:()=>boolean,usable:()=>boolean,structure:number,fields:ReadContext['fields'])=>Promise<void>){
   const error=node('p');error.className='trial-error';error.setAttribute('role','alert');
   let editVersion=0,structureVersion=0,bindings=new Map<string,HTMLTextAreaElement>(),running=false;
   let timer:number|undefined,queued:(()=>TrialFocus|undefined)|undefined,disposed=false;
@@ -217,7 +217,7 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
         if(!bytes){bytes=fileBytes(file);encoded.set(file,bytes);}
         return {id,bytes:await bytes};
       }));
-      if(usable()){bindings=context.fields;await render({data,sections:values,images,blanks:context.blanks,focus},current,usable);}
+      if(usable()){bindings=context.fields;await render({data,sections:values,images,blanks:context.blanks,focus},current,usable,structure,context.fields);}
     }catch(cause){
       if(current())error.textContent=cause instanceof Error?cause.message:'จัดหน้าทดลองไม่สำเร็จ';
     }finally{running=false;schedule(0);}

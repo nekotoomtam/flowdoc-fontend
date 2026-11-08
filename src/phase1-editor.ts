@@ -3,6 +3,7 @@ import {addBand,addVariable,applyPart,changePage,newDefinition,partValue,setting
 import type {Part} from './editor-creation';
 import {openVisualAuthoring} from './editor-visual-authoring';
 import {mountTrial} from './editor-trial';
+import {trialValueChanges} from '../scripts/trial-value-delta.mjs';
 import type {Trial} from './editor-trial';
 
 import {applyStructureChange, canAddPlainRows, defaultCellPadding, groupSources, lengthInPoints, paddingSides, refKey, structureOrder} from './editor-structure';
@@ -20,7 +21,7 @@ type DrawPage = {
 };
 type TrialTab = {occurrence:string;pageIndex:number};
 type PreviewEdit = {previous?:TrialTab;next?:TrialTab;key:string;occurrence:string;start:number;end:number;blank?:boolean;contentWidth?:number;align?:string;clusters:[number,number,number][]};
-type Preview = {pageKeys?:(string|null)[];pageSizes?:[number,number,string][];pageIndex?:number;previewId?:string;revision: number; fingerprint: string; engineVersion: string; engineMs: number; renderMs: number; layoutHash: string; renderPath?:string; pageCount: number; pages: DrawPage[]; paged?:boolean; entryCount?:number; imagePlacements?:number};
+type Preview = {trialPatchBase?:boolean;pageKeys?:(string|null)[];pageSizes?:[number,number,string][];pageIndex?:number;previewId?:string;revision: number; fingerprint: string; engineVersion: string; engineMs: number; renderMs: number; layoutHash: string; renderPath?:string; pageCount: number; pages: DrawPage[]; paged?:boolean; entryCount?:number; imagePlacements?:number};
 type ServiceReply = {ok: boolean; value?: Draft; issues?: {code: string; path?:string}[]};
 const q = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id)! as T;
 const title = q('title'), status = q('status'), editor = q('editor'), tree = q('tree'), paper = q('paper'), variables = q('variables');
@@ -31,6 +32,8 @@ const previous = q<HTMLButtonElement>('previous-page'), next = q<HTMLButtonEleme
 const jump=q<HTMLInputElement>('jump-page');
 const benchmark=sessionStorage.getItem('flowdoc:benchmark-preview')==='1';
 const canvasPreview=new URLSearchParams(location.search).get('previewRenderer')==='canvas';
+const fullTrialTransport=new URLSearchParams(location.search).get('previewTransport')==='full'||
+  sessionStorage.getItem('flowdoc:full-trial-transport')==='1';
 let pendingPage:AbortController|undefined;
 const editorApi='/api/editor-phase1/drafts';
 const newMode=new URLSearchParams(location.search).get('new')==='1';
@@ -50,6 +53,7 @@ let roots:Outline[] = [], outlines=new Map<string,Outline>();
 const expanded=new Map<string,boolean>();
 const history:{definition:Definition;selection:Ref}[]=[];
 let isSaving = false, isLoading = false, hasConflict = false, showingPreview = false;
+let trialBase:{previewId:string;trial:Trial;structure:number}|undefined;
 let preview: Preview | undefined, pendingPreview: AbortController | undefined, pageIndex = 0;
 
 const element = <K extends keyof HTMLElementTagNameMap>(tag: K, label?: string) => {
@@ -1291,7 +1295,7 @@ async function readDraft() {
 function cancelPreview() {
   pendingPreview?.abort();pendingPreview=undefined;
   resetPreviewPages();paperInteractionBlocked=false;jump.disabled=true;
-  preview=undefined;previewPaper.replaceChildren();
+  preview=undefined;trialBase=undefined;previewPaper.replaceChildren();
   delete previewPaper.dataset.revision;
   delete previewPaper.dataset.run;
   q('page-number').textContent='';
@@ -1756,18 +1760,34 @@ window.addEventListener('scroll',()=>{
   });
 },{passive:true});
 
-async function loadPreview(trial?:Trial,current=()=>true,usable=current) {
+async function loadPreview(trial?:Trial,current=()=>true,usable=current,structure=0,fields?:ReadonlyMap<string,HTMLTextAreaElement>) {
   if(!draft||pendingPreview||!showingPreview||isDirty())return;
   const started=performance.now(), revision=draft.revision, fingerprint=draft.fingerprint;
   const request=new AbortController();pendingPreview=request;
   refreshPreview.disabled=true;
   previewStatus.textContent='กำลังจัดหน้า Revision '+revision+'…';
   try{
-    const response=await fetch(endpoint+'/preview',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({expectedRevision:revision,...(trial?{trial}:benchmark?{sample:'benchmark'}:{})}),signal:AbortSignal.any([request.signal,AbortSignal.timeout(120000)])});
+    const signal=AbortSignal.any([request.signal,AbortSignal.timeout(120000)]);
+    const post=(input:object)=>fetch(endpoint+'/preview',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({expectedRevision:revision,...input}),signal});
+    const full=trial?{trial}:benchmark?{sample:'benchmark'}:{};
+    const base=trialBase;
+    const changes=!fullTrialTransport&&trial&&base&&fields&&base.structure===structure
+      ?trialValueChanges(base.trial,trial,fields):undefined;
+    const patch=changes&&base&&trial?{trialPatch:{basePreviewId:base.previewId,changes,pageIndex:trial.pageIndex,focus:trial.focus}}:undefined;
+    let response=await post(patch??full);
+    if(!usable()||pendingPreview!==request)return;
+    let data=await response.json() as Preview & {error?:string;issues?:{code:string;path?:string}[]};
+    if(patch&&response.status===409&&data.error==='trial_base_unavailable'){
+      if(!usable()||pendingPreview!==request)return;
+      trialBase=undefined;
+      if(!current())return;
+      response=await post(full);
+      if(!usable()||pendingPreview!==request)return;
+      data=await response.json() as typeof data;
+    }
     if(!usable()||pendingPreview!==request)return;
     if(response.status===409){previewStatus.textContent='ฉบับนี้มี revision ใหม่กว่าในระบบ กรุณาโหลดฉบับล่าสุด';return;}
-    const data=await response.json() as Preview & {error?:string;issues?:{code:string;path?:string}[]};
     if(!response.ok){
       const detail=data.issues?.slice(0,4).map(issue=>(issue.path??'ข้อมูล')+' · '+issue.code).join(' / ');
       if(pendingPreview===request&&current())previewStatus.textContent=response.status===429?'Engine กำลังจัดหน้าอีกชุด ลองใหม่เมื่อพร้อม':
@@ -1782,6 +1802,7 @@ async function loadPreview(trial?:Trial,current=()=>true,usable=current) {
     if(pendingPreview!==request||!usable()||draft.revision!==revision||!showingPreview)return;
     const desired=trial?.focus&&paperEdit&&paperEdit.occurrence!==trial.focus.occurrence
       ?Math.min(pageIndex,data.pageCount-1):undefined;
+    trialBase=trial&&data.trialPatchBase&&data.previewId?{previewId:data.previewId,trial,structure}:undefined;
     mountPreview(data,desired);
     if(pendingPreview!==request)return;
     previewStatus.textContent=current()?'Core '+data.engineVersion+' · Revision '+revision+' · '+data.pageCount+' หน้า':
@@ -1807,7 +1828,7 @@ function openPreview(){
   if(!custom){if(!preview)void loadPreview();return;}
   const version=templateId+'/'+draft.revision+'/'+draft.fingerprint;
   if(trialVersion===version){if(!preview&&!pendingPreview)trialForm?.refresh();return;}
-  trialVersion=version;
+  trialVersion=version;trialBase=undefined;
   trialForm?.dispose();closePaperEdit();
   previewStatus.textContent='กำลังเปิดกระดาษจากโครง · Revision '+draft.revision;
   const starter=new Map([...activeFormats.values()].map(format=>[format.ownerAreaId,format.key]));
@@ -1815,9 +1836,9 @@ function openPreview(){
     if(structural)paperInteractionBlocked=true;
     closePaperEdit();
     previewStatus.textContent='กำลังอัปเดตข้อมูลทดลอง…';
-  },(trial,current,usable)=>{
+  },(trial,current,usable,structure,fields)=>{
     if(trialVersion!==version||!showingPreview||isDirty())return Promise.resolve();
-    return loadPreview({...trial,pageIndex},current,usable);
+    return loadPreview({...trial,pageIndex},current,usable,structure,fields);
   });
 }
 function changeMode(toPreview: boolean) {

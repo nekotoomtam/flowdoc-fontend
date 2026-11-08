@@ -15,7 +15,9 @@ const profiles = [
   {id:'large', rows:80, minPages:70},
   {id:'hundreds', rows:190, minPages:300},
 ];
-const rates = [10,20,20];
+const transport=process.env.FLOWDOC_PREVIEW_TRANSPORT??'full';
+assert.ok(['full','delta'].includes(transport));
+const rates = process.env.FLOWDOC_PREVIEW_20_ONLY==='1'?[20,20]:[10,20,20];
 const strokes = 40;
 const menuText = 'ทดสอบข้อมูลภาษาไทยสำหรับการจัดหน้า '.repeat(44).trimEnd();
 const targetText = 'เมนูวัดผลภาษาไทย';
@@ -34,7 +36,7 @@ const evidence = {
   version:1, draftId, editorCommit:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),
   benchmarkSha256:createHash('sha256').update(await readFile(new URL(import.meta.url))).digest('hex'),
   browser:browser.version(), platform:process.platform, viewport:{width:1280,height:900}, hostUrl:hostUrl??null,
-  rates, strokes, menuCodeUnits:menuText.length, profiles:[], limitations:[
+  transport, rates, strokes, menuCodeUnits:menuText.length, profiles:[], limitations:[
     'CDP Thai keydown repeats model a held Thai key. Physical keyboard/IME are separate checks.',
     'Input-to-paint uses the second animation frame as a visible-paint proxy.',
     'Memory is browser JS heap and DOM counters. Engine process RSS and GPU memory are separate checks.',
@@ -125,6 +127,7 @@ async function runProfile(profile) {
   const errors=[];
   page.on('pageerror',error=>errors.push(error.message));
   await page.addInitScript(instrument);
+  if(transport==='full')await page.addInitScript(()=>sessionStorage.setItem('flowdoc:full-trial-transport','1'));
   const result={...profile, bursts:[]};
   evidence.profiles.push(result);
   try {
@@ -162,9 +165,13 @@ async function runProfile(profile) {
     const members = form.getByRole('group',{name:/^members/});
     const fields = members.locator(':scope > .trial-rows > details').getByLabel(/^menu/);
     const value = trial => trial.sections[0].data.parts[formatIndex].data.groups[0].members[1]?.menu;
+    const requestValue=request=>{
+      const input=request.postDataJSON();
+      return input.trial?value(input.trial):input.trialPatch?.changes.find(change=>JSON.stringify(change.path)===key)?.value;
+    };
     const waitForValue = expected=>{
       const pending=page.waitForResponse(response=>
-        matchingPost(response) && value(response.request().postDataJSON().trial)===expected,{timeout:125000});
+        matchingPost(response) && requestValue(response.request())===expected,{timeout:125000});
       void pending.catch(()=>{});
       return pending;
     };
@@ -194,7 +201,7 @@ async function runProfile(profile) {
     assert.ok(targetIndex>=0,'Target row must have an Engine edit hit');
     result.warmScroll=await scrollProbe(editor,page,setup.pageCount);
     result.memory=[await memory(cdp,editor)];
-    let expected=targetText;
+    let expected=targetText,acknowledged=setup.previewId;
     let pageCount=setup.pageCount;
     for(const hz of rates){
       const slot = paper.locator('.preview-page').nth(targetIndex);
@@ -210,9 +217,12 @@ async function runProfile(profile) {
       const responses=[];
       const observe = response=>{
         if(!matchingPost(response))return;
-        const length = value(response.request().postDataJSON().trial)?.length;
+        const request=response.request(), input=request.postDataJSON(), length=requestValue(request)?.length;
         responses.push(response.json().then(body=>({length,run:body.previewId,status:response.status(),
-          engineMs:body.engineMs,labMs:body.renderMs}),()=>({length,status:response.status()})));
+          engineMs:body.engineMs,labMs:body.renderMs,bytes:Buffer.byteLength(request.postData()),
+          base:input.trialPatch?.basePreviewId,fields:input.trialPatch?.changes.map(change=>JSON.stringify(change.path)),
+          ttfbMs:request.timing().responseStart,
+        }),()=>({length,status:response.status()})));
       };
       page.on('response',observe);
       let release;
@@ -237,12 +247,24 @@ async function runProfile(profile) {
       const {inputs,paints}=await editor.evaluate(()=>window.flowdocPreviewBenchmark);
       assert.equal(inputs.length,strokes);
       const requests=await Promise.all(responses);
+      for(const request of requests){
+        assert.equal(request.status,200);
+        if(transport==='delta'){
+          assert.equal(request.base,acknowledged);
+          assert.deepEqual(request.fields,[key]);
+        }else assert.equal(request.base,undefined);
+        acknowledged=request.run;
+      }
+      assert.equal(acknowledged,last.previewId);
+      assert.equal(await paper.getAttribute('data-run'),last.previewId);
       const visible=requests.filter(item=>paints[item.run]).map(item=>({...item,paint:paints[item.run]})).sort((a,b)=>a.paint-b.paint);
       const during=visible.filter(item=>item.paint<=release);
       const byLength=new Map(inputs.map(input=>[input.length,input]));
       pageCount=last.pageCount;
       targetIndex=last.pageIndex;
       result.bursts.push({hz,pageCount,updatesBeforeKeyup:during.length,requestStatuses:requests.map(item=>item.status),
+        requestBytes:requests.map(item=>item.bytes),requestTtfbMs:requests.map(item=>item.ttfbMs),
+        finalLayoutHash:last.layoutHash,finalPageKeysHash:createHash('sha256').update(JSON.stringify(last.pageKeys??[])).digest('hex'),
         deliveredInputIntervalMs:stats(inputs.slice(1).map((item,index)=>item.start-inputs[index].start)),
         inputToPaintMs:stats(inputs.map(item=>item.end-item.start)),
         inputToEnginePaintMs:stats(visible.flatMap(item=>byLength.has(item.length)?[item.paint-byLength.get(item.length).start]:[])),

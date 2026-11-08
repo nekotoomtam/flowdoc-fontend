@@ -4,15 +4,15 @@
 <body>
 <header class="topbar"><a class="brand" href="/library.html?phase1=1">FlowDoc</a><span class="badge">UAT · ฉบับทดสอบ · จัดโครง</span></header>
 <main>
-  <div class="title"><div><a href="/library.html?phase1=1">‹ กลับคลังโครงทดสอบ</a><h1 id="title">กำลังเปิดโครงเอกสาร</h1><p id="revision"></p></div>
-  <nav aria-label="โหมดเอกสาร"><button id="define-tab" aria-pressed="true">นิยามเอกสาร</button><button id="preview-tab" aria-pressed="false" disabled>ดู UAT ฉบับเต็ม · Engine</button></nav></div>
-  <div id="structure-pending" class="structure-tools" hidden><strong>มีการแก้โครงที่ยังไม่บันทึก</strong><button id="save-structure" class="primary" type="button">ตรวจและบันทึกโครง</button><button id="undo-structure" type="button">ย้อนขั้นล่าสุด</button><button id="discard-structure" type="button">ทิ้งการแก้โครง</button></div>
+  <div class="title editor-title"><div><a href="/library.html?phase1=1">‹ กลับคลังโครงทดสอบ</a><h1 id="title">กำลังเปิดโครงเอกสาร</h1><p id="revision"></p></div>
+  <div class="editor-toolbar"><nav aria-label="โหมดเอกสาร"><button id="define-tab" aria-pressed="true">แก้โครง</button><button id="preview-tab" aria-pressed="false" disabled>ผลจาก Engine</button></nav><button id="save-structure" class="primary" type="button" disabled>บันทึกโครง</button></div></div>
+  <div id="structure-pending" class="structure-tools" hidden><strong>ฉบับร่างยังไม่ได้บันทึก</strong><button id="undo-structure" type="button">ย้อนขั้นล่าสุด</button><button id="discard-structure" type="button">ทิ้งการแก้โครง</button></div>
   <p id="status" role="status"></p>
   <div class="grid" id="editor" hidden>
     <section class="panel" aria-label="Tree โครงสร้าง"><h2>โครงสร้างเอกสาร</h2><p>เลือกจาก Tree หรือจากกระดาษ</p><div class="structure-tools"><button id="add-section" type="button">+ เพิ่ม Section</button></div><div id="tree"></div></section>
-    <section class="panel workspace" aria-label="กระดาษนิยาม"><h2>กระดาษนิยาม</h2><p>คลิกบนกระดาษเพื่อเลือกส่วนที่ต้องการ</p><div id="format-switcher" class="structure-tools"></div><div class="definition-viewport"><article id="paper"></article></div></section>
+    <section class="panel workspace" aria-label="กระดาษนิยาม"><div class="paper-toolbar"><div><h2>กระดาษนิยาม</h2><p>คลิกเพื่อเลือก · ดับเบิลคลิกข้อความคงที่เพื่อแก้</p></div><div class="paper-controls"><button id="zoom-out" type="button" aria-label="ย่อกระดาษ" disabled>−</button><span id="paper-zoom">100%</span><button id="zoom-in" type="button" aria-label="ขยายกระดาษ">+</button><button id="show-handles" type="button" aria-pressed="false">จุดเลือก</button></div></div><div id="format-switcher" class="structure-tools"></div><div class="definition-viewport"><article id="paper"></article></div></section>
     <aside>
-      <section class="panel" aria-label="รายการที่เลือก"><h2 id="selection"></h2><p id="path"></p><p id="selection-detail"></p>
+      <section class="panel" aria-label="รายการที่เลือก"><div class="selection-kicker">รายการที่เลือก</div><h2 id="selection"></h2><p id="path"></p><p id="selection-detail"></p>
       <form id="rename" hidden><label for="section-name">ชื่อส่วนเอกสาร</label><input id="section-name" required maxlength="128"><button class="primary" id="save" type="submit">บันทึกชื่อ Section</button></form>
       <div id="actions" class="structure-tools"></div>
       <div id="conflict" hidden><p>มีฉบับใหม่กว่าในระบบ การแก้ในหน้านี้ยังอยู่จนกว่าจะกดโหลดฉบับล่าสุด</p><button id="reload">โหลดฉบับล่าสุด</button></div>
@@ -28,6 +28,7 @@
     <button id="refresh-preview">ลองจัดหน้าใหม่</button>
   </section>
 </main>
+<form id="inline-editor" hidden><label for="inline-value">แก้ข้อความบนกระดาษ</label><input id="inline-value" required><p id="inline-error" role="alert"></p><div><button type="submit" class="primary">ใช้ข้อความนี้</button><button id="inline-cancel" type="button">ยกเลิก</button></div></form>
 <dialog id="structure-dialog"><form id="structure-form"></form></dialog>
 <script type="module" src="/src/phase1-editor.ts"></script>
 </body></html>

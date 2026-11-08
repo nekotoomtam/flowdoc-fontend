@@ -7,7 +7,7 @@ export type DocNode = {
   props?:{areaId?:string;verticalAlign?:string;colSpan?:number;rowSpan?:number;columnIndex?:number;
     anchorId?:unknown;headerRowCount?:number;repeatHeaderRows?:boolean;allowBreak?:boolean;textStyleId?:string;
     width?:Length;height?:Length;borderWidth?:Length;borderColor?:string;headerFillColor?:string;fillColor?:string;
-    textAlign?:string;padding?:Partial<Record<'top'|'right'|'bottom'|'left',Length>>;source?:{scope:string;key:string}};
+    textAlign?:string;align?:string;color?:string;thickness?:Length;spaceBefore?:Length;spaceAfter?:Length;padding?:Partial<Record<'top'|'right'|'bottom'|'left',Length>>;source?:{scope:string;key:string}};
   rowIds?:string[];cellIds?:string[];childIds?:string[];
   columns?:{width?:Length;childIds?:string[];weight?:number}[];children?:Inline[];
 };
@@ -26,6 +26,7 @@ export type Definition = {nodeModelVersion:number;book:{defaultPageLayoutId:stri
 export type Ref = {sectionId:string;formatId?:string;band?:'header'|'footer';nodeId?:string;part?:string};
 export type Change = {kind:'section';label:string} | {kind:'area';at:Ref;key:string;format:string}
   | {kind:'format';at:Ref;key:string} | {kind:'node';at:Ref;type:string}
+  | {kind:'inline-text';at:Ref;text:string}
   | {kind:'group';at:Ref;scope:'global'|'section'|'local';key:string;member:string}
   | {kind:'merge'|'split';at:Ref}
   | {kind:'reorder';at:Ref;delta:-1|1} | {kind:'move';at:Ref;to:Ref} | {kind:'delete';at:Ref};
@@ -340,6 +341,14 @@ export function applyStructureChange(source:Definition,change:Change):{definitio
     selection={sectionId:change.at.sectionId,formatId:id};
   }else if(change.kind==='node'){
     selection=addNode(def,change.at,change.type);
+  }else if(change.kind==='inline-text'){
+    const {node}=resolve(def,change.at);
+    const index=node?.children?.findIndex((inline,i)=>'inline:'+(inline.id??i)===change.at.part)??-1;
+    const inline=node?.children?.[index];
+    if(inline?.type!=='text')return fail('เลือกข้อความคงที่ก่อนแก้');
+    if(!change.text.trim())fail('กรอกข้อความก่อนยืนยัน');
+    inline.text=change.text;
+    selection=change.at;
   }else if(change.kind==='group'){
     selection=addGroup(def,change);
   }else if(change.kind==='merge'||change.kind==='split'){

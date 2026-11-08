@@ -62,3 +62,59 @@ aside{display:grid;gap:10px}.panel h2{font-size:16px}.panel p,.type{color:var(--
 
 
 .variable-field{border:0;padding:2px 4px;text-align:left;overflow-wrap:anywhere}.variable-field[aria-current=true]{background:#deefe3;color:#104d3d}#variable-detail{margin-top:6px;color:#145b4c}
+.topbar{height:50px}
+main{padding:0 14px 24px}
+.editor-title{position:sticky;top:0;z-index:4;padding:10px 0;background:var(--bg);border-bottom:1px solid var(--line)}
+.editor-title h1{font-size:21px;margin:2px 0}
+.editor-title a,.editor-title #revision{font-size:12px}
+.editor-toolbar,.paper-toolbar{display:flex;align-items:center;gap:10px}
+.paper-toolbar{justify-content:space-between}
+.paper-toolbar button{font-size:12px;padding:4px 7px}
+.paper-toolbar button[aria-pressed=true]{background:#deefe3}
+#status:not(:empty){font-size:13px;margin:4px 0}
+.selection-kicker{font-size:11px;color:#52685c;font-weight:bold}
+#selection{font-size:16px;margin:2px 0 4px}
+#path{font-size:12px}
+#selection-detail{margin-top:5px;color:#145b4c}
+#format-switcher{display:flex;gap:6px;align-items:center;margin:6px 0}
+#format-switcher button{font-size:12px}
+.format-picker{position:relative;min-width:112px;font-size:12px}
+.format-picker summary{padding:4px 8px;background:#fff;border:1px solid #cddbd1;border-radius:6px;cursor:pointer}
+.format-picker .format-choices{position:absolute;left:0;z-index:3;background:white;border:1px solid #cddbd1;border-radius:7px;padding:7px;width:min(330px,75vw);box-shadow:0 4px 14px #152b2822}
+.definition-viewport{height:calc(100dvh - 190px);min-height:340px;background:#dce7df}
+#paper{margin-top:8px}
+#paper .definition-block,#paper td{position:relative}
+#paper .definition-band{position:absolute}
+#paper .definition-area{border-color:transparent}
+#paper .definition-area:hover,#paper.show-handles .definition-area{border-color:#a4b7aa}
+#paper .definition-marker,#paper .definition-cell-control,
+#paper .definition-area>.definition-control,#paper .definition-format>.definition-control,
+#paper [data-kind=table]>.definition-control{
+  position:absolute;z-index:2;opacity:0;pointer-events:none;white-space:nowrap;
+}
+#paper .definition-area>.definition-control{right:0;top:-12px}
+#paper .definition-format>.definition-control{right:0;top:2px}
+#paper [data-kind=table]>.definition-control{right:0;top:2px}
+#paper .definition-text>.definition-marker{right:0;top:0}
+#paper .definition-row{left:0;top:0}
+#paper .definition-cell-control{right:0;top:0}
+#paper .definition-meta{position:absolute;right:0;bottom:0;display:flex;gap:3px}
+#paper .definition-meta .definition-marker{position:static}
+#paper.show-handles .definition-marker,#paper.show-handles .definition-cell-control,
+#paper.show-handles .definition-control,#paper button[aria-current=true],#paper button:focus-visible,
+#paper .definition-block:hover>.definition-marker,#paper td:hover>.definition-cell-control,
+#paper td:hover>.definition-row,#paper .definition-area:hover>.definition-control,
+#paper .definition-format:hover>.definition-control,#paper [data-kind=table]:hover>.definition-control{
+  opacity:1;pointer-events:auto
+}
+#paper .definition-inline:hover{background:#eaf5ee}
+#paper .definition-rule{padding:0;margin:0;border:0;font-size:0;border-radius:0;min-height:1px}
+#inline-editor{position:fixed;z-index:10;display:grid;gap:6px;padding:10px;background:white;border:1px solid #8db4a1;border-radius:8px;box-shadow:0 5px 20px #142b2455}
+#inline-editor>div{display:flex;gap:6px}#inline-editor label{font-size:13px;font-weight:bold}#inline-editor p:empty{display:none}
+#inline-error{color:#84223e}
+@media(max-width:800px){.editor-title{position:static}.definition-viewport{height:65vh}}
+@media(max-width:500px){.editor-toolbar{flex-wrap:wrap}.editor-toolbar button{font-size:12px;padding:6px 8px}}
+
+
+.paper-controls{display:flex;align-items:center;gap:4px;flex:none}.paper-controls span{font-size:12px;color:#52685c}.paper-controls button{min-width:25px}#paper{width:min(calc(100% * var(--paper-zoom,1)),calc(680px * var(--paper-zoom,1)))}.tree-row .type{white-space:nowrap;flex:none}.tree-row button:not(.toggle){white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}.paper-toolbar p{max-width:33ch}@media(max-width:470px){.paper-toolbar{align-items:flex-start;flex-wrap:wrap}}
+#tree .tree .tree{margin-left:8px;padding-left:2px}.tree-row .toggle{flex-basis:19px}.tree-row button:not(.toggle){flex:1 1 auto}#tree{overflow-x:hidden}@media(max-width:1000px){.tree-row .type{display:none}}

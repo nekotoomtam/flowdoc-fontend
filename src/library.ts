@@ -23,7 +23,10 @@ const paperIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 const phase1 = new URLSearchParams(location.search).get('phase1') === '1';
 if (phase1) {
   document.querySelector('.badge')!.textContent = 'คลังทดสอบ · เฟส 1';
-  document.querySelector('.hero p')!.textContent = 'เปิดฉบับทดสอบ UAT เพื่อแก้ชื่อส่วนเอกสาร';
+  document.querySelector('.hero p')!.textContent = 'สร้างนิยามจากกระดาษเปล่า หรือเปิดโครง UAT เพื่อดูตัวอย่าง';
+  const create = document.querySelector<HTMLButtonElement>('#create-draft')!;
+  create.disabled=false;
+  create.onclick=()=>location.assign('/phase1-editor.html?new=1');
 }
 
 let items: TemplateSummary[] = [];
@@ -64,6 +67,7 @@ function openEditor(item: TemplateSummary) {
 function card(item: TemplateSummary) {
   const element = document.createElement('article');
   element.className = 'card';
+  element.dataset.docKey=item.docKey;
 
   const open = document.createElement('button');
   open.type = 'button';

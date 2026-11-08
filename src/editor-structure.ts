@@ -25,8 +25,9 @@ export type Definition = {nodeModelVersion:number;book:{defaultPageLayoutId:stri
   sections:Section[];areaFormats?:Record<string,Format>;globalSchema:Schema};
 export type Ref = {sectionId:string;formatId?:string;band?:'header'|'footer';nodeId?:string;part?:string};
 export type Change = {kind:'section';label:string} | {kind:'area';at:Ref;key:string;format:string}
-  | {kind:'format';at:Ref;key:string} | {kind:'node';at:Ref;type:string}
+  | {kind:'format';at:Ref;key:string} | {kind:'node';at:Ref;type:string;source?:{scope:string;key:string};pageField?:'current'|'total';position?:{anchor:string;side:'before'|'after'}}
   | {kind:'inline-text';at:Ref;text:string}
+  | {kind:'binding';at:Ref;scope:string;key:string}
   | {kind:'group';at:Ref;scope:'global'|'section'|'local';key:string;member:string}
   | {kind:'merge'|'split';at:Ref}
   | {kind:'reorder';at:Ref;delta:-1|1} | {kind:'move';at:Ref;to:Ref} | {kind:'delete';at:Ref};
@@ -207,8 +208,8 @@ function reorder<T>(list:T[],item:T,delta:number,min=0){
   if(i<0||next<min||next>=list.length)fail('ถึงขอบเขตที่ย้ายได้แล้ว');
   [list[i],list[next]]=[list[next],list[i]];
 }
-function addNode(def:Definition,at:Ref,type:string):Ref {
-  const {section,host,node,fragment}=resolve(def,at);
+function addNode(def:Definition,at:Ref,type:string,source?:{scope:string;key:string},pageField?:'current'|'total',position?:{anchor:string;side:'before'|'after'}):Ref {
+  const {section,host,node,fragment,format}=resolve(def,at);
   if(type==='table-row'){
     if(node?.type!=='table'||!fragment||!plainTable(host,fragment,node))return fail('เพิ่มแถวตรงนี้ได้เฉพาะตารางที่ไม่มีแถววนหรือเซลล์ผสาน');
     const nodeId=makeRow(def,fragment,node.columns!.length);
@@ -216,14 +217,32 @@ function addNode(def:Definition,at:Ref,type:string):Ref {
   }
   const cell=node?.type==='table-cell'?node:undefined;
   if(node&&!cell)fail('เลือก Section, Format หรือตัวเซลล์เป็นตำแหน่งเพิ่ม node');
-  const allowed=at.band?['text-block','line']:cell?['text-block']:rootTypes;
+  const allowed=at.band?['text-block','line','image','page-field']:cell?['text-block','image']:[...rootTypes,'image','table-of-contents'];
   if(!allowed.includes(type))fail('ชนิด node นี้วางในตำแหน่งที่เลือกไม่ได้');
   const f=fragment??authored(section);
-  const next=type==='text-block'?text(def):{id:uid(),type, ...(type==='line'?{props:{}}:{})};
+  const next:DocNode=type==='text-block'||type==='page-field'?text(def):{id:uid(),type,...(type==='line'?{props:{}}:{})};
+  if(type==='page-field'){
+    if(pageField!=='current'&&pageField!=='total')return fail('เลือกชนิดเลขหน้า');
+    next.children=[{id:uid(),type:'system-page-field',field:pageField,width:pt(28)} as Inline];
+  }
+  if(type==='image'){
+    const scopes:Record<string,Schema|undefined>={global:def.globalSchema,section:section.inputSchema,local:format?.inputSchema};
+    if(at.band)scopes[at.band]=section[at.band]?.inputSchema;
+    if(!source||scopes[source.scope]?.fields[source.key]?.type!=='image')return fail('เลือกตัวแปรภาพในขอบเขตนี้');
+    next.props={source,width:pt(120),height:pt(60)};
+  }
+  if(type==='table-of-contents')next.props={textStyleId:Object.keys(def.styles)[0],scope:{kind:'section'}} as DocNode['props'];
   if(type==='table')Object.assign(next,{props:{headerRowCount:0,repeatHeaderRows:false},
     columns:[{width:pt(90)},{width:pt(90)}],rowIds:[makeRow(def,f,2)]});
   f.nodes[next.id]=next;
-  if(cell)cell.childIds!.push(next.id);
+  if(position){
+    const list=cell?.childIds??f.rootIds;
+    const index=list.indexOf(position.anchor);
+    if(index<0)return fail('เลือกตำแหน่งในส่วนเดียวกัน');
+    if(position.side==='after'&&f.nodes[position.anchor]?.props?.verticalAlign==='bottom')return fail('Area ท้ายหน้าต้องอยู่ท้าย Section');
+    if(host.cellRepeats?.some(r=>r.childTemplateIds.includes(position.anchor)))return fail('แทรกในรายการวนซ้ำต้องแก้พร้อมกฎรายการ');
+    list.splice(index+(position.side==='after'?1:0),0,next.id);
+  }else if(cell)cell.childIds!.push(next.id);
   else insertRoot(f,next.id);
   return {...at,nodeId:next.id};
 }
@@ -340,7 +359,7 @@ export function applyStructureChange(source:Definition,change:Change):{definitio
     const id=makeFormat(def,areaIdOf(resolve(def,change.at).node),change.key);
     selection={sectionId:change.at.sectionId,formatId:id};
   }else if(change.kind==='node'){
-    selection=addNode(def,change.at,change.type);
+    selection=addNode(def,change.at,change.type,change.source,change.pageField,change.position);
   }else if(change.kind==='inline-text'){
     const {node}=resolve(def,change.at);
     const index=node?.children?.findIndex((inline,i)=>'inline:'+(inline.id??i)===change.at.part)??-1;
@@ -349,6 +368,15 @@ export function applyStructureChange(source:Definition,change:Change):{definitio
     if(!change.text.trim())fail('กรอกข้อความก่อนยืนยัน');
     inline.text=change.text;
     selection=change.at;
+  }else if(change.kind==='binding'){
+    const {node}=resolve(def,change.at);
+    if(node?.type!=='text-block'||!node.children)return fail('เลือกข้อความที่จะผูกตัวแปร');
+    const existing=change.at.part?node.children.find((inline,i)=>'inline:'+(inline.id??i)===change.at.part):undefined;
+    if(change.at.part&&existing?.type!=='field-ref')return fail('เลือกตัวแปรที่ผูกอยู่');
+    const inline=existing??{id:uid(),type:'field-ref'};
+    inline.scope=change.scope;inline.key=change.key;
+    if(!existing)node.children.push(inline);
+    selection={...change.at,part:change.at.part??'inline:'+inline.id};
   }else if(change.kind==='group'){
     selection=addGroup(def,change);
   }else if(change.kind==='merge'||change.kind==='split'){

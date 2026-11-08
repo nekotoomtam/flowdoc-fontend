@@ -8,6 +8,30 @@
   <div class="editor-toolbar"><nav aria-label="โหมดเอกสาร"><button id="define-tab" aria-pressed="true">แก้โครง</button><button id="preview-tab" aria-pressed="false" disabled>ผลจาก Engine</button></nav><button id="save-structure" class="primary" type="button" disabled>บันทึกโครง</button></div></div>
   <div id="structure-pending" class="structure-tools" hidden><strong>ฉบับร่างยังไม่ได้บันทึก</strong><button id="undo-structure" type="button">ย้อนขั้นล่าสุด</button><button id="discard-structure" type="button">ทิ้งการแก้โครง</button></div>
   <p id="status" role="status"></p>
+<section id="new-document" class="panel new-document" hidden>
+  <p class="selection-kicker">ขั้นที่ 1 · ตั้งกระดาษ</p>
+  <h2>สร้างโครงเอกสารใหม่</h2>
+  <p>ตั้งชื่อโครงและ Section แรก จากนั้นเริ่มวางองค์ประกอบบนกระดาษเปล่า</p>
+  <form id="new-document-form">
+    <label>ชื่อโครงเอกสาร <input name="name" maxlength="128" required></label>
+    <label>รหัสโครง <input name="key" maxlength="42" pattern="[a-z0-9\-]+" placeholder="เช่น uat-v1" required></label>
+    <label>ชื่อ Section แรก <input name="section" maxlength="128" required></label>
+    <fieldset><legend>กระดาษของ Section แรก</legend>
+      <label>ขนาดกระดาษ <select name="size"><option>A4</option><option>Letter</option></select></label>
+      <label>แนวกระดาษ <select name="orientation"><option value="portrait">แนวตั้ง</option><option value="landscape">แนวนอน</option></select></label>
+      <div class="margin-fields">
+        <label>บน (pt) <input name="top" type="number" value="36" min="0" max="180" required></label>
+        <label>ขวา (pt) <input name="right" type="number" value="36" min="0" max="180" required></label>
+        <label>ล่าง (pt) <input name="bottom" type="number" value="36" min="0" max="180" required></label>
+        <label>ซ้าย (pt) <input name="left" type="number" value="36" min="0" max="180" required></label>
+      </div>
+    </fieldset>
+    <p id="new-document-error" role="alert"></p>
+    <button class="primary" type="submit">เริ่มวางโครงบนกระดาษ</button>
+  </form>
+</section>
+<div class="creation-steps" id="creation-steps" hidden><strong>ขั้นที่ 2 · วางองค์ประกอบ</strong><span>เลือก Section เพื่อเพิ่มหัว–ท้ายและ Area จากนั้นเลือก Format เพื่อวาง node</span><span>ขั้นที่ 3 · ตรวจและบันทึกโครง</span></div>
+
   <div class="grid" id="editor" hidden>
     <section class="panel" aria-label="Tree โครงสร้าง"><h2>โครงสร้างเอกสาร</h2><p>เลือกจาก Tree หรือจากกระดาษ</p><div class="structure-tools"><button id="add-section" type="button">+ เพิ่ม Section</button></div><div id="tree"></div></section>
     <section class="panel workspace" aria-label="กระดาษนิยาม"><div class="paper-toolbar"><div><h2>กระดาษนิยาม</h2><p>คลิกเพื่อเลือก · ดับเบิลคลิกข้อความคงที่เพื่อแก้</p></div><div class="paper-controls"><button id="zoom-out" type="button" aria-label="ย่อกระดาษ" disabled>−</button><span id="paper-zoom">100%</span><button id="zoom-in" type="button" aria-label="ขยายกระดาษ">+</button><button id="show-handles" type="button" aria-pressed="false">จุดเลือก</button></div></div><div id="format-switcher" class="structure-tools"></div><div class="definition-viewport"><article id="paper"></article></div></section>

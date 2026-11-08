@@ -35,7 +35,7 @@ async function activate(key){
 try{
   await mkdir(output,{recursive:true});
   await page.goto(base+'/library.html?phase1=1');
-  await page.getByRole('button',{name:/^เปิดแก้ไข UAT/}).click();
+  await page.locator('[data-doc-key=stage6-uat-editor-phase1]').getByRole('button',{name:/^เปิดแก้ไข UAT/}).click();
   const sectionControl=page.locator('#format-switcher .definition-section-control');
   await sectionControl.waitFor();
   assert.equal(apiCalls.length,2);

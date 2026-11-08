@@ -16,7 +16,7 @@ page.on('request',request=>{if(new URL(request.url()).pathname.startsWith('/api/
 let initial, endpoint, savedRevision;
 async function open(){
   await page.goto(base+'/library.html?phase1=1');
-  await page.getByRole('button',{name:/^เปิดแก้ไข UAT/}).click();
+  await page.locator('[data-doc-key=stage6-uat-editor-phase1]').getByRole('button',{name:/^เปิดแก้ไข UAT/}).click();
   await page.locator('#paper .definition-format').waitFor();
   return base+'/api/editor-phase1/drafts/'+new URL(page.url()).searchParams.get('id');
 }

@@ -176,18 +176,38 @@ try {
     } finally { previewBusy = false; }
   }
 
+  async function createDraft(body){
+    const {definition,idempotencyKey}=body??{};
+    if(!definition||typeof definition.name!=='string'||typeof definition.docKey!=='string'||
+      !/^editor-draft-[a-z0-9-]{1,42}$/.test(definition.docKey)||typeof idempotencyKey!=='string'||
+      !/^[a-f0-9-]{36}$/i.test(idempotencyKey))return {status:400,body:{error:'invalid_create'}};
+    const draftDefinition={...definition,version:1,templateId:'00000000-0000-4000-8000-000000000001'};
+    const valid=core.validateTemplate(draftDefinition);
+    if(!valid.ok)return {status:422,body:valid};
+    const created=await service('POST','',{name:definition.name,docKey:definition.docKey,idempotencyKey});
+    const reply=created.json();
+    if(!reply.ok)return {status:created.statusCode,body:reply};
+    draftDefinition.templateId=reply.value.templateId;
+    const saved=await service('PUT','/'+draftDefinition.templateId,{definition:draftDefinition,expectedRevision:0,idempotencyKey});
+    return {status:saved.statusCode===200?201:saved.statusCode,body:saved.json()};
+  }
   async function dispatch(packet) {
+    if(packet.action==='create')return createDraft(packet.body);
     if (packet.action === 'catalog') {
       const {rows} = await pool.query(
         'SELECT t.id AS "templateId", t.doc_key AS "docKey", t.name, c.revision, c.updated_at AS "updatedAt" ' +
         'FROM authoring_templates a JOIN templates t ON t.id=a.template_id JOIN template_current c ON c.template_id=t.id '+
-        'WHERE a.principal=$1 AND t.id=$2 AND t.doc_key=$3',
-        [principal,identity,docKey]);
+        'WHERE a.principal=$1 AND (t.id=$2 OR t.doc_key LIKE $3) ORDER BY c.updated_at DESC',
+        [principal,identity,'editor-draft-%']);
       return {status:200,body:{items:rows.map(row=>({...row,description:'ฉบับทดสอบแยกจาก UAT ในคลังจริง'}))}};
     }
-    if (packet.templateId !== identity) return {status:404,body:{error:'not_found'}};
+    const selectedRoute='/'+packet.templateId;
+    if(packet.templateId!==identity){
+      const owned=await pool.query('SELECT 1 FROM authoring_templates a JOIN templates t ON t.id=a.template_id WHERE a.principal=$1 AND t.id=$2 AND t.doc_key LIKE $3',[principal,packet.templateId,'editor-draft-%']);
+      if(!owned.rowCount||!['get','rename','structure'].includes(packet.action))return {status:404,body:{error:'not_found'}};
+    }
     if (packet.action === 'get') {
-      const result = await service('GET',route);
+      const result = await service('GET',selectedRoute);
       return {status:result.statusCode,body:result.json()};
     }
     if (packet.action === 'rename') {
@@ -195,15 +215,16 @@ try {
       if(typeof label!=='string'||!label.trim()||label.length>128||!Number.isSafeInteger(expectedRevision)
         ||expectedRevision<1||typeof idempotencyKey!=='string'||!/^[a-f0-9-]{36}$/i.test(idempotencyKey))
         return {status:400,body:{error:'invalid_rename'}};
-      const draft=await readDraft();
+      const current=await service('GET',selectedRoute);
+      const draft=take(current.json());
       const section=draft.definition.sections.find(s=>s.id===sectionId);
       if (!section) return {status:404,body:{error:'section_not_found'}};
       section.label=label.trim();
-      const result=await service('PUT',route,{definition:draft.definition,expectedRevision,idempotencyKey});
+      const result=await service('PUT',selectedRoute,{definition:draft.definition,expectedRevision,idempotencyKey});
       return {status:result.statusCode,body:result.json()};
     }
     if (packet.action === 'structure') {
-      const result = await service('PUT',route,packet.body);
+      const result = await service('PUT',selectedRoute,packet.body);
       return {status:result.statusCode,body:result.json()};
     }
     if (packet.action === 'preview') return render(packet.body?.expectedRevision,packet.body?.sample);

@@ -64,6 +64,7 @@ export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1'}={
       const assetRoute=/^\/drafts\/([^/]+)\/preview-assets\/([a-f0-9-]+)$/.exec(req.url??'');
       let action,templateId,body;
       if(req.method==='GET'&&req.url==='/catalog')action='catalog';
+      else if(req.method==='POST'&&req.url==='/drafts')action='create';
       else if(match&&uuid.test(match[1])){
         templateId=match[1];
         if(req.method==='GET'&&!match[2])action='get';
@@ -82,7 +83,7 @@ export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1'}={
         if(!/^application\/json(?:;|$)/i.test(req.headers['content-type']??''))return send(415,{error:'invalid_content_type'});
         try{
           const chunks=[];let bytes=0;
-          for await(const chunk of req){bytes+=chunk.length;if(bytes>(action==='structure'?2*1024*1024:4096))return send(413,{error:'body_too_large'});chunks.push(chunk);}
+          for await(const chunk of req){bytes+=chunk.length;if(bytes>(['structure','create'].includes(action)?2*1024*1024:4096))return send(413,{error:'body_too_large'});chunks.push(chunk);}
           body=JSON.parse(Buffer.concat(chunks).toString('utf8'));
         }catch{return send(400,{error:'invalid_json'});}
       }

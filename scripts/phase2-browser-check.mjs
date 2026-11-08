@@ -26,7 +26,7 @@ async function open(){
   const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
   await page.bringToFront();
   await page.goto(base+'/library.html?phase1=1');
-  await page.getByRole('button',{name:/^เปิดแก้ไข UAT/}).click();
+  await page.locator('[data-doc-key=stage6-uat-editor-phase1]').getByRole('button',{name:/^เปิดแก้ไข UAT/}).click();
   await wait(page,'flowdoc:open-from-library',1);
   return page;
 }

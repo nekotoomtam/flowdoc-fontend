@@ -17,7 +17,7 @@ const collect=(samples)=>{const sorted=[...samples].sort((a,b)=>a-b);return {sam
 async function openFromLibrary(){
   const page=await context.newPage();page.on('pageerror',error=>errors.push(error.message));
   await page.goto(base+'/library.html?phase1=1');
-  const card=page.getByRole('button',{name:/^เปิดแก้ไข UAT/});
+  const card=page.locator('[data-doc-key=stage6-uat-editor-phase1]').getByRole('button',{name:/^เปิดแก้ไข UAT/});
   await card.click();
   await page.waitForURL('**/phase1-editor.html?id=*');
   await waitMeasures(page,'flowdoc:open-from-library',1);

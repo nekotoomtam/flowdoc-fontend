@@ -79,6 +79,23 @@ async function glyphPaths(draw,resources){
   while(previewOutlines.size>8)previewOutlines.delete(previewOutlines.keys().next().value);
   return Object.fromEntries(faces.map(({font,face})=>[font.id,[face.units,face.paths]]));
 }
+function identifyTrialPages(draw,bindings,fonts){
+  const documentHash=createHash('sha256').update('[');
+  const fontHash=hash(fonts.map(font=>[font.id,font.sha256]));
+  const pageKeys=draw.pages.map((page,index)=>{
+    const layout=JSON.stringify(page);
+    documentHash.update(index?',':'').update(layout);
+    // Image URLs belong to one run and can expire. Keep these pages within that run.
+    if(page.images?.length)return null;
+    const digest=createHash('sha256').update(fontHash).update(layout);
+    for(const [lineIndex,command] of page.commands.entries()){
+      const edit=bindings.lines.get(command);
+      if(edit)digest.update(JSON.stringify([lineIndex,edit,bindings.tab.get(edit.occurrence)]));
+    }
+    return digest.digest('hex');
+  });
+  return {pageKeys,layoutHash:documentHash.update(']').digest('hex')};
+}
 function projectOriginalPage(cache,index){
   const {commands,images,...page}=cache.draw.pages[index];
   const glyphs=Object.create(null);
@@ -210,9 +227,9 @@ try {
           ??positions?.find(p=>p.pageIndex===preferred);
         const pageIndex=position?.pageIndex??preferred;
         const first=projectOriginalPage(cache,pageIndex);
-        const layoutHash=hash(draw.pages);
+        const identity=custom?identifyTrialPages(draw,cache.bindings,resources.fonts):{layoutHash:hash(draw.pages)};
         cache.header={revision:cache.revision,fingerprint:cache.fingerprint,pages:[first],pageIndex,paged:true,
-          pageCount:draw.pages.length,pageSizes,layoutHash,renderPath:'engine-layout',engineMs,renderMs:performance.now()-started,
+          pageCount:draw.pages.length,pageSizes,...identity,renderPath:'engine-layout',engineMs,renderMs:performance.now()-started,
           engineVersion:rendererIdentity.version,
           ...(fixture?{entryCount:fixture.entryCount,imagePlacements:fixture.placements}:{})};
         if(custom){

@@ -20,7 +20,7 @@ type DrawPage = {
 };
 type TrialTab = {occurrence:string;pageIndex:number};
 type PreviewEdit = {previous?:TrialTab;next?:TrialTab;key:string;occurrence:string;start:number;end:number;blank?:boolean;contentWidth?:number;align?:string;clusters:[number,number,number][]};
-type Preview = {pageSizes?:[number,number,string][];pageIndex?:number;previewId?:string;revision: number; fingerprint: string; engineVersion: string; engineMs: number; renderMs: number; layoutHash: string; renderPath?:string; pageCount: number; pages: DrawPage[]; paged?:boolean; entryCount?:number; imagePlacements?:number};
+type Preview = {pageKeys?:(string|null)[];pageSizes?:[number,number,string][];pageIndex?:number;previewId?:string;revision: number; fingerprint: string; engineVersion: string; engineMs: number; renderMs: number; layoutHash: string; renderPath?:string; pageCount: number; pages: DrawPage[]; paged?:boolean; entryCount?:number; imagePlacements?:number};
 type ServiceReply = {ok: boolean; value?: Draft; issues?: {code: string; path?:string}[]};
 const q = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id)! as T;
 const title = q('title'), status = q('status'), editor = q('editor'), tree = q('tree'), paper = q('paper'), variables = q('variables');
@@ -1289,7 +1289,7 @@ async function readDraft() {
 }
 function cancelPreview() {
   pendingPreview?.abort();pendingPreview=undefined;
-  resetPreviewPages();jump.disabled=true;
+  resetPreviewPages();paperInteractionBlocked=false;jump.disabled=true;
   preview=undefined;previewPaper.replaceChildren();
   delete previewPaper.dataset.revision;
   delete previewPaper.dataset.run;
@@ -1352,6 +1352,7 @@ function paintBorders(sheet:SVGElement,page:DrawPage){
 }
 const trialPaperValue=q<HTMLTextAreaElement>('trial-paper-value');
 let trialForm:ReturnType<typeof mountTrial>|undefined;
+let paperInteractionBlocked=false;
 let paperEdit:{key:string;occurrence:string;pageIndex:number;composing:boolean;previous?:TrialTab;next?:TrialTab}|undefined;
 const trialHits=new WeakMap<SVGElement,PreviewEdit>();
 let paperGrowthFrame=0,paperLineHeight=0,paperBaseHeight=0;
@@ -1393,6 +1394,7 @@ function positionPaperEditor(){
   growPaperEditor();
 }
 function beginPaperEdit(edit:PreviewEdit,offset:number,index:number){
+  if(paperInteractionBlocked)return;
   const value=trialForm?.read(edit.key);
   if(value===undefined)return;
   paperEdit={key:edit.key,occurrence:edit.occurrence,pageIndex:index,composing:false,previous:edit.previous,next:edit.next};
@@ -1456,7 +1458,7 @@ function showPage(page:DrawPage,index:number) {
       const run=svg('g',{fill:color(line.color),'aria-label':line.text});
       if(line.edit)run.dataset.trialInk=line.edit.occurrence;
       for(const [glyph,x,y] of line.glyphUses)
-        run.append(svg('use',{href:'#'+glyph,transform:'translate('+x+' '+y+') scale('+line.scale+' -'+line.scale+')'}));
+        run.append(svg('use',{href:'#p'+index+'-'+glyph,transform:'translate('+x+' '+y+') scale('+line.scale+' -'+line.scale+')'}));
       sheet.append(run);
     }else{
       const text=svg('text',{x:line.xPt,y:line.yPt+line.baselineOffsetPt,fill:color(line.color),
@@ -1466,7 +1468,7 @@ function showPage(page:DrawPage,index:number) {
   }
   if(page.glyphs){
     const defs=svg('defs',{});
-    for(const [id,path] of Object.entries(page.glyphs))defs.append(svg('path',{id,d:path}));
+    for(const [id,path] of Object.entries(page.glyphs))defs.append(svg('path',{id:'p'+index+'-'+id,d:path}));
     sheet.prepend(defs);
   }
   for(const image of page.sampleImages??[]){
@@ -1510,10 +1512,39 @@ let pageSlots:HTMLElement[]=[];
 let pageObserver:IntersectionObserver|undefined;
 const nearbyPages=new Set<number>(),mountedPages=new Set<number>();
 const pageLoads=new Map<number,Promise<boolean>>();
+const retainedPages=new Map<number,{sheet:Element;nodes:number}>();
+const retainedPageLimit=8,retainedNodeLimit=8000;
+let retainedNodes=0;
 function resetPreviewPages(){
-  pendingPage?.abort();pendingPage=undefined;
+  stopPageLoads();
+  retainedPages.clear();retainedNodes=0;
   pageObserver?.disconnect();pageObserver=undefined;
-  nearbyPages.clear();mountedPages.clear();pageLoads.clear();pageSlots=[];
+  nearbyPages.clear();mountedPages.clear();pageSlots=[];
+}
+function stopPageLoads(){
+  pendingPage?.abort();pendingPage=undefined;pageLoads.clear();
+}
+function removeRetainedPage(index:number){
+  const cached=retainedPages.get(index);
+  if(cached){retainedPages.delete(index);retainedNodes-=cached.nodes;}
+  return cached?.sheet;
+}
+function restorePage(index:number){
+  const sheet=removeRetainedPage(index);
+  if(!sheet)return false;
+  pageSlots[index].replaceChildren(sheet);mountedPages.add(index);
+  if(paperEdit?.pageIndex===index)positionPaperEditor();
+  return true;
+}
+function retainPage(index:number){
+  const sheet=pageSlots[index].firstElementChild;
+  if(!sheet)return;
+  for(const ink of sheet.querySelectorAll('.trial-ink-active'))ink.classList.remove('trial-ink-active');
+  const nodes=1+sheet.querySelectorAll('*').length;
+  if(nodes>retainedNodeLimit)return;
+  retainedPages.set(index,{sheet,nodes});retainedNodes+=nodes;
+  while(retainedPages.size>retainedPageLimit||retainedNodes>retainedNodeLimit)
+    removeRetainedPage(retainedPages.keys().next().value!);
 }
 function reportPage(index:number){
   if(!preview)return;
@@ -1527,20 +1558,21 @@ function prunePages(){
   if(!pageObserver)return;
   for(const index of mountedPages){
     if(nearbyPages.has(index)||index===pageIndex||index===paperEdit?.pageIndex)continue;
+    retainPage(index);
     pageSlots[index]?.replaceChildren();mountedPages.delete(index);
   }
 }
 function pumpPages(){
   if(!showingPreview)return;
   for(const index of [...nearbyPages].sort((a,b)=>Math.abs(a-pageIndex)-Math.abs(b-pageIndex))){
-    if(pageLoads.size>=2)break;
+    if(pageLoads.size>=2&&!retainedPages.has(index))continue;
     if(!pageSlots[index]?.childElementCount)void ensurePage(index);
   }
 }
 function ensurePage(index:number):Promise<boolean>{
   const slot=pageSlots[index],result=preview,controller=pendingPage;
   if(!slot||!result||!controller)return Promise.resolve(false);
-  if(slot.childElementCount)return Promise.resolve(true);
+  if(slot.childElementCount||restorePage(index))return Promise.resolve(true);
   const ongoing=pageLoads.get(index);
   if(ongoing)return ongoing;
   const run=(async()=>{
@@ -1574,41 +1606,66 @@ function ensurePage(index:number):Promise<boolean>{
 }
 function mountPreview(result:Preview,focusPage?:number){
   const prior=preview,oldIndex=pageIndex;
-  resetPreviewPages();
+  stopPageLoads();
   pendingPage=new AbortController();
-  preview=result;
+  preview=result;paperInteractionBlocked=false;
   const start=result.pageIndex??0,selected=focusPage??start;
   const initial=result.pages[0];
-  const sections:HTMLElement[]=[];
+  const reusable=(index:number)=>{
+    const key=result.pageKeys?.[index];
+    return Boolean(key&&key===prior?.pageKeys?.[index]&&prior?.fingerprint===result.fingerprint);
+  };
+  for(const index of retainedPages.keys())if(!reusable(index))removeRetainedPage(index);
+  for(const index of mountedPages){
+    if(reusable(index))continue;
+    pageSlots[index].replaceChildren();mountedPages.delete(index);
+  }
+  while(pageSlots.length>result.pageCount){
+    const sheet=pageSlots.pop()!;
+    pageObserver?.unobserve(sheet);nearbyPages.delete(pageSlots.length);
+    sheet.parentElement!.remove();
+  }
+  const additions=document.createDocumentFragment();
+  const firstNew=pageSlots.length;
   for(let i=0;i<result.pageCount;i++){
     const data=result.pageSizes?.[i]??[result.pages[i]?.widthPt??initial.widthPt,result.pages[i]?.heightPt??initial.heightPt,''];
-    const page=element('section');page.className='preview-page';page.dataset.pageIndex=String(i);
+    const before=prior?.pageSizes?.[i];
+    if(i<firstNew&&before?.[0]===data[0]&&before[1]===data[1]&&before[2]===data[2])continue;
     const label='หน้า '+(i+1)+(data[2]?' · '+data[2]:'');
-    page.setAttribute('aria-label',label);
-    const caption=element('p',label);caption.className='preview-page-label';
-    const sheet=element('div');sheet.className='preview-page-sheet';sheet.style.aspectRatio=data[0]+'/'+data[1];
-    sheet.dataset.pageIndex=String(i);page.append(caption,sheet);
-    pageSlots.push(sheet);sections.push(page);
+    let sheet=pageSlots[i],page=sheet?.parentElement;
+    if(!page){
+      page=element('section');page.className='preview-page';page.dataset.pageIndex=String(i);
+      const caption=element('p');caption.className='preview-page-label';
+      sheet=element('div');sheet.className='preview-page-sheet';sheet.dataset.pageIndex=String(i);
+      page.append(caption,sheet);pageSlots.push(sheet);additions.append(page);
+    }
+    page.setAttribute('aria-label',label);page.firstElementChild!.textContent=label;
+    sheet.style.aspectRatio=data[0]+'/'+data[1];
   }
-  previewPaper.replaceChildren(...sections);
+  previewPaper.append(additions);
   previewPaper.dataset.revision=String(result.revision);
   if(result.previewId)previewPaper.dataset.run=result.previewId;
   if(paperEdit)paperEdit.pageIndex=selected;
-  showPage(initial,start);
+  if(mountedPages.has(start)){if(paperEdit?.pageIndex===start)positionPaperEditor();}
+  else if(!restorePage(start))showPage(initial,start);
   reportPage(selected);
   if(selected!==start)void ensurePage(selected);
   if(prior&&selected!==oldIndex)pageSlots[selected]?.parentElement?.scrollIntoView({block:'start'});
-  const activeObserver=new IntersectionObserver(entries=>{
-    if(preview!==result||pageObserver!==activeObserver)return;
-    for(const entry of entries){
-      const index=Number((entry.target as HTMLElement).dataset.pageIndex);
-      if(entry.isIntersecting)nearbyPages.add(index);
-      else nearbyPages.delete(index);
-    }
-    prunePages();pumpPages();
-  },{rootMargin:'600px 0px'});
-  pageObserver=activeObserver;
-  for(const slot of pageSlots)activeObserver.observe(slot);
+  if(!pageObserver){
+    const observer=new IntersectionObserver(entries=>{
+      if(pageObserver!==observer)return;
+      for(const entry of entries){
+        const index=Number((entry.target as HTMLElement).dataset.pageIndex);
+        if(pageSlots[index]!==entry.target)continue;
+        if(entry.isIntersecting)nearbyPages.add(index);
+        else nearbyPages.delete(index);
+      }
+      prunePages();pumpPages();
+    },{rootMargin:'600px 0px'});
+    pageObserver=observer;
+  }
+  for(const slot of pageSlots.slice(firstNew))pageObserver.observe(slot);
+  pumpPages();
 }
 async function goPage(index:number,stillCurrent=()=>true){
   const result=preview,slot=pageSlots[index];
@@ -1689,7 +1746,8 @@ function openPreview(){
   trialForm?.dispose();closePaperEdit();
   previewStatus.textContent='กำลังเปิดกระดาษจากโครง · Revision '+draft.revision;
   const starter=new Map([...activeFormats.values()].map(format=>[format.ownerAreaId,format.key]));
-  trialForm=mountTrial(q<HTMLFormElement>('trial-form'),draft.definition,starter,()=>{
+  trialForm=mountTrial(q<HTMLFormElement>('trial-form'),draft.definition,starter,structural=>{
+    if(structural)paperInteractionBlocked=true;
     closePaperEdit();
     previewStatus.textContent='กำลังอัปเดตข้อมูลทดลอง…';
   },(trial,current,usable)=>{

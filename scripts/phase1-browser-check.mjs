@@ -44,7 +44,7 @@ async function runPreview(page){
   await waitMeasures(page,'flowdoc:engine-preview',count+1);
   assert.equal(Number(await page.locator('#preview-paper').getAttribute('data-revision')),data.revision);
   assert.equal(data.pages.length,data.pageCount);
-  assert.match(data.layoutHash,/^[a-f0-9]{64}$/);assert.match(data.pdfHash,/^[a-f0-9]{64}$/);
+  assert.match(data.layoutHash,/^[a-f0-9]{64}$/);assert.equal(data.renderPath,'engine-layout');
   return {data,entry:(await measures(page,'flowdoc:engine-preview')).at(-1)};
 }
 try {
@@ -142,7 +142,7 @@ try {
     timings:{libraryClickToDefinitionPaint:collect(open),treeSelectionToPaint:collect(tree),previewClickToPaint:collect(render),
       coreGeneratePdf:collect(engine),labComposeResourcesAndEngine:collect(lab)},
     preview:{pageCount:current.data.pageCount,fingerprint:after.fingerprint,layoutHash:current.data.layoutHash,
-      pdfHash:current.data.pdfHash,allPageLinesAndCoordinatesMatched:true,
+      renderPath:current.data.renderPath,allPageLinesAndCoordinatesMatched:true,
       fonts:'Engine-matched Sarabun 300 and 400; SVG painted by the browser; solid test banner'},
     browserHeap:{beforeTreeLoopBytes:heapBefore.usedSize,after36SelectionsBytes:heapAfter.usedSize,forcedGc:true,
       scope:'single renderer JS heap, indicative only'},

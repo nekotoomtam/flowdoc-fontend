@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
 import {loadOriginalUat} from './original-uat-preview.mjs';
 import {trialImages} from './trial-preview-images.mjs';
+import {layoutPreview} from './trial-engine-layout.mjs';
 import {markBlankRuns,previewInput,trialBindings} from './trial-preview-bindings.mjs';
 import {randomBytes, randomUUID, createHash} from 'node:crypto';
 import {readFile, mkdtemp} from 'node:fs/promises';
@@ -13,10 +14,6 @@ import {readReferences} from '/candidate/dist/fonts/retention.js';
 import {resolveFontReadiness} from '/candidate/dist/fonts/readiness.js';
 import {snapshotResources, rendererIdentity} from '/candidate/dist/fonts/snapshot.js';
 import * as core from '/candidate/node_modules/@flowdoc/core/dist/index.js';
-import {createEngine} from '/candidate/node_modules/@flowdoc/core/dist/pdf/createPdfEngine.js';
-import {createTextRuntime} from '/candidate/node_modules/@flowdoc/core/dist/runtime/textRuntime.js';
-import {subsetFonts} from '/candidate/node_modules/@flowdoc/core/dist/runtime/subsetFonts.js';
-import {writePdf} from '/candidate/node_modules/@flowdoc/core/dist/pdf/writePdf.js';
 
 const database = 'flowdoc_editor_phase1_20261108';
 const docKey = 'stage6-uat-editor-phase1';
@@ -34,7 +31,7 @@ const service = (method, route, payload) => app.inject({method, url: '/authoring
   headers: {authorization: 'Bearer ' + token}, ...(payload ? {payload} : {})});
 const request = JSON.parse(await readFile('/phase1/sample.json', 'utf8'));
 const bannerId = 'e09c1a18-8143-46a9-9499-b30ea2505858';
-const banner = {kind:'rgb',width:2,height:1,bytes:Uint8Array.of(20,91,76,20,91,76)};
+const banner = {width:2,height:1};
 const tempRoot = await mkdtemp('/tmp/flowdoc-editor-phase1-');
 let originalFixture;
 let originalPreview;
@@ -85,7 +82,7 @@ function projectOriginalPage(cache,index){
         const cluster=[x,owner.blank?0:owner.start+g.clusterStartOffset,owner.blank?0:owner.start+g.clusterEndOffset];
         x+=g.advancePt;return cluster;
       });
-      edit={...owner,clusters};
+      edit={...owner,clusters,...cache.bindings.tab.get(owner.occurrence)};
     }
     return {text,...bounds,fontSizePt,baselineOffsetPt,color,scale,glyphUses,...(edit?{edit}:{})};
   });
@@ -157,7 +154,7 @@ try {
       if(custom)markBlankRuns(resolved,previewSample.marks);
       let assets=fixture;
       if(custom){
-        try{assets=await trialImages(trial.images,core.PDF_STREAM_CONTRACT);}
+        try{assets=await trialImages(trial.images);}
         catch{return {status:422,body:{error:'invalid_image'}};}
       }
       const refs=await readReferences(pool,templateId,draft.revision);
@@ -165,16 +162,15 @@ try {
         {document:resolved,input:sample},undefined,{deferFiles:true});
       if(readiness.status!=='ready')return {status:422,body:{error:'font_not_ready'}};
       const resources = await snapshotResources(snapshot,tempRoot);
+      const engineStarted=performance.now();
+      const dimensions=assets?.dimensions??(assets
+        ?Object.fromEntries(Object.entries(assets.provider.images).map(([id,{width,height}])=>[id,{width,height}]))
+        :{[bannerId]:banner});
+      const layout=await layoutPreview(resolved,resources,dimensions);
+      if(!layout.ok)return {status:422,body:layout};
+      const draw=layout.value;
+      const engineMs=performance.now()-engineStarted;
       if(assets){
-        let draw;
-        const engine=createEngine(resources,{runtime:createTextRuntime,
-          subset(pages,current,temp){draw=pages;return subsetFonts(pages,current,temp);},write:writePdf});
-        const engineStarted=performance.now();
-        const generated=await engine.generatePdfTo(resolved,assets.provider,{async write(){},async abort(){}});
-        if(!generated.ok)return {status:422,body:generated};
-        const pdf=generated.value;
-        const engineMs=performance.now()-engineStarted;
-        assert.equal(draw.pages.length,pdf.pageCount);
         const paths=await glyphPaths(draw,resources);
         const cache={revision:draft.revision,fingerprint:draft.fingerprint,draw,paths,fonts:Object.keys(paths)};
         if(custom)cache.bindings=trialBindings(draft.definition,resolved,sample,draw);
@@ -182,7 +178,8 @@ try {
         const candidates=typeof focus?.key==='string'?cache.bindings?.locations.get(focus.key):undefined;
         const matching=candidates?.filter(position=>position.occurrence===focus.occurrence);
         const positions=matching?.length?matching:candidates;
-        const preferred=Number.isSafeInteger(focus?.pageIndex)?Math.min(Math.max(0,focus.pageIndex),draw.pages.length-1):0;
+        const requestedPage=focus?.pageIndex??trial?.pageIndex;
+        const preferred=Number.isSafeInteger(requestedPage)?Math.min(Math.max(0,requestedPage),draw.pages.length-1):0;
         const caret=Number.isSafeInteger(focus?.offset)?focus.offset:0;
         const position=positions?.find(p=>p.pageIndex===preferred&&p.start<=caret&&caret<=p.end)
           ??positions?.find(p=>p.start<=caret&&caret<=p.end)
@@ -191,7 +188,7 @@ try {
         const first=projectOriginalPage(cache,pageIndex);
         const layoutHash=hash(draw.pages);
         cache.header={revision:cache.revision,fingerprint:cache.fingerprint,pages:[first],pageIndex,paged:true,
-          pageCount:pdf.pageCount,layoutHash,pdfHash:pdf.sha256,engineMs,renderMs:performance.now()-started,
+          pageCount:draw.pages.length,layoutHash,renderPath:'engine-layout',engineMs,renderMs:performance.now()-started,
           engineVersion:rendererIdentity.version,
           ...(fixture?{entryCount:fixture.entryCount,imagePlacements:fixture.placements}:{})};
         if(custom){
@@ -208,13 +205,6 @@ try {
         ['b8150084e25734e6f31696c57ff009f5564efa09d295848b717d9e2328c0311d',400],
       ]);
       const weights = new Map(resources.fonts.map(f=>[f.id,expectedFaces.get(f.sha256)]));
-      let draw;
-      const engine = createEngine(resources,{runtime:createTextRuntime,subset:subsetFonts,
-        write(pages,fonts,images){draw=pages;return writePdf(pages,fonts,images);}});
-      const engineStarted = performance.now();
-      const pdf = take(await engine.generatePdf(resolved,{[bannerId]:banner}));
-      const engineMs = performance.now()-engineStarted;
-      assert.equal(draw.pages.length,pdf.pageCount);
       const pages = draw.pages.map(({commands,images,...page})=>{
         const sampleImages=(images??[]).map(({resourceId,...geometry})=>{
           assert.equal(resourceId,bannerId);
@@ -227,7 +217,7 @@ try {
         })};
       });
       return {status:200,body:{revision:draft.revision,fingerprint:draft.fingerprint,pages,
-        pageCount:pdf.pageCount,layoutHash:hash(pages),pdfHash:createHash('sha256').update(pdf.bytes).digest('hex'),engineMs,
+        pageCount:draw.pages.length,layoutHash:hash(pages),renderPath:'engine-layout',engineMs,
         renderMs:performance.now()-started,engineVersion:rendererIdentity.version}};
     } finally { previewBusy = false; }
   }

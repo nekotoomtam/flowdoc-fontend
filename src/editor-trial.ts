@@ -6,7 +6,7 @@ type Path=(string|number)[];
 type ReadContext={files:Map<string,File>;fields:Map<string,HTMLTextAreaElement>;blanks:Path[]};
 type Read=(context:ReadContext,path:Path)=>unknown;
 export type TrialFocus={key:string;occurrence:string;offset:number;pageIndex:number};
-export type Trial={data:SampleData;sections:SampleData[];images:Upload[];blanks:Path[];focus?:TrialFocus};
+export type Trial={data:SampleData;sections:SampleData[];images:Upload[];blanks:Path[];pageIndex?:number;focus?:TrialFocus};
 const maxImageBytes=1024*1024;
 const maxImagesBytes=2*1024*1024;
 const node=<K extends keyof HTMLElementTagNameMap>(tag:K,label?:string)=>{
@@ -29,35 +29,38 @@ async function fileBytes(file:File){
   for(let i=0;i<bytes.length;i+=16384)binary+=String.fromCharCode(...bytes.subarray(i,i+16384));
   return btoa(binary);
 }
-export function mountTrial(form:HTMLFormElement,definition:Definition,changed:()=>void,render:(trial:Trial,current:()=>boolean)=>Promise<void>){
+export function mountTrial(form:HTMLFormElement,definition:Definition,starter:ReadonlyMap<string,string>,changed:()=>void,render:(trial:Trial,current:()=>boolean)=>Promise<void>){
   const error=node('p');error.className='trial-error';error.setAttribute('role','alert');
-  const submit=node('button','จัดหน้าจากข้อมูลนี้');submit.type='submit';submit.className='primary';
   let editVersion=0,bindings=new Map<string,HTMLTextAreaElement>(),running=false;
-  let timer:number|undefined,queued:(()=>TrialFocus)|undefined;
+  let timer:number|undefined,queued:(()=>TrialFocus|undefined)|undefined,disposed=false;
   const encoded=new WeakMap<File,Promise<string>>();
-  const invalidate=()=>{
-    editVersion++;error.textContent='';bindings.clear();queued=undefined;
-    window.clearTimeout(timer);timer=undefined;changed();
+  const invalidate=(structural=false,composing=false)=>{
+    editVersion++;error.textContent='';
+    if(structural)bindings.clear();
+    changed();
+    if(composing){queued=undefined;window.clearTimeout(timer);timer=undefined;}
+    else{queued=()=>undefined;schedule();}
   };
-  function collection(parent:HTMLElement,addLabel:string,make:()=>{element:HTMLElement;read:Read},max=200){
+  function collection(parent:HTMLElement,addLabel:string,make:()=>{element:HTMLElement;read:Read},seed:boolean,max=200){
     const rows=node('div');rows.className='trial-rows';
     const entries=new Map<HTMLElement,Read>();
-    const add=button(addLabel,()=>{
+    const add=button(addLabel,()=>addRow(true));
+    function addRow(user:boolean){
       if(rows.childElementCount>=max)return;
       const entry=make();
       const panel=node('details');panel.open=true;
       const controls=node('div');controls.className='trial-list-controls';
       function move(up:boolean){
         const adjacent=up?panel.previousElementSibling:panel.nextElementSibling;
-        if(adjacent){rows.insertBefore(up?panel:adjacent,up?adjacent:panel);renumber();invalidate();}
+        if(adjacent){rows.insertBefore(up?panel:adjacent,up?adjacent:panel);renumber();invalidate(true);}
       }
-      const remove=button('ลบรายการ',()=>{entries.delete(panel);panel.remove();renumber();invalidate();});
+      const remove=button('ลบรายการ',()=>{entries.delete(panel);panel.remove();renumber();invalidate(true);});
       controls.append(button('เลื่อนขึ้น',()=>move(true)),button('เลื่อนลง',()=>move(false)),remove);
       panel.append(node('summary'),entry.element,controls);
       panel.addEventListener('change',renumber);
-      entries.set(panel,entry.read);rows.append(panel);renumber();invalidate();
-      panel.querySelector('summary')?.focus();
-    });
+      entries.set(panel,entry.read);rows.append(panel);renumber();
+      if(user){invalidate(true);panel.querySelector('summary')?.focus();}
+    }
     function renumber(){
       [...rows.children].forEach((panel,index)=>{
         const format=panel.querySelector<HTMLSelectElement>(':scope > div > label > select[data-format]');
@@ -68,6 +71,7 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,changed:()
       add.disabled=rows.childElementCount>=max;
     }
     parent.append(rows,add);
+    if(seed)addRow(false);
     return (context:ReadContext,path:Path)=>[...rows.children].map((panel,index)=>entries.get(panel as HTMLElement)!(context,[...path,index]));
   }
   function fields(schema:Schema){
@@ -88,11 +92,11 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,changed:()
     const label=(field.label||key)+(field.required?' (ต้องระบุ)':'');
     if(field.type==='array'||field.type==='area'){
       const panel=node('fieldset');panel.append(node('legend',(field.type==='area'?'พื้นที่ ': '')+label));
+      const formats=field.type==='area'?Object.values(definition.areaFormats??{}).filter(format=>format.ownerAreaId===field.areaId):[];
       const read=collection(panel,field.type==='area'?'+ เพิ่ม Format ในพื้นที่':'+ เพิ่มรายการ',()=>{
         if(field.type==='array')return fields(field.items??{fields:{}});
         const body=node('div'),select=node('select'),slot=node('div');
         select.dataset.format='';
-        const formats=Object.values(definition.areaFormats??{}).filter(format=>format.ownerAreaId===field.areaId);
         for(const format of formats){
           const option=node('option',format.label??format.key);option.value=format.key;select.append(option);
         }
@@ -102,13 +106,15 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,changed:()
           active=format?fields(format.inputSchema):undefined;
           slot.replaceChildren(active?.element??node('p','พื้นที่นี้ยังไม่มี Format'));
         }
+        const preferred=field.areaId&&starter.get(field.areaId);
+        if(preferred&&formats.some(format=>format.key===preferred))select.value=preferred;
         select.addEventListener('change',show);show();
         body.append(labeled('Format',select),slot);
         return {element:body,read(context,path){
           if(!active)throw Error('เลือก Format สำหรับ '+key);
           return {format:select.value,data:active.read(context,[...path,'data'])};
         }};
-      });
+      },field.type==='array'||formats.length>0);
       return {element:panel,read(context,path){
         const entries=read(context,path);
         return entries.length||field.required?entries:undefined;
@@ -163,11 +169,18 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,changed:()
   });
   const fieldsPanel=node('div');fieldsPanel.className='trial-input-scroll';
   fieldsPanel.append(details('ตัวแปรทั้งเอกสาร',global.element,true),...sections.map(section=>section.element));
-  form.replaceChildren(fieldsPanel,error,submit);
-  form.oninput=invalidate;
-  form.onchange=invalidate;
+  form.replaceChildren(fieldsPanel,error);
+  form.oninput=event=>{
+    const input=event.target;
+    if(input instanceof HTMLSelectElement||input instanceof HTMLInputElement&&input.type==='file')return;
+    invalidate(false,(event as InputEvent).isComposing);
+  };
+  form.onchange=event=>{
+    if(event.target instanceof HTMLSelectElement||event.target instanceof HTMLInputElement&&event.target.type==='file')
+      invalidate(event.target instanceof HTMLSelectElement&&event.target.hasAttribute('data-format'));
+  };
   function schedule(){
-    if(running||timer!==undefined||!queued)return;
+    if(disposed||running||timer!==undefined||!queued)return;
     timer=window.setTimeout(()=>{
       timer=undefined;
       const focus=queued;queued=undefined;
@@ -175,8 +188,8 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,changed:()
     },180);
   }
   async function send(focus?:TrialFocus){
-    if(running)return;
-    running=true;submit.disabled=true;error.textContent='';
+    if(disposed||running)return;
+    running=true;error.textContent='';
     const version=editVersion;
     const current=()=>version===editVersion;
     try{
@@ -193,10 +206,13 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,changed:()
       if(current()){bindings=context.fields;await render({data,sections:values,images,blanks:context.blanks,focus},current);}
     }catch(cause){
       if(current())error.textContent=cause instanceof Error?cause.message:'จัดหน้าทดลองไม่สำเร็จ';
-    }finally{running=false;submit.disabled=false;schedule();}
+    }finally{running=false;schedule();}
   }
-  form.onsubmit=event=>{event.preventDefault();void send();};
+  form.onsubmit=event=>event.preventDefault();
+  const refresh=()=>{queued=()=>undefined;schedule();};
+  queueMicrotask(()=>{if(!running&&!disposed)void send();});
   return {
+    refresh,
     read(key:string){return bindings.get(key)?.value;},
     write(key:string,value:string,focus:()=>TrialFocus,composing:boolean){
       const input=bindings.get(key);
@@ -206,6 +222,6 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,changed:()
       if(composing){queued=undefined;window.clearTimeout(timer);timer=undefined;}
       else{queued=focus;schedule();}
     },
-    dispose(){editVersion++;queued=undefined;window.clearTimeout(timer);},
+    dispose(){disposed=true;editVersion++;queued=undefined;window.clearTimeout(timer);},
   };
 }

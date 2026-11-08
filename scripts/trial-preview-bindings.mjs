@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
 
 export const blankGlyph='\u00a0';
+const blankGroupGlyph='\u200b';
 export function previewInput(sample,paths=[]){
   if(!Array.isArray(paths)||paths.length>50000)throw Error('invalid_blank_fields');
   const marks=new Set();
@@ -22,13 +23,17 @@ export function previewInput(sample,paths=[]){
 }
 export function markBlankRuns(resolved,marks){
   if(!marks.size)return;
-  const omittedAnchors=new Set();
+  const omittedAnchors=new Set(),groupLabels=new Set();
+  for(const node of Object.values(resolved.nodes))if(node.type==='table')for(const group of node.rowGroups??[]){
+    const cell=group.groupLabel&&resolved.nodes[group.groupLabel.cellId];
+    if(cell?.childIds.length===1)groupLabels.add(cell.childIds[0]);
+  }
   const hosts=[resolved.nodes,...resolved.sections.flatMap(section=>[section.header?.nodes,section.footer?.nodes])];
   for(const host of hosts){
     for(const node of Object.values(host??{})){
       if(node.type!=='text-block')continue;
       let changed=false;
-      for(const child of node.children)if(child.type==='text'&&marks.has(child.text)){child.text=blankGlyph;changed=true;}
+      for(const child of node.children)if(child.type==='text'&&marks.has(child.text)){child.text=groupLabels.has(node.id)?blankGroupGlyph:blankGlyph;changed=true;}
       if(changed&&node.children.length===1){
         delete node.props.toc;
         if(node.props.anchorId!==undefined){omittedAnchors.add(node.props.anchorId);delete node.props.anchorId;}
@@ -121,7 +126,7 @@ export function trialBindings(definition,resolved,sample,draw){
       if(!edit?.valid)continue;
       // A split line must occur at this exact source position. Fail closed on synthetic text.
       if(edit.blank){
-        if(line.text===blankGlyph)edit.commands.push({line,start:0,pageIndex});
+        if(line.text===blankGlyph||line.text===blankGroupGlyph)edit.commands.push({line,start:0,pageIndex});
         else edit.valid=false;
         continue;
       }
@@ -142,5 +147,12 @@ export function trialBindings(definition,resolved,sample,draw){
       positions.push({pageIndex,start,end,occurrence});
     }
   }
-  return {lines,locations};
+  const ordered=new Map();
+  for(const [pageIndex,page] of draw.pages.entries())for(const line of page.commands){
+    const binding=lines.get(line);
+    if(binding&&!ordered.has(binding.occurrence))ordered.set(binding.occurrence,{occurrence:binding.occurrence,pageIndex});
+  }
+  const stops=[...ordered.values()],tab=new Map();
+  for(const [index,stop] of stops.entries())tab.set(stop.occurrence,{previous:stops[index-1],next:stops[index+1]});
+  return {lines,locations,tab};
 }

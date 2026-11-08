@@ -1,0 +1,29 @@
+@import './library.css';
+[hidden]{display:none!important}
+@font-face{font-family:FlowDocLab;src:url('/font-300.ttf') format('truetype');font-weight:300}
+@font-face{font-family:FlowDocLab;src:url('/font-400.ttf') format('truetype');font-weight:400}
+main{max-width:1500px;padding-top:18px}
+.title{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.title h1{font-size:27px}.title a{color:var(--green)}.title nav{display:flex;gap:5px}
+nav button[aria-pressed=true],.tree-row [aria-current=true]{background:#deefe3;color:#104d3d}
+#status,#preview-status{min-height:1.55em;margin:6px 0;color:#245c4d}
+.grid{display:grid;grid-template-columns:minmax(205px,1fr) minmax(310px,2fr) minmax(235px,1.05fr);gap:12px;align-items:start}
+.panel{border:1px solid var(--line);border-radius:12px;background:#fff;padding:12px;min-width:0}
+aside{display:grid;gap:10px}.panel h2{font-size:16px}.panel p,.type{color:var(--muted);font-size:13px;overflow-wrap:anywhere}
+#tree,#variables{max-height:60vh;overflow:auto;margin-top:7px}
+.tree{list-style:none;margin:0;padding:0}.tree .tree{margin-left:11px;padding-left:4px;border-left:1px solid var(--line)}
+.tree-row{display:flex;align-items:center;gap:3px;min-width:0}.tree-row button{padding:3px 5px;border:none;text-align:left;overflow-wrap:anywhere;min-width:0}.toggle{flex:0 0 25px}.type{font-size:11px}
+.workspace{background:#e5eee6}.workspace article{min-height:360px;padding:18px;margin:10px auto 2px;background:white;box-shadow:0 4px 12px #152b281a}
+.workspace article button{display:block;text-align:left;margin:4px 0;max-width:100%;overflow-wrap:anywhere}
+.workspace [aria-current=true]{outline:2px solid var(--green)}
+#paper table{width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:8px;font-size:11px}
+#paper td{border:1px solid #a5b9af;vertical-align:top;padding:4px}
+#paper td button{font-size:11px;border:0;padding:2px 3px}
+.scope{margin:7px 0}.scope ul{margin:1px 0 5px;padding-left:19px}.scope li{overflow-wrap:anywhere}
+#rename{display:grid;gap:6px;margin-top:10px}#rename button{justify-self:start}
+#conflict{margin-top:8px;padding:7px;background:#fff1df;border-radius:6px}
+#preview{max-width:940px;margin:auto}.pager{display:flex;align-items:center;gap:8px;margin:8px 0}
+#preview-paper{background:#e5eee6;padding:12px;min-height:40px;margin-bottom:8px}
+#preview-paper svg{display:block;width:min(100%,650px);height:auto;margin:auto;background:white;box-shadow:0 2px 10px #152b281a;font-family:FlowDocLab,sans-serif}
+@media(max-width:800px){.grid{grid-template-columns:1fr 1fr}.workspace{grid-row:2;grid-column:1/-1}}
+@media(max-width:500px){.grid{display:flex;flex-direction:column}.grid>*{width:100%}.title{align-items:flex-start;flex-direction:column}}

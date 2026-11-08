@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>คลังโครงเอกสาร · FlowDoc</title>
+</head>
+<body>
+  <header class="topbar"><a href="library.html" class="brand">▤ <span>FlowDoc</span></a><span class="badge">อ่านอย่างเดียว</span></header>
+  <main>
+    <nav class="crumb" aria-label="ตำแหน่งปัจจุบัน">พื้นที่ทำงาน / คลังโครงเอกสาร</nav>
+    <section class="hero">
+      <div><div class="eyebrow">DOCUMENT STUDIO</div><h1>คลังโครงเอกสาร</h1><p>ค้นหาและเปิดดูโครงเอกสารที่บันทึกไว้</p></div>
+      <button class="primary" type="button" disabled title="เปิดใช้เมื่อพร้อมสร้างโครง">＋ สร้างโครงเอกสาร</button>
+    </section>
+    <section aria-labelledby="catalog-title">
+      <div class="toolbar">
+        <h2 id="catalog-title">โครงเอกสารทั้งหมด <span id="count"></span></h2>
+        <div class="controls">
+          <input type="search" id="search" placeholder="ค้นหาชื่อหรือรหัสโครง" aria-label="ค้นหาชื่อหรือรหัสโครง">
+          <button id="refresh" type="button">รีเฟรช</button>
+        </div>
+      </div>
+      <p id="status" role="status"></p>
+      <div class="cards" id="cards"></div>
+    </section>
+  </main>
+  <dialog id="detail" aria-labelledby="detail-name">
+    <h2 id="detail-name"></h2>
+    <p id="detail-key"></p>
+    <p id="detail-info"></p>
+    <p>หน้านี้เปิดดูรายการจริงได้ การแก้ไขโครงจะอยู่ในหน้า Editor</p>
+    <form method="dialog"><button autofocus>กลับคลัง</button></form>
+  </dialog>
+  <script type="module" src="/src/library.ts"></script>
+</body>
+</html>

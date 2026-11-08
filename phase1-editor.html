@@ -9,15 +9,15 @@
   <div id="structure-pending" class="structure-tools" hidden><strong>มีการแก้โครงที่ยังไม่บันทึก</strong><button id="save-structure" class="primary" type="button">ตรวจและบันทึกโครง</button><button id="undo-structure" type="button">ย้อนขั้นล่าสุด</button><button id="discard-structure" type="button">ทิ้งการแก้โครง</button></div>
   <p id="status" role="status"></p>
   <div class="grid" id="editor" hidden>
-    <section class="panel" aria-label="Tree โครงสร้าง"><h2>โครงสร้างเอกสาร</h2><p>เลือกส่วนเอกสารเพื่อแก้ชื่อ</p><div class="structure-tools"><button id="add-section" type="button">+ เพิ่ม Section</button></div><div id="tree"></div></section>
-    <section class="panel workspace" aria-label="กระดาษนิยาม"><h2>แผนผังนิยาม</h2><p>ดูตำแหน่งโครงและชื่อตัวแปร · เปิด UAT ฉบับเต็มจากแท็บ Engine</p><article id="paper"></article></section>
+    <section class="panel" aria-label="Tree โครงสร้าง"><h2>โครงสร้างเอกสาร</h2><p>เลือกจาก Tree หรือจากกระดาษ</p><div class="structure-tools"><button id="add-section" type="button">+ เพิ่ม Section</button></div><div id="tree"></div></section>
+    <section class="panel workspace" aria-label="กระดาษนิยาม"><h2>กระดาษนิยาม</h2><p>คลิกบนกระดาษเพื่อเลือกส่วนที่ต้องการ</p><div id="format-switcher" class="structure-tools"></div><div class="definition-viewport"><article id="paper"></article></div></section>
     <aside>
-      <section class="panel" aria-label="รายการที่เลือก"><h2 id="selection"></h2><p id="path"></p>
+      <section class="panel" aria-label="รายการที่เลือก"><h2 id="selection"></h2><p id="path"></p><p id="selection-detail"></p>
       <form id="rename" hidden><label for="section-name">ชื่อส่วนเอกสาร</label><input id="section-name" required maxlength="128"><button class="primary" id="save" type="submit">บันทึกชื่อ Section</button></form>
       <div id="actions" class="structure-tools"></div>
       <div id="conflict" hidden><p>มีฉบับใหม่กว่าในระบบ การแก้ในหน้านี้ยังอยู่จนกว่าจะกดโหลดฉบับล่าสุด</p><button id="reload">โหลดฉบับล่าสุด</button></div>
       </section>
-      <section class="panel" aria-label="Tree ตัวแปร"><h2>ตัวแปรของเอกสาร</h2><div id="variables"></div></section>
+      <section class="panel" aria-label="Tree ตัวแปร"><h2>ตัวแปรของเอกสาร</h2><div id="variables"></div><p id="variable-detail" role="status"></p></section>
     </aside>
   </div>
   <section id="preview" class="panel" hidden aria-label="กระดาษเสมือนจาก Engine">

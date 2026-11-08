@@ -1,7 +1,7 @@
 export type Field = {type:string; items?:Schema; areaId?:string; required?:boolean};
 export type Schema = {type?:'object'; fields:Record<string,Field>};
-export type Inline = {id?:string; type:string; text?:string; key?:string; scope?:string; field?:string};
-type Length = {unit:'pt'|'mm';value:number};
+export type Inline = {id?:string; type:string; text?:string; key?:string; scope?:string; field?:string;value?:unknown;target?:unknown;url?:unknown};
+export type Length = {unit:'pt'|'mm';value:number};
 export type DocNode = {
   id:string; type:string; role?:{role:string};
   props?:{areaId?:string;verticalAlign?:string;colSpan?:number;rowSpan?:number;columnIndex?:number;
@@ -9,20 +9,21 @@ export type DocNode = {
     width?:Length;height?:Length;borderWidth?:Length;borderColor?:string;headerFillColor?:string;fillColor?:string;
     textAlign?:string;padding?:Partial<Record<'top'|'right'|'bottom'|'left',Length>>;source?:{scope:string;key:string}};
   rowIds?:string[];cellIds?:string[];childIds?:string[];
-  columns?:{width?:Length;childIds?:string[]}[];children?:Inline[];
+  columns?:{width?:Length;childIds?:string[];weight?:number}[];children?:Inline[];
 };
 export type Fragment = {rootIds:string[];nodes:Record<string,DocNode>};
-type Repeat = {tableId:string;rowTemplateId:string};
+type Repeat = {tableId:string;rowTemplateId:string;source?:{scope:string;key:string}};
 type Group = {id:string;tableId:string;rowTemplateIds:string[];source:{scope:string;key:string};memberRepeat:{rowTemplateId:string;source:{scope:string;key:string};emptyRowTemplateId:string};pagination?:{keepStart:boolean}};
-type CellRepeat = {cellId:string;childTemplateIds:string[]};
+type CellRepeat = {id?:string;cellId:string;childTemplateIds:string[];source?:{scope:string;key:string}};
 export type Host = {fragment?:Fragment;repeats?:Repeat[];rowGroups?:Group[];cellRepeats?:CellRepeat[]};
 export type Format = Host & {key:string;label?:string;ownerAreaId:string;inputSchema:Schema;fragment:Fragment};
-export type Band = Host & {inputSchema:Schema;fragment:Fragment};
+export type Band = Host & {inputSchema:Schema;fragment:Fragment;placement?:{mode:string;left:Length;right:Length;offset:Length};sizing?:{height?:Length};gap?:Length};
 export type Section = {id:string;label:string;nameBase?:string;sectionKey:string;pageLayoutId?:string;
   inputSchema:Schema;source:Host & {kind:string};header?:Band;footer?:Band};
 export type Definition = {nodeModelVersion:number;book:{defaultPageLayoutId:string};styles:Record<string,unknown>;
+  pageLayouts?:Record<string,{page:{size:string;orientation?:string;margin?:Partial<Record<'top'|'right'|'bottom'|'left',Length>>}}>;
   sections:Section[];areaFormats?:Record<string,Format>;globalSchema:Schema};
-export type Ref = {sectionId:string;formatId?:string;band?:'header'|'footer';nodeId?:string};
+export type Ref = {sectionId:string;formatId?:string;band?:'header'|'footer';nodeId?:string;part?:string};
 export type Change = {kind:'section';label:string} | {kind:'area';at:Ref;key:string;format:string}
   | {kind:'format';at:Ref;key:string} | {kind:'node';at:Ref;type:string}
   | {kind:'group';at:Ref;scope:'global'|'section'|'local';key:string;member:string}
@@ -35,7 +36,7 @@ const fail=(message:string):never=>{throw Error(message);};
 const keyPattern=/^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const rootTypes=['text-block','table','line','page-break'];
 const own=(target:object,key:string)=>Object.hasOwn(target,key);
-export const refKey=(ref:Ref)=>JSON.stringify([ref.sectionId,ref.formatId??'',ref.band??'',ref.nodeId??'']);
+export const refKey=(ref:Ref)=>JSON.stringify([ref.sectionId,ref.formatId??'',ref.band??'',ref.nodeId??'',...(ref.part?[ref.part]:[])]);
 const key=(name:string,fields:object)=>{
   if(!keyPattern.test(name)||['constructor','prototype'].includes(name))fail('ใช้ชื่อภาษาอังกฤษขึ้นต้น ตามด้วยตัวอักษร ตัวเลข _ หรือ -');
   if(own(fields,name))fail('ชื่อนี้มีอยู่แล้วในตำแหน่งนี้');

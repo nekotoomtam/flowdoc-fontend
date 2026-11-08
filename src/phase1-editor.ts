@@ -1,10 +1,10 @@
 import './phase1-editor.css';
 
 import {applyStructureChange, groupSources, refKey} from './editor-structure';
-import type {Band, Change, Definition, DocNode, Format, Fragment, Ref, Schema, Section} from './editor-structure';
+import type {Band, Change, Definition, DocNode, Format, Fragment, Host, Inline, Length, Ref, Schema, Section} from './editor-structure';
 
 type Draft = {templateId:string;name:string;revision:number;fingerprint:string;definition:Definition};
-type Outline = {id:string;ref:Ref;label:string;type:string;section:Section;format?:Format;children:Outline[];parent?:Outline;node?:DocNode;band?:Band};
+type Outline = {id:string;ref:Ref;label:string;type:string;section:Section;format?:Format;children:Outline[];parent?:Outline;node?:DocNode;band?:Band;inline?:Inline;detail?:string};
 type DrawPage = {
   widthPt: number; heightPt: number; backgroundColor: string;
   sampleImages?: {xPt:number; yPt:number; widthPt:number; heightPt:number; color?:string; resourceId?:string}[];
@@ -26,17 +26,17 @@ const benchmark=sessionStorage.getItem('flowdoc:benchmark-preview')==='1';
 let pendingPage:AbortController|undefined;
 const templateId = new URLSearchParams(location.search).get('id');
 const endpoint = '/api/editor-phase1/drafts/' + encodeURIComponent(templateId ?? '');
-const kinds: Record<string,string> = {section:'Section',area:'Area',format:'Format',table:'ตาราง','table-row':'แถว','table-cell':'เซลล์','text-block':'ข้อความ','page-break':'ขึ้นหน้าใหม่',image:'ภาพ',line:'เส้น','table-of-contents':'สารบัญ'};
+const kinds: Record<string,string> = {section:'Section',area:'Area',format:'Format',table:'ตาราง','table-row':'แถว','table-cell':'เซลล์','text-block':'ข้อความ','page-break':'ขึ้นหน้าใหม่',image:'ภาพ',line:'เส้น','table-of-contents':'สารบัญ',header:'หัวกระดาษ',footer:'ท้ายกระดาษ',columns:'ชุดคอลัมน์',column:'คอลัมน์','field-ref':'ตัวแปร',text:'ข้อความคงที่','system-page-field':'เลขหน้า','row-group':'กลุ่มแถว',repeat:'วนซ้ำ'};
 const treeNodes = new Map<Outline, HTMLButtonElement>();
 const rootRows=new Map<Outline,HTMLLIElement>();
 const paperNodes = new Map<Outline, HTMLElement>();
 let savedDefinition:Definition|undefined;
 let draft: Draft, selection: Outline | undefined, paperSection: Section | undefined;
 let paperFormat:Format|undefined;
+const activeFormats=new Map<string,Format>();
 let roots:Outline[] = [], outlines=new Map<string,Outline>();
 const expanded=new Map<string,boolean>();
 const history:{definition:Definition;selection:Ref}[]=[];
-let variableContext:Outline|undefined;
 let isSaving = false, isLoading = false, hasConflict = false, showingPreview = false;
 let preview: Preview | undefined, pendingPreview: AbortController | undefined, pageIndex = 0;
 
@@ -54,24 +54,54 @@ const button = (label: string, run: () => void) => {
 function afterPaint(name: string, started: number, detail?: unknown) {
   requestAnimationFrame(() => requestAnimationFrame(() => performance.measure(name, {start:started, detail})));
 }
+function inlineText(inline:Inline){
+  if(inline.type==='field-ref')return '{{'+inline.key+'}}';
+  if(inline.type==='system-page-field')return '{{'+(inline.field==='total'?'จำนวนหน้า':'เลขหน้า')+'}}';
+  if(inline.type==='line-break')return 'ขึ้นบรรทัดใหม่';
+  return inline.text||kinds[inline.type]||inline.type;
+}
 function outline(section: Section): Outline {
   const root: Outline = {id:section.id, ref:{sectionId:section.id},label:section.label, type:'section',section,children:[]};
-  function nodes(fragment: Fragment, ids: string[], parent: Outline, format?: Format): Outline[] {
+  function nodes(fragment: Fragment, ids: string[], parent: Outline, host: Host, format?: Format): Outline[] {
     return ids.map((id, position) => {
       const node = fragment.nodes[id];
       const areaField = node.type==='area' ? [section.inputSchema, draft.definition.globalSchema].flatMap(s=>Object.entries(s.fields))
         .find(([,f])=>f.type==='area'&&f.areaId===node.props?.areaId)?.[0] : undefined;
-      const inline = node.children?.map(x=>x.type==='field-ref'?'{{'+x.key+'}}':x.text??'').join('');
+      const inline = node.children?.map(inlineText).join('');
       const label = areaField ?? (inline || (['table-row','table-cell'].includes(node.type) ? kinds[node.type]+' '+(position+1) : kinds[node.type]??node.type));
-      const result: Outline = {id,ref:{...parent.ref,nodeId:id},label,type:node.type,section,node,format,parent,band:parent.band,children:[]};
+      const result: Outline = {id,ref:{...parent.ref,nodeId:id,part:undefined},label,type:node.type,section,node,format,parent,band:parent.band,children:[]};
       if (node.type==='area') {
         result.children = Object.entries(draft.definition.areaFormats??{}).filter(([,f])=>f.ownerAreaId===node.props?.areaId).map(([formatId,f])=>{
           const item: Outline = {id:formatId,ref:{sectionId:section.id,formatId},label:f.label??f.key,type:'format',section,parent:result,format:f,children:[]};
-          item.children=nodes(f.fragment,f.fragment.rootIds,item,f);
+          item.children=nodes(f.fragment,f.fragment.rootIds,item,f,f);
           return item;
         });
       } else {
-        result.children=nodes(fragment,node.rowIds??node.cellIds??node.childIds??(node.type==='columns'?node.columns?.flatMap(c=>c.childIds??[]):undefined)??[],result,format);
+        const part=(id:string,label:string,type:string,detail?:string):Outline=>({
+          id,ref:{...result.ref,part:id},type,label,section,parent:result,format,band:parent.band,children:[],detail
+        });
+        if(node.type==='columns'){
+          result.children=(node.columns??[]).map((column,i)=>{
+            const item=part('column:'+i,'คอลัมน์ '+(i+1),'column','สัดส่วน '+(column.weight??1));
+            item.children=nodes(fragment,column.childIds??[],item,host,format);return item;
+          });
+        }else{
+          result.children=nodes(fragment,node.rowIds??node.cellIds??node.childIds??[],result,host,format);
+        }
+        for(const [i,inline] of (node.children??[]).entries()){
+          const item=part('inline:'+(inline.id??i),inlineText(inline),inline.type,inline.scope?'ขอบเขต '+inline.scope:undefined);
+          item.inline=inline;result.children.push(item);
+        }
+        for(const [i,group] of (host.rowGroups??[]).entries())if(group.tableId===id){
+          result.children.push(part('group:'+i,'กลุ่มแถว · '+group.source.key,'row-group',
+            group.source.scope+':'+group.source.key+'[] › '+group.memberRepeat.source.key+'[] · แถวสมาชิก '+group.memberRepeat.rowTemplateId+' · แถวว่าง '+group.memberRepeat.emptyRowTemplateId));
+        }
+        for(const [i,repeat] of (host.repeats??[]).entries())if(repeat.tableId===id){
+          result.children.push(part('repeat:'+i,'วนแถว · '+repeat.source?.key,'repeat','แถวต้นแบบ '+repeat.rowTemplateId));
+        }
+        for(const [i,repeat] of (host.cellRepeats??[]).entries())if(repeat.cellId===id){
+          result.children.push(part('cell-repeat:'+i,'วนเนื้อหาเซลล์ · '+repeat.source?.key,'repeat',repeat.childTemplateIds.join(' · ')));
+        }
       }
       return result;
     });
@@ -79,11 +109,11 @@ function outline(section: Section): Outline {
   const fragment=section.source.fragment;
   const makeBand = (band:Band, type:string, label:string) => {
     const part:Outline={id:section.id+'-'+type,ref:{sectionId:section.id,band:type as 'header'|'footer'},label,type,section,parent:root,band,children:[]};
-    part.children=nodes(band.fragment,band.fragment.rootIds,part);
+    part.children=nodes(band.fragment,band.fragment.rootIds,part,band);
     return part;
   };
   if(section.header)root.children.push(makeBand(section.header,'header','หัวกระดาษ'));
-  if(fragment)root.children.push(...nodes(fragment,fragment.rootIds,root));
+  if(fragment)root.children.push(...nodes(fragment,fragment.rootIds,root,section.source));
   if(section.footer)root.children.push(makeBand(section.footer,'footer','ท้ายกระดาษ'));
   return root;
 }
@@ -127,30 +157,44 @@ function drawBranch(items: Outline[], depth = 0) {
   }
   return list;
 }
-function drawPaper(root: Outline, activeFormat?: Format) {
+function drawPaper(root: Outline, preferred?: Format) {
   paperNodes.clear();
+  const switcher=q('format-switcher');switcher.replaceChildren();
+  const layout=draft.definition.pageLayouts?.[root.section.pageLayoutId??draft.definition.book.defaultPageLayoutId]?.page;
+  const sizes:Record<string,[number,number]>={A4:[595.276,841.89],A3:[841.89,1190.551],Letter:[612,792],Legal:[612,1008]};
+  const [short,long]=sizes[layout?.size??'A4']??sizes.A4;
+  const [width,height]=layout?.orientation==='landscape'?[long,short]:[short,long];
+  const points=(value?:Length)=>value?(value.unit==='mm'?value.value*72/25.4:value.value):0;
+  const unit=(n:number)=>'calc('+n+' * var(--sheet-pt))';
+  const length=(value?:Length)=>value?unit(points(value)):'';
+  const hex=(value?:string)=>value&&/^[0-9a-f]{6}$/i.test(value)?'#'+value:'';
   const choose=(item:Outline,label=item.label,className='definition-control')=>{
     const control=button(label,()=>select(item,false));control.className=className;
+    control.dataset.paperRef=refKey(item.ref);
+    control.dataset.kind=item.type;
     paperNodes.set(item,control);return control;
   };
-  const length=(value?:{unit:string;value:number})=>value?value.value+value.unit:'';
-  const points=(value?:{unit:string;value:number})=>value?(value.unit==='mm'?value.value*72/25.4:value.value):0;
-  const hex=(value?:string)=>value&&/^[0-9a-f]{6}$/i.test(value)?'#'+value:'';
   function contents(item: Outline): HTMLElement {
     const block=element('div');block.className='definition-block';
     const props=item.node?.props;
     if(item.type==='area'){
-      block.classList.add('definition-area');block.append(choose(item),element('small','พื้นที่เอกสาร · Area'));
-      const active=item.children.find(child=>child.format===activeFormat);
-      if(active)block.append(contents(active));
-      else {
-        const list=element('div');list.className='definition-formats';
-        for(const format of item.children)list.append(choose(format,format.label,'definition-format-choice'));
-        block.append(element('p','เลือกรูปแบบเพื่อดูนิยามของรูปแบบนั้น'),list);
+      block.classList.add('definition-area');
+      block.append(choose(item));
+      const group=element('div');group.className='format-choices';
+      const areaKey=refKey(item.ref);
+      const active=item.children.find(child=>child.format===preferred)
+        ??item.children.find(child=>child.format===activeFormats.get(areaKey))??item.children[0];
+      group.append(element('small','Format ของ '+item.label+(active?' · กำลังดู '+active.label:'')));
+      if(active?.format)activeFormats.set(areaKey,active.format);
+      for(const format of item.children){
+        if(format===active)continue;
+        group.append(choose(format,format.label,'definition-format-choice'));
       }
+      switcher.append(group);
+      if(active)block.append(contents(active));
     }else if(item.type==='format'){
       block.classList.add('definition-format');
-      block.append(choose(item,'รูปแบบ · '+item.label),...item.children.map(contents));
+      block.append(choose(item),...item.children.map(contents));
     }else if(item.type==='table'){
       const table=element('table'), body=element('tbody'), columns=element('colgroup');
       const widths=(item.node?.columns??[]).map(column=>points(column.width));
@@ -158,11 +202,16 @@ function drawPaper(root: Outline, activeFormat?: Format) {
       for(const width of widths){
         const col=element('col');if(total)col.style.width=(width/total*100)+'%';columns.append(col);
       }
-      if(total)table.style.width='min(100%, '+total+'pt)';
-      block.append(choose(item,'เลือกตาราง'),table);table.append(columns,body);
-      for(const [index,row] of item.children.entries()){
-        const tr=element('tr');paperNodes.set(row,tr);
-        for(const cell of row.children){
+      if(total)table.style.width='min(100%, '+unit(total)+')';
+      block.append(choose(item,'ตาราง'),table);table.append(columns,body);
+      for(const metadata of item.children.filter(child=>child.type!=='table-row'))
+        block.append(choose(metadata,metadata.label,'definition-marker'));
+      for(const [index,row] of item.children.filter(child=>child.type==='table-row').entries()){
+        const tr=element('tr');
+        const rowButton=choose(row,row.label,'definition-marker definition-row');
+        // Merged rows can have no authored cells of their own.
+        if(!row.children.length)block.append(rowButton);
+        for(const [cellIndex,cell] of row.children.entries()){
           const td=element('td'),cellProps=cell.node?.props;
           td.colSpan=cellProps?.colSpan??1;td.rowSpan=cellProps?.rowSpan??1;
           td.style.backgroundColor=hex(cellProps?.fillColor??(index<(props?.headerRowCount??0)?props?.headerFillColor:undefined));
@@ -172,39 +221,39 @@ function drawPaper(root: Outline, activeFormat?: Format) {
             const padding=cellProps?.padding?.[side];
             if(padding)td.style.setProperty('padding-'+side,length(padding));
           }
+          td.addEventListener('click',event=>{if(!(event.target as HTMLElement).closest('button'))select(cell,false);});
+          if(cellIndex===0)td.append(rowButton);
           td.append(choose(cell,cell.label,'definition-cell-control'),...cell.children.map(contents));tr.append(td);
         }
         body.append(tr);
       }
     }else if(item.type==='text-block'){
-      const inline=item.node?.children?.map(inline=>{
-        if(inline.type==='field-ref')return '{{'+inline.key+'}}';
-        if(inline.type==='system-page-field')return '{{'+(inline.field==='total'?'จำนวนหน้า':'เลขหน้า')+'}}';
-        if(inline.type==='line-break')return '\n';
-        return inline.text??'';
-      }).join('');
-      const control=choose(item,inline||'ข้อความ','definition-text');
-      const style=draft.definition.styles[props?.textStyleId??''] as {fontSize?:{value:number;unit:string};lineHeightPt?:number;font?:{weight?:number}}|undefined;
-      if(style?.fontSize)control.style.fontSize=length(style.fontSize);
-      if(style?.lineHeightPt)control.style.lineHeight=style.lineHeightPt+'pt';
-      if(style?.font?.weight)control.style.fontWeight=String(style.font.weight);
-      if(props?.textAlign)control.style.textAlign=props.textAlign;
-      block.append(control);
+      block.classList.add('definition-text');
+      block.append(choose(item,'ข้อความ','definition-marker'));
+      const style=draft.definition.styles[props?.textStyleId??''] as {fontSize?:Length;lineHeightPt?:number;font?:{weight?:number}}|undefined;
+      if(style?.fontSize)block.style.fontSize=length(style.fontSize);
+      if(style?.lineHeightPt)block.style.lineHeight=unit(style.lineHeightPt);
+      if(style?.font?.weight)block.style.fontWeight=String(style.font.weight);
+      if(props?.textAlign)block.style.textAlign=props.textAlign;
+      for(const part of item.children){
+        if(part.type==='line-break')block.append(choose(part,'↵','definition-inline'),element('br'));
+        else block.append(choose(part,part.label,'definition-inline'+(part.type==='field-ref'?' definition-token':'')));
+      }
     }else if(item.type==='image'){
       const image=choose(item,props?.source?'ภาพ · {{'+props.source.key+'}}':'ภาพ','definition-image');
       if(props?.width)image.style.width=length(props.width);
       if(props?.height)image.style.minHeight=length(props.height);
+      const align=(props as {align?:string}|undefined)?.align;
+      if(align==='center')image.style.marginInline='auto';
+      if(align==='right')image.style.marginLeft='auto';
       block.append(image);
     }else if(item.type==='line'){
       block.append(choose(item,'เส้น','definition-rule'));
     }else if(item.type==='columns'){
       const columns=element('div');columns.className='definition-columns';
-      for(const group of item.node?.columns??[]){
-        const column=element('div');
-        for(const id of group.childIds??[]){
-          const child=item.children.find(c=>c.id===id);if(child)column.append(contents(child));
-        }
-        columns.append(column);
+      for(const [i,column] of item.children.entries()){
+        const view=contents(column);view.style.flex=String(item.node?.columns?.[i]?.weight??1);
+        columns.append(view);
       }
       block.append(choose(item),columns);
     }else{
@@ -212,34 +261,109 @@ function drawPaper(root: Outline, activeFormat?: Format) {
     }
     return block;
   }
-  paper.replaceChildren(choose(root),...root.children.map(contents));
-  paperSection=root.section;paperFormat=activeFormat;
+  const sheet=element('div');sheet.className='definition-sheet';
+  paper.style.setProperty('--sheet-pt','calc(100cqw / '+width+')');
+  sheet.style.height=unit(height);
+  sheet.dataset.pageSize=layout?.size??'A4';
+  const body=element('div');body.className='definition-body';
+  const margin=layout?.margin??{};
+  let top=points(margin.top),bottom=points(margin.bottom);
+  for(const item of root.children){
+    if(item.ref.band&&item.band){
+      const band=item.band, layout=band.placement, header=item.ref.band==='header';
+      const offset=points(layout?.offset??(header?margin.top:margin.bottom));
+      const view=contents(item);view.classList.add('definition-band');
+      view.style.left=length(layout?.left??margin.left)||'0';
+      view.style.right=length(layout?.right??margin.right)||'0';
+      view.style.setProperty(header?'top':'bottom',unit(offset));
+      if(band.sizing?.height)view.style.minHeight=length(band.sizing.height);
+      const reserve=offset+points(band.sizing?.height)+points(band.gap);
+      if(header)top=Math.max(top,reserve);
+      else bottom=Math.max(bottom,reserve);
+      sheet.append(view);
+    }else body.append(contents(item));
+  }
+  body.style.inset=unit(top)+' '+unit(points(margin.right))+' '+unit(bottom)+' '+unit(points(margin.left));
+  sheet.prepend(body);
+  const control=choose(root,root.label+' · '+sheet.dataset.pageSize,'definition-section-control');
+  switcher.prepend(control);
+  sheet.addEventListener('click',event=>{if(event.target===sheet||event.target===body)select(root,false);});
+  paper.replaceChildren(sheet);
+  paperSection=root.section;paperFormat=preferred;
 }
 
+
+function scrollWithin(viewport:HTMLElement,target:HTMLElement){
+  const box=viewport.getBoundingClientRect(), selected=target.getBoundingClientRect();
+  if(selected.top<box.top)viewport.scrollTop+=selected.top-box.top-8;
+  else if(selected.bottom>box.bottom)viewport.scrollTop+=selected.bottom-box.bottom+8;
+}
 function drawVariables(item: Outline) {
-  if(variableContext?.section===item.section&&variableContext.format===item.format&&variableContext.band===item.band)return;
-  variableContext=item;
-  const scopes: [string,Schema][]=[['ทั้งเอกสาร',draft.definition.globalSchema],['ส่วนเอกสาร',item.section.inputSchema]];
-  if(item.band)scopes.push(['หัว–ท้ายกระดาษ',item.band.inputSchema]);
-  if(item.format)scopes.push(['รูปแบบ · '+item.format.key,item.format.inputSchema]);
-  function fieldList(schema: Schema): HTMLUListElement {
+  const scopes: {scope:string;label:string;schema:Schema}[]=[
+    {scope:'global',label:'ทั้งเอกสาร',schema:draft.definition.globalSchema},
+    {scope:'section',label:'ส่วนเอกสาร',schema:item.section.inputSchema}
+  ];
+  if(item.band)scopes.push({scope:item.ref.band!,label:item.ref.band==='header'?'หัวกระดาษ':'ท้ายกระดาษ',schema:item.band.inputSchema});
+  if(item.format)scopes.push({scope:'local',label:'รูปแบบ · '+item.format.key,schema:item.format.inputSchema});
+  const host=item.format??item.band??item.section.source;
+  const lineage=new Set<string>();
+  for(let p:Outline|undefined=item;p;p=p.parent)if(p.node)lineage.add(p.node.id);
+  const scopeField=(source?:{scope:string;key:string})=>source?scopes.find(x=>x.scope===source.scope)?.schema.fields[source.key]:undefined;
+  const group=host.rowGroups?.find(group=>group.rowTemplateIds.some(row=>lineage.has(row)));
+  const groupSchema=scopeField(group?.source)?.items;
+  if(group&&groupSchema){
+    scopes.push({scope:'group',label:'กลุ่ม · '+group.source.key+'[]',schema:groupSchema});
+    const member=group.memberRepeat;
+    const schema=groupSchema.fields[member.source.key]?.items;
+    if(schema&&lineage.has(member.rowTemplateId))
+      scopes.push({scope:'item',label:'รายการในกลุ่ม · '+member.source.key+'[]',schema});
+  }
+  const repeat=host.repeats?.find(repeat=>lineage.has(repeat.rowTemplateId));
+  const cellRepeat=host.cellRepeats?.find(repeat=>repeat.childTemplateIds.some(node=>lineage.has(node)));
+  const activeRepeat=cellRepeat??repeat;
+  const itemSchema=scopeField(activeRepeat?.source)?.items;
+  if(activeRepeat?.source&&itemSchema){
+    const old=scopes.findIndex(x=>x.scope==='item');
+    if(old>=0)scopes.splice(old,1);
+    scopes.push({scope:'item',label:'รายการที่วนซ้ำ · '+activeRepeat.source.key+'[]',schema:itemSchema});
+  }
+  const selectedRef=item.inline?.type==='field-ref'&&item.inline.scope&&item.inline.key
+    ? {scope:item.inline.scope,key:item.inline.key}:item.node?.type==='image'?item.node.props?.source:undefined;
+  const value=q('variable-detail');
+  value.textContent='';
+  const selectField=(control:HTMLButtonElement,label:string,key:string,type:string)=>{
+    variables.querySelector('[aria-current=true]')?.removeAttribute('aria-current');
+    control.setAttribute('aria-current','true');
+    value.textContent=label+' › '+key+' · '+type;
+  };
+  function fieldList(schema:Schema,scope:string,label:string,base=''):HTMLUListElement {
     const list=element('ul');
-    for(const [name,f] of Object.entries(schema.fields)){
-      const li=element('li',name+' · '+f.type);
-      if(f.items)li.append(fieldList(f.items));
+    for(const [key,f] of Object.entries(schema.fields)){
+      const path=base+key;
+      const li=element('li'), field=button(key+' · '+f.type,()=>selectField(field,label,path,f.type));
+      field.className='variable-field';
+      field.dataset.variableScope=scope;field.dataset.variablePath=path;
+      if(!base&&scope===selectedRef?.scope&&key===selectedRef.key){
+        field.setAttribute('aria-current','true');
+        value.textContent=label+' › '+path+' · '+f.type;
+      }
+      li.append(field);
+      if(f.items)li.append(fieldList(f.items,scope,label,path+'[].'));
       list.append(li);
     }
     return list;
   }
-  variables.replaceChildren(...scopes.map(([label,schema])=>{
-    const scope=element('details');
-    scope.className='scope';
-    scope.open=true;
-    scope.append(element('summary',label));
-    scope.append(Object.keys(schema.fields).length?fieldList(schema):element('p','ยังไม่มีตัวแปร'));
-    return scope;
+  variables.replaceChildren(...scopes.map(({label,schema,scope})=>{
+    const container=element('details');
+    container.className='scope';
+    container.open=true;
+    container.append(element('summary',label));
+    container.append(Object.keys(schema.fields).length?fieldList(schema,scope,label):element('p','ยังไม่มีตัวแปร'));
+    return container;
   }));
 }
+
+
 function select(item: Outline, measure: boolean) {
   const started=performance.now();
   if(selection) {
@@ -256,10 +380,20 @@ function select(item: Outline, measure: boolean) {
   let root=item;
   const path=[root.label];
   while(root.parent){root=root.parent;path.unshift(root.label);}
-  if(paperSection!==item.section||paperFormat!==item.format)drawPaper(root,item.format);
-  treeNodes.get(item)?.setAttribute('aria-current','true');
+  const preferred=item.format??(paperSection===item.section?paperFormat:undefined);
+  if(paperSection!==item.section||paperFormat!==preferred)drawPaper(root,preferred);
+  const treeTarget=treeNodes.get(item);
+  treeTarget?.setAttribute('aria-current','true');
+  if(!measure&&treeTarget)scrollWithin(tree,treeTarget);
   paperNodes.get(item)?.setAttribute('aria-current','true');
   q('selection').textContent=item.label;
+  q('selection-detail').textContent=item.detail??(kinds[item.type]??item.type)+' · '+item.id;
+  const target=paperNodes.get(item);
+  if(measure&&target&&paper.contains(target)){
+    const body=target.closest<HTMLElement>('.definition-body');
+    if(body)scrollWithin(body,target);
+    scrollWithin(paper.parentElement!,target);
+  }
   q('path').textContent=path.join(' › ');
   form.hidden=item.type!=='section';
   if(item.type==='section'&&!hasConflict) input.value=item.label;
@@ -298,6 +432,8 @@ function showDraft(data: Draft, keep?: Ref) {
   roots.forEach(index);
   for(const key of expanded.keys())if(!outlines.has(key))expanded.delete(key);
   const selected=(keep&&outlines.get(refKey(keep)))??roots[0];
+  const availableFormats=new Set(data.definition.areaFormats?Object.values(data.definition.areaFormats):[]);
+  for(const [key,format] of activeFormats)if(!availableFormats.has(format))activeFormats.delete(key);
   reveal(selected);
   const scroll=tree.scrollTop;
   if(selection){
@@ -363,6 +499,7 @@ function destinations(item:Outline){
 }
 function showActions(item:Outline){
   const actions=q('actions');actions.replaceChildren();
+  if(item.ref.part)return;
   const add=(name:string,run:()=>void)=>{
     const control=button(name,run);control.disabled=isSaving||hasConflict;actions.append(control);
   };

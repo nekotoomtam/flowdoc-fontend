@@ -948,6 +948,7 @@ function showLayoutFacts(item:Outline,spacing?:'before'|'after'){
       definition.gap&&'เว้นถึงเนื้อหา '+displayLength(definition.gap)].filter(Boolean);
     if(values.length)note('ตำแหน่ง'+itemType(band),values.join(' · '));
   }
+  if(item.type==='table-of-contents')note('สารบัญอัตโนมัติ','Engine ดึงข้อความและเลขหน้าจากหัวข้อที่กำหนดระดับสารบัญไว้');
   if(item.type==='section'){
     const margins=draft.definition.pageLayouts?.[item.section.pageLayoutId??draft.definition.book.defaultPageLayoutId]?.page.margin;
     if(margins){
@@ -1353,8 +1354,22 @@ const trialPaperValue=q<HTMLTextAreaElement>('trial-paper-value');
 let trialForm:ReturnType<typeof mountTrial>|undefined;
 let paperEdit:{key:string;occurrence:string;pageIndex:number;composing:boolean;previous?:TrialTab;next?:TrialTab}|undefined;
 const trialHits=new WeakMap<SVGElement,PreviewEdit>();
+let paperGrowthFrame=0,paperLineHeight=0,paperBaseHeight=0;
 function clearPaperInk(){
   for(const ink of previewPaper.querySelectorAll('.trial-ink-active'))ink.classList.remove('trial-ink-active');
+}
+function growPaperEditor(){
+  if(paperGrowthFrame||!paperEdit)return;
+  paperGrowthFrame=requestAnimationFrame(()=>{
+    paperGrowthFrame=0;
+    if(!paperEdit||!paperLineHeight)return;
+    const prior=trialPaperValue.scrollTop;
+    trialPaperValue.style.height=paperBaseHeight+'px';
+    const limit=paperBaseHeight+paperLineHeight*4;
+    const height=Math.max(paperBaseHeight,Math.min(limit,trialPaperValue.scrollHeight));
+    trialPaperValue.style.height=height+'px';
+    if(prior>0&&height< trialPaperValue.scrollHeight)trialPaperValue.scrollTop=prior;
+  });
 }
 function positionPaperEditor(){
   if(!paperEdit)return;
@@ -1365,6 +1380,7 @@ function positionPaperEditor(){
   const owner=trialHits.get(first);
   if(owner){paperEdit.previous=owner.previous;paperEdit.next=owner.next;}
   const height=Math.max(bounds.height,hits.at(-1)!.getBoundingClientRect().bottom-bounds.top);
+  paperBaseHeight=height;paperLineHeight=bounds.height;
   const scale=bounds.height/Number(first.getAttribute('height'));
   Object.assign(trialPaperValue.style,{
     left:bounds.left+'px',top:bounds.top+'px',width:bounds.width+'px',height:height+'px',
@@ -1374,6 +1390,7 @@ function positionPaperEditor(){
   clearPaperInk();
   for(const ink of previewPaper.querySelectorAll<SVGElement>('[data-trial-ink]'))
     if(ink.dataset.trialInk===paperEdit.occurrence)ink.classList.add('trial-ink-active');
+  growPaperEditor();
 }
 function beginPaperEdit(edit:PreviewEdit,offset:number,index:number){
   const value=trialForm?.read(edit.key);
@@ -1396,6 +1413,7 @@ function syncPaperEdit(composing:boolean){
   const readFocus=()=>paperEdit?{key:paperEdit.key,occurrence:paperEdit.occurrence,pageIndex:paperEdit.pageIndex,offset:trialPaperValue.selectionStart}
     :{key,occurrence,pageIndex,offset};
   trialForm?.write(key,value,readFocus,composing);
+  growPaperEditor();
 }
 trialPaperValue.addEventListener('compositionstart',()=>{if(paperEdit)paperEdit.composing=true;});
 trialPaperValue.addEventListener('input',event=>syncPaperEdit(Boolean(paperEdit?.composing||(event as InputEvent).isComposing)));
@@ -1616,7 +1634,7 @@ window.addEventListener('scroll',()=>{
   });
 },{passive:true});
 
-async function loadPreview(trial?:Trial,current=()=>true) {
+async function loadPreview(trial?:Trial,current=()=>true,usable=current) {
   if(!draft||pendingPreview||!showingPreview||isDirty())return;
   const started=performance.now(), revision=draft.revision, fingerprint=draft.fingerprint;
   const request=new AbortController();pendingPreview=request;
@@ -1625,12 +1643,12 @@ async function loadPreview(trial?:Trial,current=()=>true) {
   try{
     const response=await fetch(endpoint+'/preview',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({expectedRevision:revision,...(trial?{trial}:benchmark?{sample:'benchmark'}:{})}),signal:AbortSignal.any([request.signal,AbortSignal.timeout(120000)])});
-    if(!current()||pendingPreview!==request)return;
+    if(!usable()||pendingPreview!==request)return;
     if(response.status===409){previewStatus.textContent='ฉบับนี้มี revision ใหม่กว่าในระบบ กรุณาโหลดฉบับล่าสุด';return;}
     const data=await response.json() as Preview & {error?:string;issues?:{code:string;path?:string}[]};
     if(!response.ok){
       const detail=data.issues?.slice(0,4).map(issue=>(issue.path??'ข้อมูล')+' · '+issue.code).join(' / ');
-      if(pendingPreview===request)previewStatus.textContent=response.status===429?'Engine กำลังจัดหน้าอีกชุด ลองใหม่เมื่อพร้อม':
+      if(pendingPreview===request&&current())previewStatus.textContent=response.status===429?'Engine กำลังจัดหน้าอีกชุด ลองใหม่เมื่อพร้อม':
         data.error==='invalid_image'?'เปิดภาพไม่ได้ กรุณาเลือกไฟล์ PNG หรือ JPEG ที่ถูกต้อง':
         data.error==='font_not_ready'?'ฟอนต์ของโครงยังใช้จัดหน้าไม่ได้':
         detail?'ตรวจค่าตัวแปร · '+detail:'จัดหน้าทดลองไม่สำเร็จ';
@@ -1639,12 +1657,13 @@ async function loadPreview(trial?:Trial,current=()=>true) {
     if(!response.ok||!data.pages?.length||data.revision!==revision||data.fingerprint!==fingerprint)throw Error('Preview unavailable');
     if(benchmark)await Promise.all([document.fonts.load('300 12px FlowDocLab'),document.fonts.load('400 12px FlowDocLab')]);
     await readyImages(data.pages[0],data.previewId);
-    if(pendingPreview!==request||!current()||draft.revision!==revision||!showingPreview)return;
+    if(pendingPreview!==request||!usable()||draft.revision!==revision||!showingPreview)return;
     const desired=trial?.focus&&paperEdit&&paperEdit.occurrence!==trial.focus.occurrence
       ?Math.min(pageIndex,data.pageCount-1):undefined;
     mountPreview(data,desired);
-    if(!current()||pendingPreview!==request)return;
-    previewStatus.textContent='Core '+data.engineVersion+' · Revision '+revision+' · '+data.pageCount+' หน้า';
+    if(pendingPreview!==request)return;
+    previewStatus.textContent=current()?'Core '+data.engineVersion+' · Revision '+revision+' · '+data.pageCount+' หน้า':
+      'แสดงผลจัดหน้าล่าสุดระหว่างพิมพ์ · กำลังจัดหน้าต่อ…';
     afterPaint('flowdoc:engine-preview',started,{revision,pageCount:data.pageCount,engineMs:data.engineMs,renderMs:data.renderMs,layoutHash:data.layoutHash,renderPath:data.renderPath});
   }catch{
     if(!request.signal.aborted&&current())previewStatus.textContent='จัดหน้าทดลองไม่สำเร็จ ลองจัดหน้าใหม่อีกครั้ง';
@@ -1673,9 +1692,9 @@ function openPreview(){
   trialForm=mountTrial(q<HTMLFormElement>('trial-form'),draft.definition,starter,()=>{
     closePaperEdit();
     previewStatus.textContent='กำลังอัปเดตข้อมูลทดลอง…';
-  },(trial,current)=>{
+  },(trial,current,usable)=>{
     if(trialVersion!==version||!showingPreview||isDirty())return Promise.resolve();
-    return loadPreview({...trial,pageIndex},current);
+    return loadPreview({...trial,pageIndex},current,usable);
   });
 }
 function changeMode(toPreview: boolean) {

@@ -29,19 +29,19 @@ async function fileBytes(file:File){
   for(let i=0;i<bytes.length;i+=16384)binary+=String.fromCharCode(...bytes.subarray(i,i+16384));
   return btoa(binary);
 }
-export function mountTrial(form:HTMLFormElement,definition:Definition,starter:ReadonlyMap<string,string>,changed:()=>void,render:(trial:Trial,current:()=>boolean)=>Promise<void>){
+export function mountTrial(form:HTMLFormElement,definition:Definition,starter:ReadonlyMap<string,string>,changed:()=>void,render:(trial:Trial,current:()=>boolean,usable:()=>boolean)=>Promise<void>){
   const error=node('p');error.className='trial-error';error.setAttribute('role','alert');
-  let editVersion=0,bindings=new Map<string,HTMLTextAreaElement>(),running=false;
+  let editVersion=0,structureVersion=0,bindings=new Map<string,HTMLTextAreaElement>(),running=false;
   let timer:number|undefined,queued:(()=>TrialFocus|undefined)|undefined,disposed=false;
   const encoded=new WeakMap<File,Promise<string>>();
   const invalidate=(structural=false,composing=false)=>{
     editVersion++;error.textContent='';
-    if(structural)bindings.clear();
+    if(structural){structureVersion++;bindings.clear();}
     changed();
     if(composing){queued=undefined;window.clearTimeout(timer);timer=undefined;}
     else{queued=()=>undefined;schedule();}
   };
-  function collection(parent:HTMLElement,addLabel:string,make:(seed?:string)=>{element:HTMLElement;read:Read},seeds:readonly string[],max=200){
+  function collection(parent:HTMLElement,addLabel:string,make:(seed?:string)=>{element:HTMLElement;read:Read;fixedLabel?:string},seeds:readonly string[],canAdd=true,max=200){
     const rows=node('div');rows.className='trial-rows';
     const entries=new Map<HTMLElement,Read>();
     const add=button(addLabel,()=>addRow(true));
@@ -49,6 +49,7 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
       if(rows.childElementCount>=max)return;
       const entry=make(seed);
       const panel=node('details');panel.open=true;
+      if(entry.fixedLabel)panel.dataset.fixedLabel=entry.fixedLabel;
       const controls=node('div');controls.className='trial-list-controls';
       function move(up:boolean){
         const adjacent=up?panel.previousElementSibling:panel.nextElementSibling;
@@ -56,7 +57,8 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
       }
       const remove=button('ลบรายการ',()=>{entries.delete(panel);panel.remove();renumber();invalidate(true);});
       controls.append(button('เลื่อนขึ้น',()=>move(true)),button('เลื่อนลง',()=>move(false)),remove);
-      panel.append(node('summary'),entry.element,controls);
+      panel.append(node('summary'),entry.element);
+      if(!entry.fixedLabel)panel.append(controls);
       panel.addEventListener('change',renumber);
       entries.set(panel,entry.read);rows.append(panel);renumber();
       if(user){invalidate(true);panel.querySelector('summary')?.focus();}
@@ -64,13 +66,14 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
     function renumber(){
       [...rows.children].forEach((panel,index)=>{
         const format=panel.querySelector<HTMLSelectElement>(':scope > div > label > select[data-format]');
-        panel.querySelector('summary')!.textContent='รายการ '+(index+1)+(format?' · '+format.selectedOptions[0]?.textContent:'');
+        panel.querySelector('summary')!.textContent=(panel as HTMLElement).dataset.fixedLabel??('รายการ '+(index+1)+(format?' · '+format.selectedOptions[0]?.textContent:''));
         const buttons=panel.querySelectorAll<HTMLButtonElement>(':scope > .trial-list-controls > button');
-        buttons[0].disabled=index===0;buttons[1].disabled=index===rows.childElementCount-1;
+        if(buttons.length){buttons[0].disabled=index===0;buttons[1].disabled=index===rows.childElementCount-1;}
       });
       add.disabled=rows.childElementCount>=max;
     }
-    parent.append(rows,add);
+    parent.append(rows);
+    if(canAdd)parent.append(add);
     for(const seed of seeds)addRow(false,seed);
     return (context:ReadContext,path:Path)=>[...rows.children].map((panel,index)=>entries.get(panel as HTMLElement)!(context,[...path,index]));
   }
@@ -93,11 +96,21 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
     if(field.type==='array'||field.type==='area'){
       const panel=node('fieldset');panel.append(node('legend',(field.type==='area'?'พื้นที่ ': '')+label));
       const formats=field.type==='area'?Object.values(definition.areaFormats??{}).filter(format=>format.ownerAreaId===field.areaId):[];
+      const derived=formats.filter(format=>Object.values(format.fragment.nodes).some(node=>node.type==='table-of-contents'));
+      const manual=formats.filter(format=>!derived.includes(format));
       const read=collection(panel,field.type==='area'?'+ เพิ่ม Format ในพื้นที่':'+ เพิ่มรายการ',seed=>{
         if(field.type==='array')return fields(field.items??{fields:{}});
+        const automatic=derived.find(format=>format.key===seed);
+        if(automatic){
+          const input=fields(automatic.inputSchema),body=node('div');
+          body.append(node('p','Engine สร้างจากหัวข้อที่ตั้งให้แสดงในสารบัญ และเติมเลขหน้าตามผลจัดหน้า'));
+          if(Object.keys(automatic.inputSchema.fields).length)body.append(input.element);
+          return {element:body,fixedLabel:'สารบัญอัตโนมัติ · '+(automatic.label??automatic.key),
+            read:(context,path)=>({format:automatic.key,data:input.read(context,[...path,'data'])})};
+        }
         const body=node('div'),select=node('select'),slot=node('div');
         select.dataset.format='';
-        for(const format of formats){
+        for(const format of manual){
           const option=node('option',format.label??format.key);option.value=format.key;select.append(option);
         }
         let active:ReturnType<typeof fields>|undefined;
@@ -107,14 +120,14 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
           slot.replaceChildren(active?.element??node('p','พื้นที่นี้ยังไม่มี Format'));
         }
         const preferred=seed||(field.areaId&&starter.get(field.areaId));
-        if(preferred&&formats.some(format=>format.key===preferred))select.value=preferred;
+        if(preferred&&manual.some(format=>format.key===preferred))select.value=preferred;
         select.addEventListener('change',show);show();
         body.append(labeled('Format',select),slot);
         return {element:body,read(context,path){
           if(!active)throw Error('เลือก Format สำหรับ '+key);
           return {format:select.value,data:active.read(context,[...path,'data'])};
         }};
-      },field.type==='array'?['']:formats.map(format=>format.key));
+      },field.type==='array'?['']:formats.map(format=>format.key),field.type==='array'||manual.length>0);
       return {element:panel,read(context,path){
         const entries=read(context,path);
         return entries.length||field.required?entries:undefined;
@@ -179,19 +192,20 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
     if(event.target instanceof HTMLSelectElement||event.target instanceof HTMLInputElement&&event.target.type==='file')
       invalidate(event.target instanceof HTMLSelectElement&&event.target.hasAttribute('data-format'));
   };
-  function schedule(){
+  function schedule(delay=80){
     if(disposed||running||timer!==undefined||!queued)return;
     timer=window.setTimeout(()=>{
       timer=undefined;
       const focus=queued;queued=undefined;
       if(focus)void send(focus());
-    },180);
+    },delay);
   }
   async function send(focus?:TrialFocus){
     if(disposed||running)return;
     running=true;error.textContent='';
-    const version=editVersion;
+    const version=editVersion,structure=structureVersion;
     const current=()=>version===editVersion;
+    const usable=()=>!disposed&&structure===structureVersion;
     try{
       const context:ReadContext={files:new Map(),fields:new Map(),blanks:[]};
       const data=global.read(context,['data']),values=sections.map((section,i)=>section.read(context,['sections',i]));
@@ -203,10 +217,10 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
         if(!bytes){bytes=fileBytes(file);encoded.set(file,bytes);}
         return {id,bytes:await bytes};
       }));
-      if(current()){bindings=context.fields;await render({data,sections:values,images,blanks:context.blanks,focus},current);}
+      if(usable()){bindings=context.fields;await render({data,sections:values,images,blanks:context.blanks,focus},current,usable);}
     }catch(cause){
       if(current())error.textContent=cause instanceof Error?cause.message:'จัดหน้าทดลองไม่สำเร็จ';
-    }finally{running=false;schedule();}
+    }finally{running=false;schedule(0);}
   }
   form.onsubmit=event=>event.preventDefault();
   const refresh=()=>{queued=()=>undefined;schedule();};

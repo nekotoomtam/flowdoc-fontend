@@ -36,6 +36,7 @@ const tempRoot = await mkdtemp('/tmp/flowdoc-editor-phase1-');
 let originalFixture;
 let originalPreview;
 const trialPreviews=new Map();
+const previewOutlines=new Map();
 function original(){
   return originalFixture??=(loadOriginalUat(core.PDF_STREAM_CONTRACT).catch(error=>{
     originalFixture=undefined;throw error;
@@ -48,9 +49,15 @@ async function glyphPaths(draw,resources){
     if(!glyphs){glyphs=new Set();used.set(line.fontId,glyphs);}
     for(const g of line.glyphs)glyphs.add(g.glyphId);
   }
-  const args=resources.fonts.filter(f=>used.has(f.id)).map(f=>[f.id,f.path,[...used.get(f.id)]]);
-  assert.equal(args.length,used.size);
-  return new Promise((resolve,reject)=>{
+  const faces=resources.fonts.filter(font=>used.has(font.id)).map(font=>{
+    const key=font.sha256??font.path;
+    const face=previewOutlines.get(key)??{units:0,paths:Object.create(null),seen:new Set()};
+    const missing=[...used.get(font.id)].filter(id=>!face.seen.has(id));
+    return {font,key,face,missing};
+  });
+  assert.equal(faces.length,used.size);
+  const args=faces.filter(({missing})=>missing.length).map(({font,missing})=>[font.id,font.path,missing]);
+  const outlines=args.length?await new Promise((resolve,reject)=>{
     const proc=execFile(resources.pythonExecutable,['/phase1/preview-glyph-paths.py'],
       {encoding:'utf8',maxBuffer:8*1024*1024,timeout:15000},(err,out)=>{
         if(err)return reject(err);
@@ -58,7 +65,19 @@ async function glyphPaths(draw,resources){
       });
     proc.stdin.on('error',reject);
     proc.stdin.end(JSON.stringify(args));
-  });
+  }):{};
+  for(const {font,key,face,missing} of faces){
+    if(missing.length){
+      const [units,paths]=outlines[font.id];
+      face.units=units;
+      Object.assign(face.paths,paths);
+      for(const id of missing)face.seen.add(id);
+    }
+    previewOutlines.delete(key);
+    if(face.seen.size<=4096)previewOutlines.set(key,face);
+  }
+  while(previewOutlines.size>8)previewOutlines.delete(previewOutlines.keys().next().value);
+  return Object.fromEntries(faces.map(({font,face})=>[font.id,[face.units,face.paths]]));
 }
 function projectOriginalPage(cache,index){
   const {commands,images,...page}=cache.draw.pages[index];
@@ -158,8 +177,10 @@ try {
         catch{return {status:422,body:{error:'invalid_image'}};}
       }
       const refs=await readReferences(pool,templateId,draft.revision);
+      // The Engine shapes the actual trial below. Service actual-input preflight invokes a PDF writer.
+      const fontProbe=custom?undefined:{document:resolved,input:sample};
       const {snapshot,readiness} = await resolveFontReadiness(pool,draft.definition,draft.fingerprint,refs,
-        {document:resolved,input:sample},undefined,{deferFiles:true});
+        fontProbe,undefined,{deferFiles:true});
       if(readiness.status!=='ready')return {status:422,body:{error:'font_not_ready'}};
       const resources = await snapshotResources(snapshot,tempRoot);
       const engineStarted=performance.now();

@@ -34,7 +34,12 @@
 
   <div class="grid" id="editor" hidden>
     <section class="panel" aria-label="Tree โครงสร้าง"><h2>โครงสร้างเอกสาร</h2><p>เลือกจาก Tree หรือจากกระดาษ</p><div class="structure-tools"><button id="add-section" type="button">+ เพิ่ม Section</button></div><div id="tree"></div></section>
-    <section class="panel workspace" aria-label="กระดาษนิยาม"><div class="paper-toolbar"><div><h2>กระดาษนิยาม</h2><p>คลิกเพื่อเลือก · ดับเบิลคลิกข้อความคงที่เพื่อแก้</p></div><div class="paper-controls"><button id="zoom-out" type="button" aria-label="ย่อกระดาษ" disabled>−</button><span id="paper-zoom">100%</span><button id="zoom-in" type="button" aria-label="ขยายกระดาษ">+</button><button id="show-handles" type="button" aria-pressed="false">จุดเลือก</button></div></div><div id="format-switcher" class="structure-tools"></div><div class="definition-viewport"><article id="paper"></article></div></section>
+    <section class="panel workspace" aria-label="กระดาษนิยาม"><div class="paper-toolbar"><div><h2>กระดาษนิยาม</h2><p>คลิกบนกระดาษ แล้วใช้ปุ่มเพิ่ม แก้ไข หรือจัดตำแหน่งด้านล่าง</p></div><div class="paper-controls"><button id="zoom-out" type="button" aria-label="ย่อกระดาษ" disabled>−</button><span id="paper-zoom">100%</span><button id="zoom-in" type="button" aria-label="ขยายกระดาษ">+</button><button id="show-handles" type="button" aria-pressed="false">แสดงจุดเลือก</button></div></div><div id="format-switcher" class="structure-tools"></div>
+      <div id="paper-edit-tools" class="paper-edit-tools" role="group" aria-label="แก้ไขบนกระดาษ">
+        <p id="paper-selection" aria-live="polite"></p>
+        <div id="paper-actions"></div>
+      </div>
+      <div class="definition-viewport"><article id="paper"></article></div></section>
     <aside>
       <section class="panel" aria-label="รายการที่เลือก"><div class="selection-kicker">รายการที่เลือก</div><h2 id="selection"></h2><p id="path"></p><p id="selection-detail"></p>
       <form id="rename" hidden><label for="section-name">ชื่อส่วนเอกสาร</label><input id="section-name" required maxlength="128"><button class="primary" id="save" type="submit">บันทึกชื่อ Section</button></form>

@@ -341,7 +341,7 @@ function createControl(form:Form,initial:unknown,part:string):Control{
   }};
 }
 export function openVisualAuthoring(
-  dialog:HTMLDialogElement,part:string,label:string,input:unknown,catalog:Catalog,commit:(value:unknown)=>void,
+  dialog:HTMLDialogElement,part:string,label:string,input:unknown,catalog:Catalog,commit:(value:unknown)=>void,focusNodeId?:string,
 ){
   const form=make('form'),head=make('header'),title=make('h2',label),body=make('div'),footer=make('footer');
   const error=make('p');error.setAttribute('role','alert');error.className='visual-error';
@@ -420,4 +420,14 @@ export function openVisualAuthoring(
     catch(cause){error.textContent=cause instanceof Error?cause.message:String(cause);}
   };
   dialog.showModal();
+  if(focusNodeId){
+    const input=Array.from(body.querySelectorAll<HTMLInputElement>('[data-visual-field="id"] input'))
+      .find(candidate=>candidate.value===focusNodeId);
+    if(input){
+      const first=input.closest('details');
+      for(let row=first;row;row=row.parentElement?.closest('details')??null)row.open=true;
+      first?.querySelector('summary')?.focus({preventScroll:true});
+      first?.querySelector('summary')?.scrollIntoView({block:'start'});
+    }
+  }
 }

@@ -30,6 +30,7 @@ const conflict = q('conflict'), previewPanel = q('preview'), previewStatus = q('
 const previous = q<HTMLButtonElement>('previous-page'), next = q<HTMLButtonElement>('next-page'), refreshPreview = q<HTMLButtonElement>('refresh-preview');
 const jump=q<HTMLInputElement>('jump-page');
 const benchmark=sessionStorage.getItem('flowdoc:benchmark-preview')==='1';
+const canvasPreview=new URLSearchParams(location.search).get('previewRenderer')==='canvas';
 let pendingPage:AbortController|undefined;
 const editorApi='/api/editor-phase1/drafts';
 const newMode=new URLSearchParams(location.search).get('new')==='1';
@@ -1331,17 +1332,16 @@ async function readyImages(page:DrawPage,run?:string){
     const asset=new Image();asset.src=url;return asset.decode();
   }));
 }
-function paintBorders(sheet:SVGElement,page:DrawPage){
+function visitBorderStrokes(page:DrawPage,stroke:(x1:number,y1:number,x2:number,y2:number,width:number,color:string,dash:number[],cap:CanvasLineCap)=>void){
   for(const b of page.borders??[]){
     const w=b.widthPt,style=b.style??'single';
     const dx=b.x2Pt-b.x1Pt,dy=b.y2Pt-b.y1Pt,length=Math.hypot(dx,dy);
     if(!length)continue;
-    const paint=(weight:number,offset=0,dash?:string,cap?:string)=>{
+    const paint=(weight:number,offset=0,dash:number[]=[],cap:CanvasLineCap='butt')=>{
       const x=-dy/length*offset,y=dx/length*offset;
-      sheet.append(svg('line',{x1:b.x1Pt+x,y1:b.y1Pt+y,x2:b.x2Pt+x,y2:b.y2Pt+y,
-        stroke:color(b.color),'stroke-width':weight,...(dash?{'stroke-dasharray':dash}:{}),...(cap?{'stroke-linecap':cap}:{})}));
+      stroke(b.x1Pt+x,b.y1Pt+y,b.x2Pt+x,b.y2Pt+y,weight,color(b.color),dash,cap);
     };
-    const dash=(a:number,b:number)=>a*w+' '+b*w;
+    const dash=(a:number,b:number)=>[a*w,b*w];
     if(style==='double'){paint(w,-w);paint(w,w);}
     else if(style==='thickThinWideGap'){paint(.6*w,-.2*w,dash(4,12));paint(.2*w,.4*w,dash(4,12));}
     else if(style==='dashed')paint(w,0,dash(3,2));
@@ -1350,14 +1350,72 @@ function paintBorders(sheet:SVGElement,page:DrawPage){
     else paint(w);
   }
 }
+function paintBorders(sheet:SVGElement,page:DrawPage){
+  visitBorderStrokes(page,(x1,y1,x2,y2,width,ink,dash,cap)=>{
+    sheet.append(svg('line',{x1,y1,x2,y2,stroke:ink,'stroke-width':width,
+      ...(dash.length?{'stroke-dasharray':dash.join(' ')}:{}),...(cap==='round'?{'stroke-linecap':cap}:{})}));
+  });
+}
+const canvasInk=new WeakMap<Element,(occurrence?:string)=>void>();
+function canvasSurface(page:DrawPage,cssWidth:number,sheet:SVGElement){
+  // Keep the experiment on pages whose paint is entirely described by Engine geometry.
+  if(!page.glyphs||page.lines.some(line=>!line.glyphUses)||(page.sampleImages??[]).some(image=>image.resourceId))return;
+  const canvas=element('canvas'),context=canvas.getContext('2d');
+  if(!context)return;
+  const ctx=context;
+  const ratio=Math.min(cssWidth*devicePixelRatio/page.widthPt,Math.sqrt(1_400_000/(page.widthPt*page.heightPt)));
+  canvas.width=Math.max(1,Math.floor(page.widthPt*ratio));canvas.height=Math.max(1,Math.floor(page.heightPt*ratio));
+  const scaleX=canvas.width/page.widthPt,scaleY=canvas.height/page.heightPt;
+  canvas.setAttribute('aria-hidden','true');
+  const surface=element('div');surface.className='preview-canvas-surface';surface.append(canvas,sheet);
+  const glyphs=new Map(Object.entries(page.glyphs).map(([id,path])=>[id,new Path2D(path)]));
+  const editable=new Set(page.lines.flatMap(line=>line.edit?[line.edit.occurrence]:[]));
+  let hidden:string|undefined,painted=false;
+  function paint(occurrence?:string){
+    const active=occurrence&&editable.has(occurrence)?occurrence:undefined;
+    if(painted&&active===hidden)return;
+    hidden=active;painted=true;
+    ctx.setTransform(scaleX,0,0,scaleY,0,0);
+    ctx.fillStyle=color(page.backgroundColor);ctx.fillRect(0,0,page.widthPt,page.heightPt);
+    for(const f of page.fills??[]){
+      ctx.fillStyle=color(f.color);ctx.fillRect(f.xPt,f.yPt,f.widthPt,f.heightPt);
+    }
+    visitBorderStrokes(page,(x1,y1,x2,y2,width,ink,dash,cap)=>{
+      ctx.strokeStyle=ink;ctx.lineWidth=width;ctx.lineCap=cap;ctx.setLineDash(dash);
+      ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+    });
+    for(const line of page.lines){
+      if(active&&line.edit?.occurrence===active)continue;
+      ctx.fillStyle=color(line.color);
+      const scale=line.scale??1;
+      for(const [glyph,x,y] of line.glyphUses!){
+        const path=glyphs.get(glyph);
+        if(!path)continue;
+        ctx.setTransform(scale*scaleX,0,0,-scale*scaleY,x*scaleX,y*scaleY);ctx.fill(path);
+      }
+    }
+    ctx.setTransform(scaleX,0,0,scaleY,0,0);
+    for(const image of page.sampleImages??[])if(image.color){
+      ctx.fillStyle=color(image.color);ctx.fillRect(image.xPt,image.yPt,image.widthPt,image.heightPt);
+    }
+  }
+  canvasInk.set(surface,paint);
+  return surface;
+}
 const trialPaperValue=q<HTMLTextAreaElement>('trial-paper-value');
 let trialForm:ReturnType<typeof mountTrial>|undefined;
 let paperInteractionBlocked=false;
 let paperEdit:{key:string;occurrence:string;pageIndex:number;composing:boolean;previous?:TrialTab;next?:TrialTab}|undefined;
 const trialHits=new WeakMap<SVGElement,PreviewEdit>();
 let paperGrowthFrame=0,paperLineHeight=0,paperBaseHeight=0;
-function clearPaperInk(){
+function updatePaperInk(occurrence?:string){
   for(const ink of previewPaper.querySelectorAll('.trial-ink-active'))ink.classList.remove('trial-ink-active');
+  if(occurrence)for(const ink of previewPaper.querySelectorAll<SVGElement>('[data-trial-ink]'))
+    if(ink.dataset.trialInk===occurrence)ink.classList.add('trial-ink-active');
+  if(canvasPreview)for(const index of mountedPages){
+    const surface=pageSlots[index]?.firstElementChild;
+    if(surface)canvasInk.get(surface)?.(occurrence);
+  }
 }
 function growPaperEditor(){
   if(paperGrowthFrame||!paperEdit)return;
@@ -1388,9 +1446,7 @@ function positionPaperEditor(){
     fontSize:Number(first.dataset.fontSize)*scale+'px',lineHeight:bounds.height+'px',
     textAlign:first.dataset.align??'left',color:first.dataset.inkColor??'#172b21',
   });
-  clearPaperInk();
-  for(const ink of previewPaper.querySelectorAll<SVGElement>('[data-trial-ink]'))
-    if(ink.dataset.trialInk===paperEdit.occurrence)ink.classList.add('trial-ink-active');
+  updatePaperInk(paperEdit.occurrence);
   growPaperEditor();
 }
 function beginPaperEdit(edit:PreviewEdit,offset:number,index:number){
@@ -1406,7 +1462,7 @@ function beginPaperEdit(edit:PreviewEdit,offset:number,index:number){
   trialPaperValue.setSelectionRange(offset,offset);
 }
 function closePaperEdit(){
-  paperEdit=undefined;trialPaperValue.hidden=true;clearPaperInk();
+  paperEdit=undefined;trialPaperValue.hidden=true;updatePaperInk();
 }
 function syncPaperEdit(composing:boolean){
   if(!paperEdit)return;
@@ -1450,31 +1506,37 @@ window.addEventListener('scroll',positionPaperEditor,true);
 function showPage(page:DrawPage,index:number) {
   if(!preview)return;
   const sheet=svg('svg',{viewBox:'0 0 '+page.widthPt+' '+page.heightPt,role:preview.previewId?'group':'img','aria-label':'กระดาษ Engine หน้า '+(index+1)});
-  sheet.append(svg('rect',{width:page.widthPt,height:page.heightPt,fill:color(page.backgroundColor)}));
-  for(const f of page.fills??[])sheet.append(svg('rect',{x:f.xPt,y:f.yPt,width:f.widthPt,height:f.heightPt,fill:color(f.color)}));
-  paintBorders(sheet,page);
-  for(const line of page.lines){
-    if(line.glyphUses){
-      const run=svg('g',{fill:color(line.color),'aria-label':line.text});
-      if(line.edit)run.dataset.trialInk=line.edit.occurrence;
-      for(const [glyph,x,y] of line.glyphUses)
-        run.append(svg('use',{href:'#p'+index+'-'+glyph,transform:'translate('+x+' '+y+') scale('+line.scale+' -'+line.scale+')'}));
-      sheet.append(run);
-    }else{
-      const text=svg('text',{x:line.xPt,y:line.yPt+line.baselineOffsetPt,fill:color(line.color),
-        'font-size':line.fontSizePt,'font-weight':line.weight??400,'xml:space':'preserve'});
-      text.textContent=line.text;sheet.append(text);
+  const surface=canvasPreview&&preview.previewId?canvasSurface(page,pageSlots[index].clientWidth||previewPaper.clientWidth,sheet):undefined;
+  if(surface){
+    for(const line of page.lines)sheet.append(svg('g',{role:'img','aria-label':line.text}));
+    canvasInk.get(surface)?.(paperEdit?.occurrence);
+  }else{
+    sheet.append(svg('rect',{width:page.widthPt,height:page.heightPt,fill:color(page.backgroundColor)}));
+    for(const f of page.fills??[])sheet.append(svg('rect',{x:f.xPt,y:f.yPt,width:f.widthPt,height:f.heightPt,fill:color(f.color)}));
+    paintBorders(sheet,page);
+    for(const line of page.lines){
+      if(line.glyphUses){
+        const run=svg('g',{fill:color(line.color),'aria-label':line.text});
+        if(line.edit)run.dataset.trialInk=line.edit.occurrence;
+        for(const [glyph,x,y] of line.glyphUses)
+          run.append(svg('use',{href:'#p'+index+'-'+glyph,transform:'translate('+x+' '+y+') scale('+line.scale+' -'+line.scale+')'}));
+        sheet.append(run);
+      }else{
+        const text=svg('text',{x:line.xPt,y:line.yPt+line.baselineOffsetPt,fill:color(line.color),
+          'font-size':line.fontSizePt,'font-weight':line.weight??400,'xml:space':'preserve'});
+        text.textContent=line.text;sheet.append(text);
+      }
     }
-  }
-  if(page.glyphs){
-    const defs=svg('defs',{});
-    for(const [id,path] of Object.entries(page.glyphs))defs.append(svg('path',{id:'p'+index+'-'+id,d:path}));
-    sheet.prepend(defs);
-  }
-  for(const image of page.sampleImages??[]){
-    const bounds={x:image.xPt,y:image.yPt,width:image.widthPt,height:image.heightPt};
-    if(image.resourceId)sheet.append(svg('image',{...bounds,href:assetUrl(image.resourceId,preview.previewId),preserveAspectRatio:'none'}));
-    else if(image.color)sheet.append(svg('rect',{...bounds,fill:color(image.color)}));
+    if(page.glyphs){
+      const defs=svg('defs',{});
+      for(const [id,path] of Object.entries(page.glyphs))defs.append(svg('path',{id:'p'+index+'-'+id,d:path}));
+      sheet.prepend(defs);
+    }
+    for(const image of page.sampleImages??[]){
+      const bounds={x:image.xPt,y:image.yPt,width:image.widthPt,height:image.heightPt};
+      if(image.resourceId)sheet.append(svg('image',{...bounds,href:assetUrl(image.resourceId,preview.previewId),preserveAspectRatio:'none'}));
+      else if(image.color)sheet.append(svg('rect',{...bounds,fill:color(image.color)}));
+    }
   }
   for(const line of page.lines){
     const edit=line.edit;
@@ -1504,7 +1566,7 @@ function showPage(page:DrawPage,index:number) {
     });
     sheet.append(hit);
   }
-  pageSlots[index]?.replaceChildren(sheet);
+  pageSlots[index]?.replaceChildren(surface??sheet);
   mountedPages.add(index);
   if(paperEdit?.pageIndex===index)positionPaperEditor();
 }
@@ -1512,12 +1574,12 @@ let pageSlots:HTMLElement[]=[];
 let pageObserver:IntersectionObserver|undefined;
 const nearbyPages=new Set<number>(),mountedPages=new Set<number>();
 const pageLoads=new Map<number,Promise<boolean>>();
-const retainedPages=new Map<number,{sheet:Element;nodes:number}>();
-const retainedPageLimit=8,retainedNodeLimit=8000;
-let retainedNodes=0;
+const retainedPages=new Map<number,{sheet:Element;nodes:number;bitmapBytes:number}>();
+const retainedPageLimit=8,retainedNodeLimit=8000,retainedBitmapLimit=24*1024*1024;
+let retainedNodes=0,retainedBitmapBytes=0;
 function resetPreviewPages(){
   stopPageLoads();
-  retainedPages.clear();retainedNodes=0;
+  retainedPages.clear();retainedNodes=0;retainedBitmapBytes=0;
   pageObserver?.disconnect();pageObserver=undefined;
   nearbyPages.clear();mountedPages.clear();pageSlots=[];
 }
@@ -1526,13 +1588,14 @@ function stopPageLoads(){
 }
 function removeRetainedPage(index:number){
   const cached=retainedPages.get(index);
-  if(cached){retainedPages.delete(index);retainedNodes-=cached.nodes;}
+  if(cached){retainedPages.delete(index);retainedNodes-=cached.nodes;retainedBitmapBytes-=cached.bitmapBytes;}
   return cached?.sheet;
 }
 function restorePage(index:number){
   const sheet=removeRetainedPage(index);
   if(!sheet)return false;
   pageSlots[index].replaceChildren(sheet);mountedPages.add(index);
+  canvasInk.get(sheet)?.(paperEdit?.occurrence);
   if(paperEdit?.pageIndex===index)positionPaperEditor();
   return true;
 }
@@ -1541,9 +1604,11 @@ function retainPage(index:number){
   if(!sheet)return;
   for(const ink of sheet.querySelectorAll('.trial-ink-active'))ink.classList.remove('trial-ink-active');
   const nodes=1+sheet.querySelectorAll('*').length;
-  if(nodes>retainedNodeLimit)return;
-  retainedPages.set(index,{sheet,nodes});retainedNodes+=nodes;
-  while(retainedPages.size>retainedPageLimit||retainedNodes>retainedNodeLimit)
+  const canvas=sheet.querySelector('canvas');
+  const bitmapBytes=canvas?canvas.width*canvas.height*4:0;
+  if(nodes>retainedNodeLimit||bitmapBytes>retainedBitmapLimit)return;
+  retainedPages.set(index,{sheet,nodes,bitmapBytes});retainedNodes+=nodes;retainedBitmapBytes+=bitmapBytes;
+  while(retainedPages.size>retainedPageLimit||retainedNodes>retainedNodeLimit||retainedBitmapBytes>retainedBitmapLimit)
     removeRetainedPage(retainedPages.keys().next().value!);
 }
 function reportPage(index:number){

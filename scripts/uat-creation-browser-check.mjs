@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {readFile,mkdir,writeFile} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 import {join,resolve} from 'node:path';
 import {chromium} from '@playwright/test';
 import {visualValue} from '../src/editor-visual-authoring.ts';
@@ -8,7 +9,10 @@ const base=process.env.FLOWDOC_PHASE1_URL??'http://127.0.0.1:5175';
 const reference=process.env.FLOWDOC_UAT_DEFINITION;
 const output=resolve(process.env.FLOWDOC_CREATION_EVIDENCE??'experiments/uat-creation-local');
 assert.ok(reference,'Set FLOWDOC_UAT_DEFINITION to the verified UAT Model 20 definition');
-const raw=JSON.parse(await readFile(reference,'utf8')),original=raw.template??raw.definition??raw;
+const sourceBytes=await readFile(reference);
+const raw=JSON.parse(sourceBytes.toString('utf8')),original=raw.template??raw.definition??raw;
+assert.equal(original.docKey,'stage6-uat-full');
+assert.equal(original.nodeModelVersion,20);
 await mkdir(output,{recursive:true});
 const browser=await chromium.launch({channel:'msedge'});
 const page=await browser.newPage({viewport:{width:1440,height:960}});
@@ -19,13 +23,19 @@ page.on('request',request=>{
   if(new URL(request.url()).pathname.startsWith('/api/'))calls.push({method:request.method(),path:new URL(request.url()).pathname});
 });
 const id=x=>page.locator('#'+x);
-const act=(label)=>id('actions').getByRole('button',{name:label,exact:true});
+async function act(label){
+  const command=id('paper-actions').getByRole('button',{name:label.replace('เพิ่ม node','เพิ่มองค์ประกอบ'),exact:true,includeHidden:true});
+  const menu=command.locator('xpath=ancestor::details[1]');
+  if(await menu.getAttribute('open')===null)await menu.locator(':scope > summary').click();
+  await command.click();
+}
 const tree=(kind,name)=>id('tree').locator('[data-kind="'+kind+'"]').getByText(name,{exact:true});
 const byKind=(kind)=>id('tree').locator('[data-kind="'+kind+'"]').first();
 const photo=(name)=>page.screenshot({path:join(output,name+'.png')});
 const source=original.sections[0];
 const actualPage=original.pageLayouts[source.pageLayoutId??original.book.defaultPageLayoutId].page;
 const mark=Date.now().toString(36);
+const picks={};
 async function form(values){
   for(const [key,value] of Object.entries(values)){
     const field=id('structure-form').locator('[name="'+key+'"]');
@@ -35,7 +45,7 @@ async function form(values){
   await id('structure-form').getByRole('button',{name:'ยืนยัน',exact:true}).click();
 }
 async function component(label,part,value){
-  try{await act(label).click();}catch(cause){console.error({label,selection:await id('selection').textContent(),actions:await id('actions').textContent(),errors});throw cause;}
+  try{await act(label);}catch(cause){console.error({label,selection:await id('selection').textContent(),actions:await id('paper-actions').textContent(),errors});throw cause;}
   const dialog=id('visual-definition-dialog');
   await dialog.waitFor();
   assert.equal(await dialog.locator('textarea, [name=definition]').count(),0);
@@ -44,9 +54,15 @@ async function component(label,part,value){
   const filled=await dialog.locator('.visual-form-body > [data-visual-kind]').evaluate((root,value)=>{
     const find=(parent,selector)=>parent.querySelector(':scope > '+selector);
     let edits=0;
-    function set(input,value){
+    const references=[];
+    function set(input,value,path){
       const checked=input.type==='checkbox';
       if(input.disabled)return;
+      if(input.dataset.visualCatalog){
+        input.dataset.creationPicker=String(references.length);
+        references.push({category:input.dataset.visualCatalog,types:input.dataset.visualVariableTypes,value,path});
+        return;
+      }
       if(checked){if(input.checked!==value)input.click();}
       else {
         input.focus();
@@ -97,32 +113,37 @@ async function component(label,part,value){
           }
           break;
         }
-        default:set(find(control,'[data-visual-value]'),value);
+        default:set(find(control,'[data-visual-value]'),value,path);
       }
     }
     fill(root,value,'definition');
-    return edits;
+    return {edits,references};
   },visual);
-  assert.ok(filled>0,part);
-  if(part==='styles'){
-    const row=dialog.locator('[data-visual-row]').first();
-    await row.locator(':scope > summary').click();
-    const field=row.locator('[data-visual-field=releaseId]');
-    await field.locator('[data-visual-value]').fill('');
-    await field.getByRole('button',{name:'เลือกจากรายการ'}).click();
-    const release=Object.values(value)[0].font.releaseId;
+  assert.ok(filled.edits>0,part);
+  const rank=reference=>reference.category==='table'?0:['row','cell'].includes(reference.category)?1:reference.types==='array'?2:3;
+  const ordered=filled.references.map((reference,index)=>({...reference,index})).sort((a,b)=>rank(a)-rank(b));
+  for(const reference of ordered){
+    const control=dialog.locator('[data-creation-picker="'+reference.index+'"]');
+    await control.evaluate(input=>{
+      for(let row=input.closest('details');row;row=row.parentElement.closest('details'))row.open=true;
+    });
+    const field=control.locator('..');
+    await field.getByRole('button',{name:'เลือกจากรายการ',exact:true}).click();
     const picker=field.locator('[data-picker-options] select');
-    assert.match(await picker.locator('option[value="'+release+'"]').textContent(),/Sarabun/);
-    await picker.selectOption(release);
+    const options=await picker.locator('option').evaluateAll(options=>options.map(option=>[option.value,option.label]));
+    assert.ok(options.some(([value])=>value===String(reference.value)),part+' '+reference.path+' '+reference.value+' options='+JSON.stringify(options));
+    if(reference.category==='variable'&&reference.value==='menu'){
+      assert.ok(options.some(([value,label])=>value==='menu'&&/groups\[\].*members\[\]/.test(label)));
+      assert.ok(!options.some(([value])=>['members','groups'].includes(value)));
+      await photo('04-member-menu-binding');
+    }
+    await picker.selectOption(String(reference.value));
+    picks[reference.category]=(picks[reference.category]??0)+1;
+  }
+  if(part==='styles'){
     await photo('03-styles-from-font-library');
   }
   if(part==='format'&&value.rowGroups?.length){
-    await dialog.locator('[data-visual-field=rowGroups] [data-visual-row]').first().locator(':scope > summary').click();
-    const field=dialog.locator('[data-visual-field=rowGroups] [data-visual-field=emptyRowTemplateId]');
-    const expected=value.rowGroups[0].memberRepeat.emptyRowTemplateId;
-    await field.locator('[data-visual-value]').fill('');
-    await field.getByRole('button',{name:'เลือกจากรายการ'}).click();
-    await field.locator('[data-picker-options] select').selectOption(expected);
     await photo('04-repeat-group-controls');
   }
   await dialog.getByRole('button',{name:'ใช้กับโครงเอกสาร',exact:true}).click();
@@ -167,21 +188,20 @@ try{
   assert.equal(await id('tree').locator('[data-kind=format]').count(),0);
   assert.equal(await id('paper').locator('.definition-sheet').getAttribute('data-page-size'),'A4');
   await photo('02-empty-section');
-  await id('advanced-details').locator('summary').click();
   if(await id('variable-panel').getAttribute('open')===null)await id('variable-panel').locator(':scope > summary').click();
-  await act('ขนาดกระดาษและระยะขอบ').click();await form({left:36});
+  await act('ขนาดกระดาษและระยะขอบ');await form({left:36});
   await id('variables').locator('details').first().getByRole('button',{name:'+ ประกาศตัวแปร'}).click();
   await form({key:'headerBanner',type:'image',required:'yes'});
   await id('variables').getByRole('button',{name:'headerBanner · image'}).waitFor();
-  await act('+ เพิ่มหัวกระดาษ').click();
-  await act('ตำแหน่งและระยะ').click();
+  await act('+ เพิ่มหัวกระดาษ');
+  await act('ตำแหน่งและระยะ');
   await form({left:0,right:0,offset:0,height:79,gap:0});
-  await act('+ เพิ่ม node').click();await form({type:'image'});await form({source:'global:headerBanner'});
+  await act('+ เพิ่ม node');await form({type:'image'});await form({source:'global:headerBanner'});
   await id('paper').getByRole('button',{name:/headerBanner/}).waitFor();
-  await byKind('section').click();await act('+ เพิ่มท้ายกระดาษ').click();
-  await act('+ เพิ่มเลขหน้า').click();await form({field:'current'});
+  await byKind('section').click();await act('+ เพิ่มท้ายกระดาษ');
+  await act('+ เพิ่มเลขหน้า');await form({field:'current'});
   await id('paper').getByRole('button',{name:'{{เลขหน้า}}',exact:true}).waitFor();
-  await byKind('section').click();await act('+ เพิ่ม Area').click();
+  await byKind('section').click();await act('+ เพิ่ม Area');
   await form({key:'parts',format:'cover'});
   await id('tree').locator('[data-kind=format]').first().waitFor();
   assert.equal(await id('tree').locator('[data-kind=format]').count(),1);
@@ -198,14 +218,15 @@ try{
   const formats=Object.values(original.areaFormats);
   for(const f of formats){
     if(f.key==='cover')await tree('format','cover').click();
-    else {await areaButton.click();await act('+ เพิ่ม Format').click();await form({key:f.key});}
+    else {await areaButton.click();await act('+ เพิ่ม Format');await form({key:f.key});}
     assert.equal(await id('selection').textContent(),f.label??f.key);
     const {key,ownerAreaId,...part}=f;
     await component('จัดเนื้อหา ตัวแปร และการวนแถว','format',part);
     console.log('Authored '+key);
   }
   await byKind('section').click();
-assert.equal(await id('tree').locator('[data-kind=format]').count(),14);
+  assert.equal(await id('tree').locator('[data-kind=format]').count(),14);
+  assert.equal(await id('advanced-details').getAttribute('open'),null);
   const response=page.waitForResponse(r=>r.request().method()==='POST'&&r.url().endsWith('/api/editor-phase1/drafts'));
   await page.getByRole('button',{name:'บันทึกโครง',exact:true}).click();
   const saved=await response,reply=await saved.json();
@@ -227,6 +248,7 @@ assert.equal(await id('tree').locator('[data-kind=format]').count(),14);
   assert.deepEqual(errors,[]);
   assert.equal(calls.filter(c=>c.path.includes('preview')).length,0);
   const result={name,docKey:reply.value.docKey,templateId:reply.value.templateId,revision:reply.value.revision,
+    reference:{docKey:original.docKey,sha256:createHash('sha256').update(sourceBytes).digest('hex')},picks,
     sections:reply.value.definition.sections.length,formats:formats.length,
     formatNodes:formats.reduce((n,f)=>n+Object.keys(f.fragment.nodes).length,0),
     identityNormalization:['templateId','docKey','name','pageLayoutId','section id','areaId','area placement node id','Format map IDs'],

@@ -694,19 +694,15 @@ async function editPart(at:Ref,part:Part,label:string,focusNodeId?:string){
   const fonts=part==='styles'?await listFonts():[];
   if(isSaving||hasConflict)return;
   const section=draft.definition.sections.find(s=>s.id===at.sectionId)!;
-  const variables=new Set<string>();
-  function names(schema:Schema|undefined){
-    for(const [key,field] of Object.entries(schema?.fields??{})){
-      variables.add(key);
-      if(field.items)names(field.items);
-    }
-  }
-  for(const schema of [draft.definition.globalSchema,section.inputSchema,section.header?.inputSchema,
-    section.footer?.inputSchema,draft.definition.areaFormats?.[at.formatId??'']?.inputSchema])names(schema);
   openVisualAuthoring(q<HTMLDialogElement>('visual-definition-dialog'),part,label,partValue(draft.definition,at,part),{
-    font:fonts.map(font=>({value:font.releaseId,label:font.familyName+' · '+font.version+' · '+font.faces.map(face=>face.weight+' '+face.style).join(', ')})),
-    style:Object.keys(draft.definition.styles).map(key=>({value:key,label:key})),
-    variable:[...variables].map(key=>({value:key,label:key})),
+    options:{
+      font:fonts.map(font=>({value:font.releaseId,label:font.familyName+' · '+font.version+' · '+font.faces.map(face=>face.weight+' '+face.style).join(', ')})),
+      style:Object.keys(draft.definition.styles).map(key=>({value:key,label:key})),
+    },
+    schemas:{global:draft.definition.globalSchema,section:section.inputSchema,
+      ...(at.band?{[at.band]:section[at.band]?.inputSchema}:{}),
+      local:draft.definition.areaFormats?.[at.formatId??'']?.inputSchema},
+    localScope:part==='format'?'local':part==='band'?at.band:undefined,
   },value=>stageDefinition(applyPart(draft.definition,at,part,value),focusNodeId?selection!.ref:at,'part'),focusNodeId);
 }
 function paperSettings(item:Outline){

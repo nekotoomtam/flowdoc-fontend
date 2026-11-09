@@ -1,6 +1,8 @@
+import type {Host,Schema} from './editor-structure';
+
 type RecordValue = Record<string, unknown>;
 type Form =
-  | {kind:'text'|'number'|'boolean'; initial?:unknown; choices?:string[]; catalog?:string}
+  | {kind:'text'|'number'|'boolean'; initial?:unknown; choices?:string[]; catalog?:string; variableTypes?:string[]}
   | {kind:'object'; fields:Record<string, Field>}
   | {kind:'list'; row:()=>Form; add:string; keyed?:boolean}
   | {kind:'choice'; options:Record<string, Field>; tag?:string};
@@ -9,7 +11,7 @@ const record = (value:unknown):RecordValue =>
   value && typeof value==='object' && !Array.isArray(value) ? value as RecordValue : {};
 const field = (label:string,form:()=>Form,optional=false,initial?:unknown):Field=>({label,form,optional,initial});
 const object = (fields:Record<string,Field>):Form=>({kind:'object',fields});
-const text = (initial='',catalog?:string):Form=>({kind:'text',initial,catalog});
+const text = (initial='',catalog?:string,variableTypes?:string[]):Form=>({kind:'text',initial,catalog,variableTypes});
 const number = (initial=0):Form=>({kind:'number',initial});
 const flag = ():Form=>({kind:'boolean',initial:false});
 const select = (...choices:string[]):Form=>({kind:'text',choices,initial:choices[0]});
@@ -22,7 +24,11 @@ const len = (label:string,optional=true)=>field(label,length,optional);
 const edges = ()=>object({top:len('บน',false),right:len('ขวา',false),bottom:len('ล่าง',false),left:len('ซ้าย',false)});
 const align = (label='การจัดแนว')=>field(label,()=>select('left','center','right','justify'),true);
 const scope = ()=>select('global','section','local','header','footer','group','item');
-const reference = ()=>object({scope:field('ขอบเขตตัวแปร',scope),key:field('ชื่อตัวแปร',()=>text('','variable'))});
+const referenceFields = (types:string[])=>({
+  scope:field('ขอบเขตตัวแปร',scope),
+  key:field('ชื่อตัวแปร',()=>text('','variable',types)),
+});
+const reference = (...types:string[])=>object(referenceFields(types));
 const color = (label:string)=>field(label,()=>text('000000'),true);
 const sizing = ()=>object({mode:field('ความสูง',()=>select('auto','fixed')),height:len('กำหนดความสูง')});
 
@@ -44,7 +50,7 @@ function variableOptions(array=false,string=false):Form{
 function inline():Form{
   return choice({
     text:field('ข้อความคงที่',()=>object({id:id(),text:field('ข้อความ',text)})),
-    'field-ref':field('แทรกตัวแปร',()=>object({id:id(),scope:field('ขอบเขตตัวแปร',scope),key:field('ชื่อตัวแปร',()=>text('','variable'))})),
+    'field-ref':field('แทรกตัวแปร',()=>object({id:id(),...referenceFields(['string','link'])})),
     'system-page-field':field('เลขหน้า',()=>object({id:id(),field:field('ชนิดเลขหน้า',()=>select('current','total')),width:len('ความกว้าง')})),
   },'type');
 }
@@ -54,11 +60,11 @@ function node():Form{
       id:id(),props:field('หน้าตาข้อความ',()=>object({
         textAlign:align(),textStyleId:style(),pageFieldLayout:field('การวางเลขหน้า',()=>select('compact','fixed'),true),
         toc:field('แสดงในสารบัญ',()=>object({level:field('ระดับ',()=>number(1))}),true),
-        anchorId:field('จุดอ้างอิง',()=>choice({literal:field('ข้อความ',text),variable:field('ตัวแปร',reference)}),true),
+        anchorId:field('จุดอ้างอิง',()=>choice({literal:field('ข้อความ',text),variable:field('ตัวแปร',()=>reference('string'))}),true),
       })),children:field('เนื้อหาในบรรทัด',()=>list('เพิ่มข้อความ / ตัวแปร',inline)),
     })),
     image:field('รูปภาพ',()=>object({id:id(),props:field('รูปและขนาด',()=>object({
-      source:field('ตัวแปรรูปภาพ',reference),align:align(),width:len('กว้าง'),height:len('สูง'),
+      source:field('ตัวแปรรูปภาพ',()=>reference('image')),align:align(),width:len('กว้าง'),height:len('สูง'),
     }))})),
     line:field('เส้น',()=>object({id:id(),props:field('ลักษณะเส้น',()=>object({
       align:align(),color:color('สี (HEX)'),width:len('กว้าง'),thickness:len('ความหนา'),
@@ -92,12 +98,12 @@ function cell():Form{
 }
 const fragment=()=>object({roots:field('องค์ประกอบบนกระดาษ',nodes)});
 const nodeRef=(label:string,category:string,optional=false)=>field(label,()=>text('',category),optional);
-const repeat=()=>object({tableId:nodeRef('ตาราง','table'),rowTemplateId:nodeRef('แถวต้นแบบ','row'),source:field('วนตามรายการตัวแปร',reference)});
+const repeat=()=>object({tableId:nodeRef('ตาราง','table'),rowTemplateId:nodeRef('แถวต้นแบบ','row'),source:field('วนตามรายการตัวแปร',()=>reference('array'))});
 const group=()=>object({
   id:id('รหัสกลุ่ม'),tableId:nodeRef('ตาราง','table'),rowTemplateIds:field('แถวในกลุ่ม',()=>list('เลือกแถวในกลุ่ม',()=>text('','row'))),
-  source:field('รายการกลุ่ม',reference),
+  source:field('รายการกลุ่ม',()=>reference('array')),
   memberRepeat:field('วนสมาชิกของกลุ่ม',()=>object({
-    rowTemplateId:nodeRef('แถวสำหรับสมาชิก','row'),source:field('รายการสมาชิก',reference),
+    rowTemplateId:nodeRef('แถวสำหรับสมาชิก','row'),source:field('รายการสมาชิก',()=>reference('array')),
     emptyRowTemplateId:nodeRef('แถวเมื่อไม่มีสมาชิก','row',true),
   }),true),
   groupLabel:field('เซลล์ชื่อกลุ่ม',()=>object({
@@ -174,7 +180,8 @@ function engineValue(part:string,input:unknown):unknown{
   return {...host,fragment:{...rest,rootIds,nodes:byId}};
 }
 
-type Catalog = Record<string, {value:string;label:string}[]>;
+type Catalog = {options:Record<string,{value:string;label:string}[]>;
+  schemas:Record<string,Schema|undefined>;localScope?:'local'|'header'|'footer'};
 const make=<K extends keyof HTMLElementTagNameMap>(tag:K,label='')=>{
   const element=document.createElement(tag);
   if(label)element.textContent=label;
@@ -200,7 +207,13 @@ function selectControl(options:Record<string,string>,value:unknown){
   }
   select.value=String(value??'');return select;
 }
+const readControl=new WeakMap<Element,()=>unknown>();
 function createControl(form:Form,initial:unknown,part:string):Control{
+  const control=buildControl(form,initial,part);
+  readControl.set(control.element,control.read);
+  return control;
+}
+function buildControl(form:Form,initial:unknown,part:string):Control{
   const element=make('div');element.dataset.visualKind=form.kind;
   if(form.kind==='object'){
     const prior=record(initial),controls=new Map<string,Control>();
@@ -319,6 +332,7 @@ function createControl(form:Form,initial:unknown,part:string):Control{
   }
   if(form.catalog){
     input.dataset.visualCatalog=form.catalog;
+    if(form.variableTypes)input.dataset.visualVariableTypes=form.variableTypes.join(',');
     input.setAttribute('list','visual-options-'+form.catalog);
   }
   element.append(input);
@@ -340,6 +354,40 @@ function createControl(form:Form,initial:unknown,part:string):Control{
     return input.value;
   }};
 }
+function fieldValue(parent:Element|null,key:string){
+  const control=parent?.querySelector<HTMLElement>(':scope > [data-visual-field="'+key+'"] > [data-visual-kind]');
+  if(!control||control.hidden)return;
+  try{return readControl.get(control)?.();}catch{return undefined;}
+}
+function variableOptionsFor(input:HTMLInputElement,root:Element,catalog:Catalog){
+  const owner=input.closest('[data-visual-kind="object"]'),scope=fieldValue(owner,'scope');
+  if(typeof scope!=='string')return [];
+  const schemas={...catalog.schemas};
+  if(catalog.localScope)schemas[catalog.localScope]=fieldValue(root,'inputSchema') as Schema|undefined;
+  const labels:Record<string,string>={};
+  if(scope==='group'||scope==='item'){
+    const groups=(fieldValue(root,'rowGroups')??[]) as NonNullable<Host['rowGroups']>;
+    const groupRows=[...root.querySelectorAll(':scope > [data-visual-field="rowGroups"] > [data-visual-kind] > [data-visual-rows] > details')];
+    const lineage=new Set<unknown>();
+    for(let node=owner;node&&node!==root;node=node.parentElement?.closest('[data-visual-kind="object"]')??null)
+      lineage.add(fieldValue(node,'id'));
+    const group=groups[groupRows.findIndex(row=>row.contains(input))]
+      ??groups.find(group=>lineage.has(group.tableId)&&group.rowTemplateIds.some(row=>lineage.has(row)));
+    const addItems=(target:'group'|'item',source:{scope:string;key:string}|undefined)=>{
+      if(!source)return;
+      schemas[target]=schemas[source.scope]?.fields[source.key]?.items;
+      labels[target]=(labels[source.scope]??optionNames[source.scope])+' › '+source.key+'[]';
+    };
+    addItems('group',group?.source);
+    if(group?.memberRepeat&&lineage.has(group.memberRepeat.rowTemplateId))addItems('item',group.memberRepeat.source);
+    const repeats=(fieldValue(root,'repeats')??[]) as NonNullable<Host['repeats']>;
+    addItems('item',repeats.find(repeat=>lineage.has(repeat.tableId)&&lineage.has(repeat.rowTemplateId))?.source);
+  }
+  const allowed=input.dataset.visualVariableTypes?.split(',')??[];
+  return Object.entries(schemas[scope]?.fields??{}).filter(([,field])=>allowed.includes(field.type)).map(([key,field])=>({
+    value:key,label:(labels[scope]??optionNames[scope]??scope)+' › '+(field.label??key),
+  }));
+}
 export function openVisualAuthoring(
   dialog:HTMLDialogElement,part:string,label:string,input:unknown,catalog:Catalog,commit:(value:unknown)=>void,focusNodeId?:string,
 ){
@@ -356,7 +404,7 @@ export function openVisualAuthoring(
   function updateOptions(input:HTMLInputElement){
     const category=input.dataset.visualCatalog;
     if(!category)return;
-    const choices=[...(catalog[category]??[])];
+    const choices=category==='variable'?variableOptionsFor(input,control.element,catalog):[...(catalog.options[category]??[])];
     if(['table','row','cell'].includes(category)){
       const field=category==='table'?'rows':category==='row'?'cells':'children';
       for(const candidate of body.querySelectorAll<HTMLInputElement>('[data-visual-field="id"] input')){
@@ -373,10 +421,6 @@ export function openVisualAuthoring(
           choices.push({value:candidate.value,label:candidate.closest('details')?.querySelector('summary')?.textContent??candidate.value});
       }
     }
-    if(category==='variable'){
-      for(const field of body.querySelectorAll<HTMLInputElement>('[data-visual-field="inputSchema"] [data-visual-key]'))
-        if(field.value)choices.push({value:field.value,label:field.value});
-    }
     const unique=new Map(choices.map(entry=>[entry.value,entry.label]));
     body.querySelector('#visual-options-'+category)?.replaceChildren(...Array.from(unique,([value,label])=>{
       const option=make('option');option.value=value;option.label=label;return option;
@@ -387,7 +431,7 @@ export function openVisualAuthoring(
   for(const input of body.querySelectorAll<HTMLInputElement>('[data-visual-catalog]'))refreshCaption(input);
   function refreshCaption(input:HTMLInputElement){
     const caption=input.parentElement?.querySelector<HTMLElement>('[data-catalog-caption]');
-    if(caption)caption.textContent=catalog[input.dataset.visualCatalog??'']?.find(entry=>entry.value===input.value)?.label??'';
+    if(caption)caption.textContent=catalog.options[input.dataset.visualCatalog??'']?.find(entry=>entry.value===input.value)?.label??'';
   }
   body.addEventListener('input',event=>{if(event.target instanceof HTMLInputElement)refreshCaption(event.target);});
   body.addEventListener('click',event=>{
@@ -407,6 +451,8 @@ export function openVisualAuthoring(
       input.value=picker.value;
       input.dispatchEvent(new Event('input',{bubbles:true}));
       input.dispatchEvent(new Event('change',{bubbles:true}));
+      const caption=input.parentElement?.querySelector<HTMLElement>('[data-catalog-caption]');
+      if(caption)caption.textContent=choices.get(picker.value)??'';
       holder.hidden=true;target.focus();
     };
     holder.replaceChildren(picker);picker.focus();

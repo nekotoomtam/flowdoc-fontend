@@ -41,7 +41,7 @@ export type Change = {kind:'section';label:string} | {kind:'area';at:Ref;key:str
   | {kind:'binding';at:Ref;scope:string;key:string}
   | {kind:'group';at:Ref;scope:'global'|'section'|'local';key:string;member:string}
   | {kind:'merge'|'split';at:Ref}
-  | {kind:'reorder';at:Ref;delta:-1|1} | {kind:'move';at:Ref;to:Ref} | {kind:'delete';at:Ref};
+  | {kind:'reorder';at:Ref;delta:number} | {kind:'move';at:Ref;to:Ref} | {kind:'delete';at:Ref};
 const schema=():Schema=>({type:'object',fields:{}});
 const uid=()=>crypto.randomUUID();
 const pt=(value:number):Length=>({unit:'pt',value});
@@ -220,10 +220,11 @@ function canDetach(host:Host,f:Fragment,node:DocNode){
 }
 function reorder<T>(list:T[],item:T,delta:number,min=0){
   const i=list.indexOf(item),next=i+delta;
-  if(i<0||next<min||next>=list.length)fail('ถึงขอบเขตที่ย้ายได้แล้ว');
-  [list[i],list[next]]=[list[next],list[i]];
+  if(!Number.isInteger(delta)||i<0||next<min||next>=list.length)fail('ถึงขอบเขตที่ย้ายได้แล้ว');
+  list.splice(i,1);
+  list.splice(next,0,item);
 }
-function nodeReorder(host:Host,fragment:Fragment,node:DocNode,list:string[],delta:-1|1){
+function nodeReorder(host:Host,fragment:Fragment,node:DocNode,list:string[],delta:number){
   canDetach(host,fragment,node);
   const parent=owner(fragment,node.id);
   reorder(list,node.id,delta,parent?.type==='table'?(parent.props?.headerRowCount??0):0);
@@ -237,7 +238,7 @@ export function structureOrder(definition:Definition,at:Ref){
   if(!node&&(format||at.band))return;
   const ids=node&&fragment?nodeList(fragment,node.id):definition.sections.map(section=>section.id);
   const id=node?.id??at.sectionId;
-  const check=(delta:-1|1)=>{
+  const check=(delta:number)=>{
     try{
       const copy=[...ids];
       if(node&&fragment)nodeReorder(host,fragment,node,copy,delta);
@@ -245,7 +246,7 @@ export function structureOrder(definition:Definition,at:Ref){
       return '';
     }catch(error){return error instanceof Error?error.message:'จัดลำดับไม่ได้';}
   };
-  return {ids,index:ids.indexOf(id),up:check(-1),down:check(1)};
+  return {ids,index:ids.indexOf(id),up:check(-1),down:check(1),blocked:check};
 }
 function addNode(def:Definition,at:Ref,type:string,source?:{scope:string;key:string},pageField?:'current'|'total',position?:{anchor:string;side:'before'|'after'}):Ref {
   const {section,host,node,fragment,format}=resolve(def,at);

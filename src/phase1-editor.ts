@@ -189,6 +189,64 @@ function drawBranch(items: Outline[], depth = 0) {
   return list;
 }
 const paperSizes:Record<string,[number,number]>={A4:[595.276,841.89],A3:[841.89,1190.551],Letter:[612,792],Legal:[612,1008]};
+const flowBlocks=new WeakMap<HTMLElement,Outline>();
+let flowDrag:{item:Outline;order:NonNullable<ReturnType<typeof structureOrder>>}|undefined;
+let flowDrop:{block:HTMLElement;side:'before'|'after';delta:number}|undefined;
+function clearFlowDrop(){
+  if(flowDrop)delete flowDrop.block.dataset.flowDrop;
+  flowDrop=undefined;
+}
+function endFlowDrag(){
+  clearFlowDrop();
+  flowDrag=undefined;
+  paper.classList.remove('is-flow-dragging');
+}
+paper.addEventListener('dragstart',event=>{
+  const grip=(event.target as HTMLElement).closest('.flow-grip');
+  if(!grip||!event.dataTransfer)return;
+  const item=flowBlocks.get(grip.parentElement!);
+  const order=item&&structureOrder(draft.definition,item.ref);
+  if(!item||!order||(order.up&&order.down)||isSaving||hasConflict){event.preventDefault();return;}
+  flowDrag={item,order};
+  paper.classList.add('is-flow-dragging');
+  event.dataTransfer.effectAllowed='move';
+  event.dataTransfer.setData('application/x-flowdoc-block',refKey(item.ref));
+});
+paper.addEventListener('dragover',event=>{
+  if(!flowDrag||!event.dataTransfer)return;
+  let block=(event.target as HTMLElement).closest<HTMLElement>('[data-flow-block]');
+  let item=block&&flowBlocks.get(block);
+  while(block&&item?.parent!==flowDrag.item.parent){
+    block=block.parentElement?.closest<HTMLElement>('[data-flow-block]')??null;
+    item=block&&flowBlocks.get(block);
+  }
+  if(!block||!item||item===flowDrag.item){clearFlowDrop();return;}
+  const {top,height}=block.getBoundingClientRect();
+  const side=event.clientY<top+height/2?'before':'after';
+  const {order}=flowDrag,target=order.ids.indexOf(item.id);
+  const delta=target-order.index+(side==='after'?1:0)-(target>order.index?1:0);
+  if(!delta||target<0){clearFlowDrop();return;}
+  if(flowDrop?.block!==block||flowDrop.side!==side){
+    clearFlowDrop();
+    if(order.blocked(delta))return;
+    flowDrop={block,side,delta};
+    block.dataset.flowDrop=side;
+  }
+  event.preventDefault();
+  event.dataTransfer.dropEffect='move';
+});
+paper.addEventListener('dragleave',event=>{
+  if(!paper.contains(event.relatedTarget as Node|null))clearFlowDrop();
+});
+paper.addEventListener('drop',event=>{
+  const source=flowDrag,target=flowDrop;
+  endFlowDrag();
+  if(!source||!target||!target.block.contains(event.target as Node)||
+    outlines.get(refKey(source.item.ref))!==source.item)return;
+  event.preventDefault();
+  tryStage({kind:'reorder',at:source.item.ref,delta:target.delta});
+});
+paper.addEventListener('dragend',endFlowDrag);
 function drawSectionPaper(root: Outline, preferred?: Format) {
   const sheet=element('div');sheet.className='definition-sheet';sheet.dataset.sectionId=root.id;
   sheet.classList.toggle('sequence-sheet',continuousStructure);
@@ -209,6 +267,22 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
   };
   function contents(item: Outline): HTMLElement {
     const block=element('div');block.className='definition-block';block.dataset.kind=item.type;
+    if(item.node&&!item.ref.band&&(item.parent?.type==='section'||item.parent?.type==='format')){
+      block.dataset.flowBlock='';
+      flowBlocks.set(block,item);
+      if(item.parent.children.some(peer=>peer!==item&&peer.node&&!peer.ref.band)){
+        const grip=button('⠿',()=>select(item,false));
+        grip.className='flow-grip';
+        grip.draggable=true;
+        grip.title='ลากเพื่อจัดลำดับ · '+item.label;
+        grip.setAttribute('aria-label',grip.title);
+        block.addEventListener('pointerenter',()=>{
+          const order=structureOrder(draft.definition,item.ref);
+          grip.disabled=!order||Boolean(order.up&&order.down)||isSaving||hasConflict;
+        });
+        block.append(grip);
+      }
+    }
     const props=item.node?.props;
     if(item.type==='area'){
       block.classList.add('definition-area');

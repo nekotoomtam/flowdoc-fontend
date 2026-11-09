@@ -67,6 +67,33 @@ try{
   const order=()=>blocks.evaluateAll(rows=>rows.map(row=>row.querySelector('[data-paper-ref]')?.dataset.paperRef));
   const before=await order();
   assert.ok(before.length>1);
+  const dragSource=blocks.first();
+  await dragSource.hover({position:{x:5,y:5}});
+  const grip=dragSource.getByRole('button',{name:/^ลากเพื่อจัดลำดับ/});
+  assert.ok(await grip.isVisible());
+  const destination=blocks.nth(2);
+  async function dragToLine(){
+    await dragSource.hover({position:{x:5,y:5}});
+    const gripBox=await grip.boundingBox(),destinationBox=await destination.boundingBox();
+    assert.ok(gripBox&&destinationBox);
+    const x=destinationBox.x+20,y=destinationBox.y+destinationBox.height-2;
+    await page.mouse.move(gripBox.x+gripBox.width/2,gripBox.y+gripBox.height/2);
+    await page.mouse.down();
+    await page.mouse.move(x,y,{steps:12});
+    await page.mouse.move(x+1,y);
+    await destination.locator(':scope[data-flow-drop=after]').waitFor({state:'attached'});
+  }
+  await dragToLine();
+  await photo('12-flow-drop-line');
+  await page.mouse.up();
+  assert.deepEqual(await order(),[before[1],before[2],before[0],...before.slice(3)]);
+  await undo();
+  assert.deepEqual(await order(),before);
+  await dragToLine();
+  await page.mouse.move(20,100,{steps:8});
+  await paper.locator('[data-flow-drop]').waitFor({state:'detached'});
+  await page.mouse.up();
+  assert.deepEqual(await order(),before);
   await handles('แสดงจุดเลือก');
   await blocks.nth(1).locator(':scope > button[data-paper-ref]').first().click();
   const location=page.locator('#paper-path');

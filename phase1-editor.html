@@ -9,9 +9,9 @@
   <div id="structure-pending" class="structure-tools" hidden><strong>ฉบับร่างยังไม่ได้บันทึก</strong><button id="undo-structure" type="button">ย้อนขั้นล่าสุด</button><button id="discard-structure" type="button">ทิ้งการแก้โครง</button></div>
   <p id="status" role="status"></p>
 <section id="new-document" class="panel new-document" hidden>
-  <p class="selection-kicker">ขั้นที่ 1 · ตั้งกระดาษ</p>
   <h2>สร้างโครงเอกสารใหม่</h2>
-  <p>ตั้งชื่อโครงและ Section แรก จากนั้นเริ่มวางองค์ประกอบบนกระดาษเปล่า</p>
+  <ol id="new-creation-roadmap" class="creation-roadmap" aria-label="เส้นทางสร้างโครงเอกสาร"></ol>
+  <p>เริ่มที่ขนาดกระดาษและ Section แรก เช่น UAT ใช้ A4 แนวตั้ง</p>
   <form id="new-document-form">
     <label>ชื่อโครงเอกสาร <input name="name" maxlength="128" required></label>
     <label>รหัสโครง <input name="key" maxlength="42" pattern="[a-z0-9\-]+" placeholder="เช่น uat-v1" required></label>
@@ -30,7 +30,7 @@
     <button class="primary" type="submit">เริ่มวางโครงบนกระดาษ</button>
   </form>
 </section>
-<div class="creation-steps" id="creation-steps" hidden><strong>ขั้นที่ 2 · วางองค์ประกอบ</strong><span>เลือก Section เพื่อเพิ่มหัว–ท้ายและ Area จากนั้นเลือก Format เพื่อวาง node</span><span>ขั้นที่ 3 · ตรวจและบันทึกโครง</span></div>
+<ol class="creation-roadmap creation-steps" id="creation-steps" aria-label="เส้นทางสร้างโครงเอกสาร" hidden></ol>
 
   <div class="grid" id="editor" hidden>
     <section class="panel" aria-label="Tree โครงสร้าง"><h2>โครงสร้างเอกสาร</h2><p>เลือกจาก Tree หรือจากกระดาษ</p><div class="structure-tools"><button id="add-section" type="button">+ เพิ่ม Section</button></div><div id="tree"></div></section>
@@ -38,6 +38,7 @@
       <div id="paper-edit-tools" class="paper-edit-tools" role="group" aria-label="แก้ไขบนกระดาษ">
         <nav id="paper-path" aria-label="ตำแหน่งในโครงเอกสาร"></nav>
         <p id="paper-selection" aria-live="polite"></p>
+        <div id="creation-next" class="creation-next" hidden></div>
         <p id="paper-layout-summary" hidden></p>
         <div id="paper-actions"></div>
         <div id="paper-order"></div>

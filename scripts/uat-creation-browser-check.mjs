@@ -173,6 +173,7 @@ try{
   await page.getByRole('button',{name:/สร้างโครงเอกสาร/}).click();
   const start=id('new-document-form');
   await start.waitFor();
+  await page.locator('#new-creation-roadmap [aria-current="step"]').getByText('ตั้งกระดาษ',{exact:true}).waitFor();
   assert.equal(calls.filter(c=>c.method==='POST').length,0);
   await photo('01-blank-setup');
   const name='UAT สร้างด้วยปุ่ม '+mark;
@@ -184,6 +185,11 @@ try{
   }
   await start.getByRole('button',{name:'เริ่มวางโครงบนกระดาษ'}).click();
   await id('paper').getByText('กระดาษเปล่า',{exact:true}).waitFor();
+  const zones=await id('paper').locator('[data-creation-zone]').evaluateAll(elements=>
+    elements.map(node=>({zone:node.dataset.creationZone,top:node.getBoundingClientRect().top,icon:Boolean(node.querySelector('svg'))})));
+  assert.deepEqual(zones.map(zone=>zone.zone),['header','body','footer']);
+  assert.ok(zones.every((zone,index)=>zone.icon&&(!index||zones[index-1].top<zone.top)));
+  await id('creation-next').getByRole('button',{name:'วาง Area แรก'}).waitFor();
   assert.equal(await id('tree').locator('[data-kind=area]').count(),0);
   assert.equal(await id('tree').locator('[data-kind=format]').count(),0);
   assert.equal(await id('paper').locator('.definition-sheet').getAttribute('data-page-size'),'A4');
@@ -193,19 +199,31 @@ try{
   await id('variables').locator('details').first().getByRole('button',{name:'+ ประกาศตัวแปร'}).click();
   await form({key:'headerBanner',type:'image',required:'yes'});
   await id('variables').getByRole('button',{name:'headerBanner · image'}).waitFor();
-  await act('+ เพิ่มหัวกระดาษ');
+  await id('paper').locator('[data-creation-zone=header]').getByRole('button',{name:'เพิ่มหัวกระดาษ',exact:true}).click();
   await act('ตำแหน่งและระยะ');
   await form({left:0,right:0,offset:0,height:79,gap:0});
   await act('+ เพิ่ม node');await form({type:'image'});await form({source:'global:headerBanner'});
   await id('paper').getByRole('button',{name:/headerBanner/}).waitFor();
-  await byKind('section').click();await act('+ เพิ่มท้ายกระดาษ');
+  await byKind('section').click();
+  await id('paper').locator('[data-creation-zone=footer]').getByRole('button',{name:'เพิ่มท้ายกระดาษ',exact:true}).click();
   await act('+ เพิ่มเลขหน้า');await form({field:'current'});
   await id('paper').getByRole('button',{name:'{{เลขหน้า}}',exact:true}).waitFor();
-  await byKind('section').click();await act('+ เพิ่ม Area');
+  const guide=name=>id('creation-next').getByRole('button',{name,exact:true});
+  await byKind('section').click();await guide('วาง Area แรก').click();
   await form({key:'parts',format:'cover'});
   await id('tree').locator('[data-kind=format]').first().waitFor();
   assert.equal(await id('tree').locator('[data-kind=format]').count(),1);
   await photo('03-first-area');
+  await guide('เปิด Format cover').click();
+  await guide('เลือกกล่องข้อความ').click();
+  await guide('ประกาศตัวแปร').click();await form({key:'title',type:'string',required:'yes'});
+  await guide('ผูกตัวแปรกับกล่องนี้').click();await form({field:'local:title'});
+  const boundTitle=id('paper').getByRole('button',{name:'{{title}}',exact:true});
+  await boundTitle.waitFor();
+  assert.equal(await boundTitle.getAttribute('aria-current'),'true');
+  assert.equal(await id('variable-detail').textContent(),'รูปแบบ · cover › title · string');
+  await photo('03-guided-binding');
+  for(let i=0;i<2;i++)await id('undo-structure').click();
 
   await byKind('section').click();
   await component('ตัวแปรทั้งเอกสาร','globalSchema',original.globalSchema);
@@ -253,6 +271,7 @@ try{
     formatNodes:formats.reduce((n,f)=>n+Object.keys(f.fragment.nodes).length,0),
     identityNormalization:['templateId','docKey','name','pageLayoutId','section id','areaId','area placement node id','Format map IDs'],
     equivalentModel20Definition:true,createdFromBlank:true,reopenedFromCatalog:true,
+    visualRoadmap:true,paperZones:zones.map(zone=>zone.zone),guidedLocalBinding:true,
     complexPartsEnteredThroughVisualControls:true,advancedJson:false,generationRequests:0};
   await writeFile(join(output,'creation-verification.json'),JSON.stringify(result,null,2)+'\n');
   console.log(JSON.stringify(result));

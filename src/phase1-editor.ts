@@ -3,6 +3,7 @@ import {addBand,addVariable,applyPart,changePage,newDefinition,partValue,setting
 import type {Part} from './editor-creation';
 import {openVisualAuthoring} from './editor-visual-authoring';
 import {mountTrial} from './editor-trial';
+import {authoringIcon,authoringRoadmap,type AuthoringIcon} from './authoring-visual-guide';
 import {paperCaretStops,paperOffsetMap} from './paper-selection.mjs';
 import {trialValueChanges} from '../scripts/trial-value-delta.mjs';
 import type {Trial} from './editor-trial';
@@ -71,6 +72,14 @@ const button = (label: string, run: () => void) => {
   item.addEventListener('click', run);
   return item;
 };
+function visualButton(label:string,icon:AuthoringIcon,run:()=>void){
+  const control=button(label,run);
+  control.classList.add('authoring-icon-button');
+  control.prepend(authoringIcon(icon));
+  return control;
+}
+const outlineIcons:Record<string,AuthoringIcon>={section:'section',area:'area',format:'format',table:'table',
+  'text-block':'node','field-ref':'variable','page-break':'break',header:'header',footer:'footer'};
 function afterPaint(name: string, started: number, detail?: unknown) {
   requestAnimationFrame(() => requestAnimationFrame(() => performance.measure(name, {start:started, detail})));
 }
@@ -231,6 +240,7 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
           if(creationMode())void editPart(item.ref,'format','แก้ Format · '+item.label);
         });
         label.dataset.sequenceFormat=item.format?.key??'';
+        label.classList.add('authoring-icon-button');label.prepend(authoringIcon('format'));
         if(creationMode())label.setAttribute('aria-label','แก้ Format '+item.label);
         header.append(element('span','Area '+item.parent?.label+' · Format'),label);
         const sources=item.format?.rowGroups?.map(group=>[group.source.key,group.memberRepeat?.source.key]
@@ -242,7 +252,8 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
     }else if(continuousStructure&&item.type==='page-break'){
       block.classList.add('sequence-page-break');
       const label='ขึ้นหน้าใหม่หลังจุดนี้'+(item.format?' · '+item.format.key:'');
-      block.append(choose(item,label,'sequence-break-label'));
+      const control=choose(item,label,'sequence-break-label authoring-icon-button');
+      control.prepend(authoringIcon('break'));block.append(control);
     }else if(continuousStructure&&item.type==='table-of-contents'){
       block.classList.add('sequence-contents');
       block.append(choose(item,'สารบัญอัตโนมัติ','sequence-contents-label'),
@@ -345,8 +356,20 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
   const body=element('div');body.className='definition-body';
   if(root.section.source.kind==='blank'){
     const empty=element('div');empty.className='empty-authoring-paper';
-    empty.append(element('strong','กระดาษเปล่า'),element('p','เลือกองค์ประกอบแรกของ Section นี้'),
-      button('+ เพิ่มพื้นที่ (Area)',()=>askArea(root.ref)),button('+ เพิ่มข้อความ',()=>tryStage({kind:'node',at:root.ref,type:'text-block'})));
+    function zone(kind:'header'|'body'|'footer',label:string,description:string,control?:HTMLButtonElement){
+      const region=element('div');region.dataset.creationZone=kind;
+      region.append(authoringIcon(kind==='body'?'area':kind),element('strong',label),element('small',description));
+      if(control)region.append(control);
+      empty.append(region);
+    }
+    zone('header','หัวกระดาษ','แถบด้านบน เช่น โลโก้หรือชื่อเอกสาร',!root.section.header?
+      button('เพิ่มหัวกระดาษ',()=>addPaperBand(root.ref,'header')):undefined);
+    zone('body','กระดาษเปล่า','พื้นที่กลางสำหรับเนื้อหา · UAT เริ่มที่ Area parts และ Format cover',
+      button('+ เพิ่มพื้นที่ (Area)',()=>askArea(root.ref)));
+    empty.querySelector('[data-creation-zone="body"]')?.append(
+      button('+ เพิ่มข้อความ',()=>tryStage({kind:'node',at:root.ref,type:'text-block'})));
+    zone('footer','ท้ายกระดาษ','แถบด้านล่าง เช่น เลขหน้า',!root.section.footer?
+      button('เพิ่มท้ายกระดาษ',()=>addPaperBand(root.ref,'footer')):undefined);
     body.append(empty);
   }
   const margin=layout?.margin??{};
@@ -721,6 +744,12 @@ function askArea(at:Ref){
   ask('เพิ่ม Area พร้อม Format แรก',[{key:'key',label:'ชื่อ Area'},{key:'format',label:'ชื่อ Format แรก'}],
     v=>stage({kind:'area',at,key:v.key,format:v.format}),'Area เป็นตำแหน่งบนกระดาษ ส่วน Format กำหนดสิ่งที่จะวางในพื้นที่นี้');
 }
+function askFormat(area:Outline){
+  ask('เพิ่ม Format ใน '+area.label,[{key:'key',label:'ชื่อในนิยาม'}],values=>stage({kind:'format',at:area.ref,key:values.key}));
+}
+function addPaperBand(at:Ref,band:'header'|'footer'){
+  stageDefinition(addBand(draft.definition,at,band),{sectionId:at.sectionId,band},'band');
+}
 function askVariable(at:Ref,scope:'global'|'section'|'local'|'header'|'footer',label:string){
   const types:[string,string][]=[['string','ข้อความ'],['image','ภาพ'],['link','ลิงก์']];
   if(!['header','footer'].includes(scope))types.push(['array','รายการ']);
@@ -1021,14 +1050,17 @@ function showPaperLocation(item:Outline){
   for(let parent=item.parent;parent;parent=parent.parent)ancestors.unshift(parent);
   for(const ancestor of ancestors){
     const type=itemType(ancestor);
-    const jump=button(ancestor.label.startsWith(type)?ancestor.label:type+' '+ancestor.label,()=>select(ancestor,true));
+    const jump=visualButton(ancestor.label.startsWith(type)?ancestor.label:type+' '+ancestor.label,
+      outlineIcons[ancestor.type]??'node',()=>select(ancestor,true));
     jump.title=outlinePath(ancestor);
     path.append(jump,element('span','›'));
   }
   path.hidden=!ancestors.length;path.scrollLeft=path.scrollWidth;
   const selected=q('paper-selection');
   const type=itemType(item);
-  selected.replaceChildren(element('span',type));
+  const badge=element('span',type);
+  badge.prepend(authoringIcon(outlineIcons[item.type]??'node'));
+  selected.replaceChildren(badge);
   if(item.label!==type)selected.append(document.createTextNode(item.label));
   selected.title=outlinePath(item);
 
@@ -1073,10 +1105,68 @@ function showPaperLocation(item:Outline){
     order.append(element('p',reason));
   }
 }
+function showCreationNext(item:Outline){
+  const panel=q('creation-next');
+  panel.replaceChildren();
+  panel.hidden=Boolean(templateId)||!creationMode();
+  if(panel.hidden)return;
+  let root=item,format:Outline|undefined,area:Outline|undefined;
+  for(let parent:Outline|undefined=item;parent;parent=parent.parent){
+    root=parent;
+    if(parent.type==='format')format=parent;
+    if(parent.type==='area')area=parent;
+  }
+  area??=root.children.find(child=>child.type==='area');
+  const text=item.type==='text-block'?item:undefined;
+  const canBind=text&&variableScopes(text).some(({schema})=>Object.values(schema.fields).some(field=>['string','link'].includes(field.type)));
+  let step:AuthoringIcon='review',heading='ดูโครงต่อกันก่อนบันทึก',detail='ตรวจตำแหน่งและคำสั่งขึ้นหน้าใหม่บนกระดาษตัวอย่าง';
+  let label=continuousStructure?'ไปที่บันทึกโครง':'ตรวจโครงต่อเนื่อง';
+  let action=()=>{if(!continuousStructure)toggleStructureSequence();else q('save-structure').focus();};
+  if(item.ref.band&&['header','footer'].includes(item.type)&&!item.children.length){
+    step='format';heading='วางองค์ประกอบใน'+item.label;detail='ส่วนนี้อยู่แยกจากเนื้อหากลางกระดาษ';
+    label='เพิ่มองค์ประกอบ';action=()=>chooseNode(item,nodeOptions(item));
+  }else if(!area&&!format&&item.type==='section'){
+    step='area';heading='เริ่มที่พื้นที่กลางกระดาษ';detail='Area กำหนดจุดวาง ส่วน Format แรกกำหนดสิ่งที่จะอยู่ตรงนั้น';
+    label='วาง Area แรก';action=()=>askArea(root.ref);
+  }else if(area&&!format&&(item.type==='section'||item.type==='area')){
+    const first=area.children[0];
+    step='format';heading='เลือกรูปแบบใน Area '+area.label;detail='ใช้ Format เพื่อวางข้อความ ภาพ หรือตารางในพื้นที่นี้';
+    label=first?'เปิด Format '+first.label:'เพิ่ม Format แรก';
+    action=()=>{if(first)select(first,true);else askFormat(area!);};
+  }else if(format&&!format.children.length){
+    step='format';heading='วางองค์ประกอบบนกระดาษ';detail='เลือกสิ่งแรกใน Format '+format.label+' เช่น กล่องข้อความของหน้าปก';
+    label='เพิ่มองค์ประกอบใน Format';action=()=>chooseNode(format!,nodeOptions(format!));
+  }else if(item.type==='format'&&item.children.length===1&&item.children[0].type==='text-block'&&
+    !item.children[0].children.some(child=>child.inline?.type==='field-ref')){
+    const first=item.children[0];
+    step='format';heading='เริ่มที่กล่องข้อความบนกระดาษ';detail='เลือกกล่องที่ Format นี้มีอยู่แล้ว เพื่อแก้ข้อความหรือผูกตัวแปร';
+    label='เลือกกล่องข้อความ';action=()=>select(first,true);
+  }else if(text&&!text.children.some(child=>child.inline?.type==='field-ref')){
+    step='variable';heading='เชื่อมกล่องข้อความกับตัวแปร';detail=canBind?
+      'เลือกตัวแปรที่ใช้ได้กับกล่องข้อความนี้':'ประกาศชื่อตัวแปรก่อน แล้วค่อยเลือกผูกกับกล่องนี้';
+    label=canBind?'ผูกตัวแปรกับกล่องนี้':'ประกาศตัวแปร';
+    action=()=>{if(canBind)askBinding(text);else if(text.ref.band)askVariable(text.ref,text.ref.band,item.band?'หัว–ท้ายกระดาษ':item.label);
+      else if(format)askVariable(text.ref,'local','Format '+format.label);else askVariable(text.ref,'section',root.label);};
+  }else if(Object.values(draft.definition.styles).some(style=>(style as {font?:{kind?:string}}).font?.kind==='unselected')){
+    heading='เลือกฟอนต์ให้สไตล์ข้อความ';detail='สไตล์กำหนดขนาดและระยะบรรทัดของกล่องข้อความ';
+    label='เลือกฟอนต์และสไตล์';action=()=>void editPart(root.ref,'styles','สไตล์เอกสาร');
+  }
+  authoringRoadmap(q('creation-steps'),step);
+  const copy=element('div');copy.append(element('strong',heading),element('small',detail));
+  const next=visualButton(label,step,action);
+  next.disabled=isSaving||hasConflict;
+  panel.append(copy,next);
+  if(step==='review'&&area){
+    const more=visualButton('เพิ่ม Format ใน Area','format',()=>askFormat(area!));
+    more.disabled=next.disabled;
+    panel.append(more);
+  }
+}
 function showActions(item:Outline){
   const actions=q('actions'),paperActions=q('paper-actions');
   actions.replaceChildren();paperActions.replaceChildren();
   showPaperLocation(item);
+  showCreationNext(item);
   const groups={
     add:element('details'),edit:element('details'),more:element('details'),
   };
@@ -1141,16 +1231,15 @@ function showActions(item:Outline){
   }
   if(item.ref.part){finish();return;}
   const at=item.ref;
-  const promptKey=(label:string,run:(key:string)=>void)=>ask(label,[{key:'key',label:'ชื่อในนิยาม'}],v=>run(v.key));
   if(item.type==='section')add('+ เพิ่ม Section',addSection,'add',false);
   if(item.type==='section'||(item.type==='table-cell'&&!at.formatId&&!at.band)){
     add('+ เพิ่ม Area',()=>askArea(at),'add');
   }
   if(item.type==='section'){
     add('ขนาดกระดาษและระยะขอบ',()=>paperSettings(item));
-    for(const band of ['header','footer'] as const)if(!item.section[band])add(band==='header'?'+ เพิ่มหัวกระดาษ':'+ เพิ่มท้ายกระดาษ',()=>stageDefinition(addBand(draft.definition,at,band),{sectionId:at.sectionId,band},'band'),'add');
+    for(const band of ['header','footer'] as const)if(!item.section[band])add(band==='header'?'+ เพิ่มหัวกระดาษ':'+ เพิ่มท้ายกระดาษ',()=>addPaperBand(at,band),'add');
   }
-  if(item.type==='area')add('+ เพิ่ม Format',()=>promptKey('เพิ่ม Format ใน '+item.label,key=>stage({kind:'format',at,key})),'add');
+  if(item.type==='area')add('+ เพิ่ม Format',()=>askFormat(item),'add');
   const options=nodeOptions(item);
   if(options.length)add('+ เพิ่ม node',()=>chooseNode(item,options),'add');
   if(creationMode()&&item.type==='text-block')add('ผูกตัวแปร',()=>askBinding(item));
@@ -2151,6 +2240,7 @@ function historyReplaceDraft(id:string){
   window.history.replaceState(null,'',url);
 }
 if(newMode&&!templateId){
+  authoringRoadmap(q('new-creation-roadmap'),'section');
   q('title').textContent='สร้างโครงเอกสาร';q('new-document').hidden=false;
   q<HTMLFormElement>('new-document-form').addEventListener('submit',event=>{
     event.preventDefault();

@@ -192,6 +192,13 @@ const paperSizes:Record<string,[number,number]>={A4:[595.276,841.89],A3:[841.89,
 const flowBlocks=new WeakMap<HTMLElement,Outline>();
 let flowDrag:{item:Outline;order:NonNullable<ReturnType<typeof structureOrder>>}|undefined;
 let flowDrop:{block:HTMLElement;side:'before'|'after';delta:number}|undefined;
+paper.addEventListener('click',event=>{
+  const target=event.target as Element;
+  if(target.closest('button, td, table'))return;
+  const block=target.closest<HTMLElement>('.definition-block');
+  const item=block&&flowBlocks.get(block);
+  if(item&&item.type!=='table')select(item,false);
+});
 function clearFlowDrop(){
   if(flowDrop)delete flowDrop.block.dataset.flowDrop;
   flowDrop=undefined;
@@ -274,8 +281,8 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
         const grip=button('⠿',()=>select(item,false));
         grip.className='flow-grip';
         grip.draggable=true;
-        grip.title='ลากเพื่อจัดลำดับ · '+item.label;
-        grip.setAttribute('aria-label',grip.title);
+        grip.title='คลิกเพื่อเลือก · ลากเพื่อจัดลำดับ';
+        grip.setAttribute('aria-label','ลากเพื่อจัดลำดับ · '+item.label+' หรือคลิกเพื่อเลือก');
         block.addEventListener('pointerenter',()=>{
           const order=structureOrder(draft.definition,item.ref);
           grip.disabled=!order||Boolean(order.up&&order.down)||isSaving||hasConflict;
@@ -471,6 +478,7 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
       sheet.append(view);
     }else body.append(contents(item));
   }
+  body.style.setProperty('--flow-left-gutter',unit(points(margin.left)));
   body.style.padding=unit(top)+' '+unit(points(margin.right))+' '+unit(bottom)+' '+unit(points(margin.left));
   function placeBody(page:HTMLElement,content:HTMLElement){
     if(continuousStructure)page.insertBefore(content,page.querySelector(':scope > .definition-band[data-kind="footer"]'));

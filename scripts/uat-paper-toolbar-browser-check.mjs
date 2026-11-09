@@ -70,7 +70,11 @@ try{
   const dragSource=blocks.first();
   await dragSource.hover({position:{x:5,y:5}});
   const grip=dragSource.getByRole('button',{name:/^ลากเพื่อจัดลำดับ/});
-  assert.ok(await grip.isVisible());
+  const hoverTarget=await grip.evaluate(control=>({
+    width:control.getBoundingClientRect().width,height:control.getBoundingClientRect().height,
+    visible:getComputedStyle(control).opacity==='1'&&getComputedStyle(control).pointerEvents!=='none',
+  }));
+  assert.ok(hoverTarget.visible&&hoverTarget.width>=28&&hoverTarget.height>=28);
   const destination=blocks.nth(2);
   async function dragToLine(){
     await dragSource.hover({position:{x:5,y:5}});
@@ -94,6 +98,17 @@ try{
   await paper.locator('[data-flow-drop]').waitFor({state:'detached'});
   await page.mouse.up();
   assert.deepEqual(await order(),before);
+  const textBlock=blocks.filter({has:page.getByRole('button',{name:'Module Scope',exact:true})});
+  const textBounds=await textBlock.boundingBox();
+  assert.ok(textBounds);
+  await textBlock.click({position:{x:textBounds.width-65,y:textBounds.height/2}});
+  assert.match(await page.locator('#paper-selection').textContent(),/กล่องข้อความ.*Module Scope/);
+  const visibleGrips=()=>paper.locator('.flow-grip').evaluateAll(grips=>
+    grips.filter(grip=>getComputedStyle(grip).pointerEvents!=='none').length);
+  assert.equal(await visibleGrips(),1);
+  await page.mouse.move(20,100);
+  assert.equal(await visibleGrips(),1);
+  await photo('13-flow-click-target');
   await handles('แสดงจุดเลือก');
   await blocks.nth(1).locator(':scope > button[data-paper-ref]').first().click();
   const location=page.locator('#paper-path');

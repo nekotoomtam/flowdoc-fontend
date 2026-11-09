@@ -1,6 +1,7 @@
 import {markBlankRuns,previewInput,trialBindings} from '../scripts/trial-preview-bindings.mjs';
 import {projectTrialPage,trialFocusPage} from '../scripts/trial-preview-projection.mjs';
 import {createPreviewQueue} from './preview-worker-queue.mjs';
+import {trialValueChanges} from '../scripts/trial-value-delta.mjs';
 
 const encoder=new TextEncoder();
 const digest=async bytes=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),
@@ -76,7 +77,7 @@ const take=result=>{
   if(!result.ok)throw Error(result.issues.map(issue=>issue.code+' '+issue.path).slice(0,4).join(' / '));
   return result.value;
 };
-let draft,runner;
+let draft,runner,lastComplete;
 const runs=new Map();
 const knownPages=new Map();
 function remember(index){
@@ -93,6 +94,58 @@ function pageKey(cache,index,layout=JSON.stringify(cache.draw.pages[index])){
   }
   return hash(source);
 }
+function paperInk(page){
+  return JSON.stringify([page.widthPt,page.heightPt,page.backgroundColor,page.borders,page.fills,page.sampleImages,
+    page.glyphs,page.lines.map(({edit,...line})=>line)]);
+}
+function watchEditingPage(revision,trial,definition,document,sample,paths){
+  const {focus}=trial,base=lastComplete;
+  if(!focus||!base||trialValueChanges(base.trial,trial,{has:key=>key===focus.key})?.length!==1)return;
+  // A repeated member's value has a single body owner. A shared field could
+  // affect another page or page band before this page has been closed.
+  if(!Number.isInteger(document.sourceMap[focus.occurrence]?.itemIndex))return;
+  const old=base.bindings.locations.get(focus.key)??[];
+  if(!old.length||old.some(hit=>hit.occurrence!==focus.occurrence)||!base.draw.pages[old[0].pageIndex].commands.some(command=>
+    base.bindings.lines.get(command)?.occurrence===focus.occurrence&&base.bindings.lines.get(command).contentWidth>0))return;
+  const firstOld=old[0].pageIndex,lastOld=old.at(-1).pageIndex;
+  if(lastOld-firstOld>2)return;
+  let published,caretPage;
+  return {
+    get published(){return published;},
+    closed(draw){
+      if(published)return;
+      const index=draw.pages.length-1;
+      if(index<firstOld-1||index>lastOld+2)return;
+      if(caretPage===undefined&&!draw.pages[index].commands.some(line=>line.nodeId===focus.occurrence))return;
+      const bindings=trialBindings(definition,document,sample,draw,focus.occurrence);
+      const positions=(bindings.locations.get(focus.key)??[]).filter(hit=>hit.occurrence===focus.occurrence);
+      const match=positions.find(hit=>hit.pageIndex===focus.pageIndex&&hit.start<=focus.offset&&focus.offset<=hit.end)
+        ??positions.find(hit=>hit.start<=focus.offset&&focus.offset<=hit.end);
+      if(!match)return;
+      caretPage=match.pageIndex;
+      const first=Math.min(firstOld,positions[0].pageIndex),last=Math.max(lastOld,caretPage);
+      if(last>index||last-first>2)return;
+      const pages=[];
+      for(let pageIndex=first;pageIndex<=last;pageIndex++){
+        const page=draw.pages[pageIndex],previous=base.draw.pages[pageIndex];
+        if(!previous||page.pageRole!==previous.pageRole||page.sectionId!==previous.sectionId||page.sectionPageIndex!==previous.sectionPageIndex||
+          page.widthPt!==previous.widthPt||page.heightPt!==previous.heightPt||
+          draw.contentsSlots?.some(slot=>slot.pageIndex===pageIndex))return;
+        const slots=[...(draw.pageFieldSlots??[]),...(draw.pageTexts??[])].filter(slot=>slot.pageIndex===pageIndex);
+        const footer=previous.commands.filter(command=>command.id.startsWith('system-page-'));
+        const visible=previous.pageNumbering?.visibility!=='hide';
+        if(visible&&(slots.length!==footer.length||slots.some((slot,i)=>(slot.nodeId??slot.node.id)!==footer[i].nodeId)))return;
+        // Page totals need the whole document. Hold the committed system fields
+        // while showing the newly closed body from this same Engine.
+        const snapshot={...page,commands:[...page.commands,...footer],pageNumbering:previous.pageNumbering,
+          countedPageNumber:previous.countedPageNumber};
+        pages.push([pageIndex,projectTrialPage({draw:{pages:[snapshot]},bindings,paths,fonts:Object.keys(paths)},0)]);
+      }
+      published=new Map(pages.map(([pageIndex,page])=>[pageIndex,paperInk(page)]));
+      self.postMessage({kind:'editing-pages',revision,focusPage:caretPage,pages});
+    },
+  };
+}
 async function layout({revision,trial}){
   const started=performance.now(),asset=await loadAssets();
   const {definition,fingerprint}=draft,{core,fonts}=asset;
@@ -102,8 +155,10 @@ async function layout({revision,trial}){
   const {input,marks}=previewInput(sample,trial.blanks);
   const document=take(core.composeDocument(template,take(core.prepareGeneration(template,input))));
   markBlankRuns(document,marks);
+  const paths=Object.fromEntries(fonts.map(font=>[font.id,font.outline]));
+  const editing=watchEditingPage(revision,trial,definition,document,sample,paths);
   const engineStart=performance.now();
-  runner.submit(revision,document,{});
+  runner.submit(revision,document,{},editing?.closed);
   let step,slices=0;
   do{
     step=await runner.advance(8);
@@ -113,8 +168,7 @@ async function layout({revision,trial}){
   const engineMs=performance.now()-engineStart,draw=step.draw;
   if(draw.pages.length>2000)throw Error('Preview page limit exceeded');
   const bindings=trialBindings(definition,document,sample,draw);
-  const paths=Object.fromEntries(fonts.map(font=>[font.id,font.outline]));
-  const cache={draw,bindings,paths,fonts:Object.keys(paths),keys:new Map()};
+  const cache={draw,bindings,paths,fonts:Object.keys(paths),keys:new Map(),trial};
   const pageIndex=trialFocusPage(trial,draw,bindings);
   remember(pageIndex);
   const pageKeys=Array(draw.pages.length).fill(null);
@@ -126,10 +180,16 @@ async function layout({revision,trial}){
   const sections=new Map(document.sections.map(section=>[section.sectionId,section.sectionKey]));
   const pageSizes=draw.pages.map(({widthPt,heightPt,sectionId})=>[widthPt,heightPt,labels.get(sections.get(sectionId))??'']);
   const previewId='worker-'+revision;
-  const header={revision:draft.revision,fingerprint,pages:[projectTrialPage(cache,pageIndex)],pageIndex,paged:true,
+  const initial=projectTrialPage(cache,pageIndex);
+  const priorityPages=editing?.published?[...editing.published.keys()].filter(index=>index!==pageIndex&&index<draw.pages.length)
+    .map(index=>[index,projectTrialPage(cache,index)]):undefined;
+  const confirmedPages=editing?.published?[[pageIndex,initial],...(priorityPages??[])]
+    .filter(([index,page])=>editing.published.get(index)===paperInk(page)).map(([index])=>index):undefined;
+  const header={revision:draft.revision,fingerprint,pages:[initial],priorityPages,confirmedPages,pageIndex,paged:true,
     pageCount:draw.pages.length,pageSizes,pageKeys,previewId,renderPath:'browser-wasm',
     engineVersion:'0.5.5 / WASM',engineMs,renderMs:performance.now()-started,slices};
   runs.set(previewId,cache);
+  lastComplete=cache;
   while(runs.size>2)runs.delete(runs.keys().next().value);
   return header;
 }

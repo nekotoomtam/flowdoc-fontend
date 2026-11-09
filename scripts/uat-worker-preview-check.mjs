@@ -13,6 +13,7 @@ const text='ทดสอบข้อมูลภาษาไทยสำหร�
 const short='เมนูวัดผลภาษาไทย';
 const rows=190,strokes=40,hz=20;
 const renderer=process.env.FLOWDOC_PREVIEW_RENDERER==='canvas'?'canvas':'svg';
+const crossPage=process.env.FLOWDOC_PREVIEW_CROSS_PAGE==='1';
 const reports=[];
 const stats=samples=>{
   const values=[...samples].sort((a,b)=>a-b);
@@ -21,7 +22,8 @@ const stats=samples=>{
 
 function instrument(){
   const NativeWorker=window.Worker;
-  const evidence=window.previewProof={submitted:new Map(),layout:[],discarded:[],paints:new Map(),inputs:[],errors:[]};
+  const evidence=window.previewProof={submitted:new Map(),layout:[],early:[],earlyPaints:new Map(),earlySurfaces:new Map(),
+    keptSurfaces:new Map(),discarded:[],paints:new Map(),inputs:[],errors:[]};
   const afterPaint=next=>requestAnimationFrame(()=>requestAnimationFrame(next));
   window.Worker=class extends NativeWorker{
     constructor(...args){
@@ -29,6 +31,7 @@ function instrument(){
       evidence.worker=this;
       this.addEventListener('message',({data})=>{
         if(data.kind==='superseded')evidence.discarded.push(data.revision);
+        if(data.kind==='editing-pages')evidence.early.push(data);
         if(data.kind!=='layout')return;
         if(data.error){evidence.errors.push(data.error);return;}
         const {pages,...header}=data.preview;
@@ -42,10 +45,25 @@ function instrument(){
   };
   document.addEventListener('DOMContentLoaded',()=>{
     const paper=document.querySelector('#preview-paper');
-    new MutationObserver(()=>{
+    new MutationObserver(records=>{
       const run=paper.dataset.run;
-      if(run)afterPaint(()=>{if(paper.dataset.run===run)evidence.paints.set(run,performance.now());});
-    }).observe(paper,{attributes:true,attributeFilter:['data-run']});
+      const early=paper.dataset.editingRun;
+      if(early)afterPaint(()=>{
+        if(paper.dataset.editingRun!==early)return;
+        const caretPage=Number(document.querySelector('#trial-paper-markers').dataset.pageIndex);
+        evidence.earlyPaints.set(early,{at:performance.now(),caretPage,focused:document.activeElement.id==='trial-paper-value'});
+        evidence.earlySurfaces.set(early,{caretPage,surface:paper.querySelector('.preview-page-sheet[data-page-index="'+caretPage+'"]')?.firstElementChild});
+      });
+      if(run&&records.some(record=>record.attributeName==='data-run'))
+        afterPaint(()=>{
+          if(paper.dataset.run!==run)return;
+          evidence.paints.set(run,performance.now());
+          const early=evidence.earlySurfaces.get(run);
+          if(early?.surface)evidence.keptSurfaces.set(run,early.surface===
+            paper.querySelector('.preview-page-sheet[data-page-index="'+early.caretPage+'"]')?.firstElementChild);
+          evidence.earlySurfaces.delete(run);
+        });
+    }).observe(paper,{attributes:true,attributeFilter:['data-run','data-editing-run']});
   });
   window.addEventListener('input',event=>{
     if(event.target.id!=='trial-paper-value')return;
@@ -130,10 +148,18 @@ async function profile(member){
     let value=startValue;
     const bursts=[];
     for(let repeat=0;repeat<2;repeat++){
-      await editor.evaluate(input=>input.setSelectionRange(4,4));
+      let offset=4,startPage;
+      if(crossPage&&member===94){
+        const boundary=slot.nth(185).locator('[data-trial-key='+await page.evaluate(value=>CSS.escape(value),key)+']').last();
+        await slot.nth(185).evaluate(node=>node.scrollIntoView({block:'center'}));
+        await boundary.click();
+        offset=Number(await boundary.getAttribute('data-end'))-3;
+        startPage=185;
+      }
+      await editor.evaluate((input,offset)=>input.setSelectionRange(offset,offset),offset);
       await page.evaluate(()=>{window.previewProof.inputs=[];});
       const prior=(await waitForLayout(page,{key,expected:value})).inputRevision;
-      value=value.slice(0,4)+'ก'.repeat(strokes)+value.slice(4);
+      value=value.slice(0,offset)+'ก'.repeat(strokes)+value.slice(offset);
       let keyup;
       try{
         const started=performance.now();
@@ -150,20 +176,32 @@ async function profile(member){
       assert.equal(await editor.inputValue(),value);
       assert.equal(await fields.nth(member).inputValue(),value);
       assert.equal(await fields.nth(member-1).inputValue(),neighbor);
-      assert.equal(await editor.evaluate(input=>input===document.activeElement&&input.selectionStart===44),true);
+      assert.equal(await editor.evaluate((input,expected)=>input===document.activeElement&&input.selectionStart===expected,offset+strokes),true);
       const measured=await page.evaluate(({prior,last})=>{
         const proof=window.previewProof;
         return {inputs:proof.inputs,layouts:proof.layout.filter(run=>run.inputRevision>prior&&run.inputRevision<=last)
-          .map(run=>({...run,paint:proof.paints.get(run.previewId)}))};
+          .map(run=>({...run,paint:proof.paints.get(run.previewId)})),
+          early:proof.early.filter(run=>run.revision>prior&&run.revision<=last)
+            .map(run=>({...run,paint:proof.earlyPaints.get('worker-'+run.revision),keptSurface:proof.keptSurfaces.get('worker-'+run.revision)}))};
       },{prior,last:final.inputRevision});
       assert.equal(measured.inputs.length,strokes);
       assert.ok(measured.inputs.every(input=>input.matches));
       const painted=measured.layouts.filter(run=>run.paint!==undefined);
+      const ink=page=>JSON.stringify([page.widthPt,page.heightPt,page.backgroundColor,page.borders,page.fills,page.glyphs,
+        page.lines.map(({edit,...line})=>line)]);
+      const early=measured.early.filter(run=>run.paint).map(run=>{
+        const settled=measured.layouts.find(layout=>layout.inputRevision===run.revision);
+        const full=new Map([[settled.pageIndex,settled.firstPage],...(settled.priorityPages??[])]);
+        const sameInk=run.pages.every(([index,page])=>full.has(index)&&ink(page)===ink(full.get(index)));
+        return {revision:run.revision,focusPage:run.focusPage+1,caretPage:run.paint.caretPage+1,focused:run.paint.focused,sameInk,keptSurface:run.keptSurface,
+          inputToPaintMs:Math.round(run.paint.at-measured.inputs[0].at),
+          beforeKeyup:run.paint.at<=keyup,leadMs:Math.round((settled.paint??settled.receivedAt)-run.paint.at)};
+      });
       bursts.push({updatesBeforeKeyup:painted.filter(run=>run.paint<=keyup).length,
         feedbackP95Ms:stats(measured.inputs.map(input=>input.paint-input.at)),
         finalInputToPaperMs:Number((painted.at(-1).paint-measured.inputs.at(-1).at).toFixed(1)),
         revisions:painted.map(run=>run.inputRevision),engineMs:painted.map(run=>run.engineMs),
-        workerMs:painted.map(run=>run.renderMs)});
+        workerMs:painted.map(run=>run.renderMs),startPage:startPage===undefined?undefined:startPage+1,early});
       verified.set(final.inputRevision,await prove(page,final.previewId));
     }
     const observed=await page.evaluate(first=>{
@@ -179,7 +217,8 @@ async function profile(member){
     const staleRejected=await page.evaluate(({revision,run})=>{
       const proof=window.previewProof,paper=document.querySelector('#preview-paper'),latest=paper.dataset.run;
       proof.worker.dispatchEvent(new MessageEvent('message',{data:{kind:'layout',revision,preview:{...run,pages:[run.firstPage]}}}));
-      return latest!==run.previewId&&paper.dataset.run===latest;
+      proof.worker.dispatchEvent(new MessageEvent('message',{data:{kind:'editing-pages',revision,focusPage:run.pageIndex,pages:[[run.pageIndex,run.firstPage]]}}));
+      return latest!==run.previewId&&paper.dataset.run===latest&&!paper.dataset.editingRun;
     },{revision:setup.inputRevision,run:setup});
     assert.equal(staleRejected,true);
     for(const {run,trial} of observed.layout){
@@ -206,5 +245,15 @@ try{
     console.log(JSON.stringify(result));
     assert.equal(result.snapshots.length,3);
     assert.ok(result.snapshots.every(sample=>sample.layoutExact&&sample.focusPageExact&&sample.editablePageExact),'Native layout or focus differs');
+    assert.ok(result.bursts.every(burst=>burst.early.some(run=>run.beforeKeyup&&run.leadMs>0&&run.sameInk&&run.focused)),
+      'a closed Engine page must paint ahead of the full revision and match its ink');
+    if(crossPage&&member===94){
+      assert.ok(result.bursts.every(burst=>
+        burst.early.some(run=>run.beforeKeyup&&run.caretPage>burst.startPage&&run.sameInk&&run.keptSurface)),
+        'the visible caret must cross a page while the key is held');
+      assert.ok(result.bursts.every(burst=>
+        burst.early.some(run=>run.revision===burst.revisions.at(-1)&&run.sameInk&&run.keptSurface)),
+        'the last early surface must remain in place after keyup and full confirmation');
+    }
   }
 }finally{await browser.close();}

@@ -45,7 +45,7 @@ export function markBlankRuns(resolved,marks){
 }
 
 // Project whole-field text blocks back to the input occurrence the Engine expanded.
-export function trialBindings(definition,resolved,sample,draw){
+export function trialBindings(definition,resolved,sample,draw,openOccurrence){
   const hosts=new Map(), sections=new Map();
   const cache=new Map(),lines=new Map(),locations=new Map();
   const scopePath=(scope,index,local)=>scope==='global'?['data']:scope==='section'?['sections',index,'data']:
@@ -136,7 +136,7 @@ export function trialBindings(definition,resolved,sample,draw){
     }
   }
   for(const [occurrence,edit] of cache){
-    if(!edit?.valid||edit.value.slice(edit.end).replace(/\n/g,'')!=='')continue;
+    if(!edit?.valid||occurrence!==openOccurrence&&edit.value.slice(edit.end).replace(/\n/g,'')!=='')continue;
     let positions=locations.get(edit.key);
     if(!positions){positions=[];locations.set(edit.key,positions);}
     for(const {line,start,pageIndex} of edit.commands){

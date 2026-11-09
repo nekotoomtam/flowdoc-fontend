@@ -22,7 +22,7 @@ type DrawPage = {
 };
 type TrialTab = {occurrence:string;pageIndex:number};
 type PreviewEdit = {previous?:TrialTab;next?:TrialTab;key:string;occurrence:string;start:number;end:number;blank?:boolean;contentWidth?:number;align?:string;clusters:[number,number,number][]};
-type Preview = {trialPatchBase?:boolean;pageKeys?:(string|null)[];pageSizes?:[number,number,string][];pageIndex?:number;previewId?:string;revision: number; fingerprint: string; engineVersion: string; engineMs: number; renderMs: number; layoutHash?: string; renderPath?:string; pageCount: number; pages: DrawPage[]; paged?:boolean; entryCount?:number; imagePlacements?:number};
+type Preview = {trialPatchBase?:boolean;pageKeys?:(string|null)[];pageSizes?:[number,number,string][];pageIndex?:number;previewId?:string;revision: number; fingerprint: string; engineVersion: string; engineMs: number; renderMs: number; layoutHash?: string; renderPath?:string; pageCount: number; pages: DrawPage[]; priorityPages?:[number,DrawPage][]; confirmedPages?:number[]; paged?:boolean; entryCount?:number; imagePlacements?:number};
 type ServiceReply = {ok: boolean; value?: Draft; issues?: {code: string; path?:string}[]};
 const q = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id)! as T;
 const title = q('title'), status = q('status'), editor = q('editor'), tree = q('tree'), paper = q('paper'), variables = q('variables');
@@ -1298,7 +1298,7 @@ async function readDraft() {
 function cancelPreview() {
   disposePreviewWorker();
   pendingPreview?.abort();pendingPreview=undefined;
-  renderedTrial=undefined;closePaperEdit();
+  clearEditingPages();renderedTrial=undefined;closePaperEdit();
   resetPreviewPages();paperInteractionBlocked=false;jump.disabled=true;
   preview=undefined;trialBase=undefined;previewPaper.replaceChildren();
   delete previewPaper.dataset.revision;
@@ -1406,13 +1406,18 @@ const paperMarkers=q('trial-paper-markers');
 let trialForm:ReturnType<typeof mountTrial>|undefined;
 let paperInteractionBlocked=false;
 let renderedTrial:Trial|undefined;
+let editingPages:{revision:number;trial:Trial;indexes:Set<number>}|undefined;
+function clearEditingPages(){
+  editingPages=undefined;
+  delete previewPaper.dataset.editingRun;
+}
 type PaperEdit={key:string;occurrence:string;pageIndex:number;lineStart?:number;composing:boolean;previous?:TrialTab;next?:TrialTab};
 type PaperHit={element:SVGElement;edit:PreviewEdit;pageIndex:number;width:number;left:number;stops:[number,number][]};
 let paperEdit:PaperEdit|undefined,paperPositionFrame=0;
 let paperDrag:{pointer:number;owner:PaperEdit;anchor:number}|undefined;
 const trialHits=new WeakMap<Element,PaperHit>();
-function paperOffsets(key:string,input:string){
-  let value:unknown=renderedTrial;
+function paperOffsets(key:string,input:string,index=paperEdit?.pageIndex){
+  let value:unknown=index!==undefined&&editingPages?.indexes.has(index)?editingPages.trial:renderedTrial;
   for(const part of JSON.parse(key) as (string|number)[]){
     value=value&&typeof value==='object'&&Object.hasOwn(value,part)?(value as Record<string|number,unknown>)[part]:undefined;
   }
@@ -1448,12 +1453,14 @@ function hitOffset(hit:PaperHit,clientX:number){
   return pointOffset(hit,(clientX-bounds.left)*hit.width/bounds.width);
 }
 function positionPaperEditor(){
+  delete paperMarkers.dataset.pageIndex;
   if(!showingPreview||!paperEdit){paperMarkers.replaceChildren();return;}
   const lines=editingLines(paperEdit.occurrence),offsets=paperOffsets(paperEdit.key,trialPaperValue.value);
   const start=offsets.toPaper(trialPaperValue.selectionStart),end=offsets.toPaper(trialPaperValue.selectionEnd);
   const cursor=trialPaperValue.selectionDirection==='backward'?start:end;
   const caret=caretLine(lines,cursor,paperEdit.pageIndex,paperEdit.lineStart);
   if(!caret){paperMarkers.replaceChildren();return;}
+  paperMarkers.dataset.pageIndex=String(caret.pageIndex);
   paperEdit.pageIndex=caret.pageIndex;paperEdit.lineStart=caret.edit.start;
   paperEdit.previous=caret.edit.previous;paperEdit.next=caret.edit.next;
   const marks=document.createDocumentFragment();
@@ -1490,7 +1497,7 @@ function beginPaperEdit(edit:PreviewEdit,offset:number,index:number){
   if(trialPaperValue.value!==value)trialPaperValue.value=value;
   trialForm?.reveal(edit.key);
   trialPaperValue.hidden=false;
-  offset=paperOffsets(edit.key,value).toInput(offset);
+  offset=paperOffsets(edit.key,value,index).toInput(offset);
   trialPaperValue.setSelectionRange(offset,offset);
   positionPaperEditor();
   trialPaperValue.focus({preventScroll:true});
@@ -1603,6 +1610,14 @@ function showPage(page:DrawPage,index:number) {
       else if(image.color)sheet.append(svg('rect',{...bounds,fill:color(image.color)}));
     }
   }
+  mountTrialHits(sheet,page,index);
+  pageSlots[index]?.replaceChildren(surface??sheet);
+  mountedPages.add(index);
+  schedulePaperPosition();
+}
+function mountTrialHits(sheet:SVGElement,page:DrawPage,index:number){
+  sheet.querySelector('.trial-hit-layer')?.remove();
+  const hits=svg('g',{class:'trial-hit-layer'});
   for(const line of page.lines){
     const edit=line.edit;
     if(!edit||trialForm?.read(edit.key)===undefined)continue;
@@ -1628,11 +1643,9 @@ function showPage(page:DrawPage,index:number) {
       const key=(event as KeyboardEvent).key;
       if(key==='Enter'||key===' '){event.preventDefault();beginPaperEdit(edit,edit.start,index);}
     });
-    sheet.append(hit);
+    hits.append(hit);
   }
-  pageSlots[index]?.replaceChildren(surface??sheet);
-  mountedPages.add(index);
-  schedulePaperPosition();
+  sheet.append(hits);
 }
 let pageSlots:HTMLElement[]=[];
 let pageObserver:IntersectionObserver|undefined;
@@ -1663,6 +1676,7 @@ function restorePage(index:number){
   return true;
 }
 function retainPage(index:number){
+  if(editingPages?.indexes.has(index))return;
   const sheet=pageSlots[index].firstElementChild;
   if(!sheet)return;
   const nodes=1+sheet.querySelectorAll('*').length;
@@ -1721,10 +1735,11 @@ function ensurePage(index:number):Promise<boolean>{
       }
       await readyImages(page,result.previewId);
       if(preview!==result||controller.signal.aborted||!showingPreview)return false;
+      if(editingPages?.indexes.has(index))return true;
       showPage(page,index);
       return true;
     }catch{
-      if(!controller.signal.aborted&&preview===result){
+      if(!controller.signal.aborted&&preview===result&&!editingPages?.indexes.has(index)){
         nearbyPages.delete(index);
         const retry=button('ลองเปิดหน้า '+(index+1)+' อีกครั้ง',()=>{slot.replaceChildren();void ensurePage(index);});
         retry.className='preview-page-retry';slot.replaceChildren(retry);
@@ -1740,18 +1755,26 @@ function ensurePage(index:number):Promise<boolean>{
 }
 function mountPreview(result:Preview,focusPage?:number){
   const prior=preview,oldIndex=pageIndex;
+  const edited=editingPages?.indexes;
+  clearEditingPages();
   stopPageLoads();
   pendingPage=new AbortController();
   preview=result;paperInteractionBlocked=false;
   const start=result.pageIndex??0,selected=focusPage??start;
   const initial=result.pages[0];
+  const ready=new Map([[start,initial],...(result.priorityPages??[])]);
+  const confirmed=new Set(result.confirmedPages);
   const reusable=(index:number)=>{
     const key=result.pageKeys?.[index];
-    return Boolean(key&&key===prior?.pageKeys?.[index]&&prior?.fingerprint===result.fingerprint);
+    return edited?.has(index)?confirmed.has(index):
+      Boolean(key&&key===prior?.pageKeys?.[index]&&prior?.fingerprint===result.fingerprint);
   };
-  for(const index of retainedPages.keys())if(!reusable(index))removeRetainedPage(index);
+  for(const index of retainedPages.keys())if(edited?.has(index)||!reusable(index))removeRetainedPage(index);
   for(const index of mountedPages){
-    if(reusable(index))continue;
+    if(reusable(index)){
+      if(edited?.has(index))mountTrialHits(pageSlots[index].querySelector('svg')!,ready.get(index)!,index);
+      continue;
+    }
     pageSlots[index].replaceChildren();mountedPages.delete(index);
   }
   while(pageSlots.length>result.pageCount){
@@ -1781,6 +1804,8 @@ function mountPreview(result:Preview,focusPage?:number){
   if(result.previewId)previewPaper.dataset.run=result.previewId;
   if(paperEdit)paperEdit.pageIndex=selected;
   if(!mountedPages.has(start)&&!restorePage(start))showPage(initial,start);
+  for(const [index,page] of result.priorityPages??[])
+    if((edited?.has(index)||index===selected)&&!mountedPages.has(index))showPage(page,index);
   reportPage(selected);
   if(selected!==start)void ensurePage(selected);
   if(prior&&selected!==oldIndex)pageSlots[selected]?.parentElement?.scrollIntoView({block:'start'});
@@ -1854,9 +1879,39 @@ function getPreviewWorker(){
       return;
     }
     const task=workerLayouts.get(data.revision);
+    if(data.kind==='editing-pages'){
+      const focus=task?.trial.focus;
+      if(!preview||!showingPreview||paperInteractionBlocked||!task?.usable()||!paperEdit||!focus||
+        focus.occurrence!==paperEdit.occurrence||data.revision<=paintedWorkerRevision||
+        data.revision<=(editingPages?.revision??0))return;
+      const pages=data.pages as [number,DrawPage][];
+      if(!pages.length||!pages.every(([index])=>pageSlots[index]))return;
+      const before=paperEdit.pageIndex;
+      paperEdit.pageIndex=data.focusPage;
+      if(before!==paperEdit.pageIndex)pageSlots[paperEdit.pageIndex]?.parentElement?.scrollIntoView({block:'start'});
+      const visible=pages.filter(([index])=>{
+        if(index===data.focusPage)return true;
+        const bounds=pageSlots[index].getBoundingClientRect();
+        return bounds.bottom>0&&bounds.top<innerHeight;
+      });
+      editingPages={revision:data.revision,trial:task.trial,indexes:new Set(visible.map(([index])=>index))};
+      for(const [index,page] of visible)showPage(page,index);
+      reportPage(paperEdit.pageIndex);
+      positionPaperEditor();
+      previewPaper.dataset.editingRun='worker-'+data.revision;
+      return;
+    }
     workerLayouts.delete(data.revision);
     if(data.kind!=='layout'||!task?.usable()||!showingPreview||data.revision<=paintedWorkerRevision)return;
     if(data.error){
+      if(editingPages&&editingPages.revision===data.revision){
+        const {indexes}=editingPages;
+        clearEditingPages();
+        for(const index of indexes){
+          pageSlots[index]?.replaceChildren();mountedPages.delete(index);
+          void ensurePage(index);
+        }
+      }
       if(task.current())previewStatus.textContent='จัดหน้าในเบราว์เซอร์ไม่สำเร็จ · '+data.error;
       return;
     }

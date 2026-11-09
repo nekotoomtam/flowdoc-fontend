@@ -3,6 +3,7 @@ import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {mkdirSync,readFileSync,writeFileSync} from 'node:fs';
 import {resolve,relative} from 'node:path';
+import {withPageSeal} from './worker-page-seal.mjs';
 
 const root=resolve(process.argv[2]??'../flowdoc-core');
 const output=resolve('public/worker-engine');
@@ -23,6 +24,9 @@ ${decode}
 mkdirSync(output,{recursive:true});
 const result=await build({stdin:{contents:entry,resolveDir:root,loader:'ts'},bundle:true,platform:'browser',format:'esm',
   metafile:true,outfile:output+'/core.mjs',plugins:[{name:'no-docx-prefix-compiler',setup(plugin){
+    plugin.onLoad({filter:/[\\/](documentFlow|layoutJob)\.ts$/},({path})=>({
+      contents:withPageSeal(path,readFileSync(path,'utf8').replaceAll('\r\n','\n')),loader:'ts'
+    }));
     plugin.onResolve({filter:/prefixFit\.js$/},()=>({path:'prefixFit',namespace:'browser'}));
     plugin.onLoad({filter:/.*/,namespace:'browser'},()=>({contents:
       'export async function tryPrefixFit(){return false} export function withPrefixBudget(owner,wrapper){return wrapper}'}));
@@ -44,6 +48,7 @@ const files=Object.keys(result.metafile.inputs).filter(path=>!path.startsWith('b
   .map(path=>resolve(path)).concat(src+'runtime/textRuntime.ts');
 writeFileSync(output+'/provenance.json',JSON.stringify({
   coreCommit:execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),
+  browserPageSeal:hash('scripts/worker-page-seal.mjs'),
   sourceHashes:Object.fromEntries(files.map(path=>[relative(root,path).replaceAll('\\','/'),hash(path)])),
   artifacts:Object.fromEntries(['core.mjs','flowdoc_text_engine.js','flowdoc_text_engine_bg.wasm','outlines.json'].map(name=>[name,hash(output+'/'+name)]))
 },null,2)+'\n');

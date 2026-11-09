@@ -410,8 +410,8 @@ export function applyStructureChange(source:Definition,change:Change):{definitio
     const f=authored(section),node:DocNode={id:uid(),type:'area',props:{areaId:aid}};
     f.nodes[node.id]=node;
     if(cell)cell.childIds!.push(node.id);else insertRoot(f,node.id);
-    makeFormat(def,aid,change.format);
-    selection={sectionId:section.id,nodeId:node.id};
+    const formatId=makeFormat(def,aid,change.format);
+    selection={sectionId:section.id,formatId,nodeId:def.areaFormats![formatId].fragment.rootIds[0]};
   }else if(change.kind==='format'){
     const id=makeFormat(def,areaIdOf(resolve(def,change.at).node),change.key);
     selection={sectionId:change.at.sectionId,formatId:id};

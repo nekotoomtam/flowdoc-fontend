@@ -195,7 +195,8 @@ main{padding:0 14px 24px}
 .visual-form-body [data-catalog-caption]:not(:empty){display:block;margin-bottom:4px;color:#41576b}
 .visual-form-body [data-visual-picker]{margin-inline-start:5px}
 .paper-edit-tools{margin:8px 0;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 10px}
-#paper-selection{margin:0 0 6px;font-weight:600;color:#234d3e;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.paper-context{display:flex;align-items:center;gap:6px;min-height:28px;margin-bottom:6px}
+#paper-selection{flex:0 0 auto;max-width:55%;margin:0;font-weight:600;color:#234d3e;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #paper-actions{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
 #paper-actions details{position:relative}
 #paper-actions summary,#paper-actions>button{border:1px solid #a5b9af;border-radius:6px;padding:5px 9px;background:#fff;color:#204c3c;cursor:pointer;font-size:13px}
@@ -205,7 +206,7 @@ main{padding:0 14px 24px}
 .paper-command-list button{display:block;text-align:left;width:100%;border:0;background:#fff}
 .paper-command-list button:hover,.paper-command-list button:focus-visible{background:#e3efe8}
 .paper-command-list p{margin:6px 8px}
-#paper-path{display:flex;gap:4px;align-items:center;overflow:auto;margin-bottom:6px}
+#paper-path{display:flex;gap:4px;align-items:center;min-width:0;overflow:auto;scrollbar-width:none}
 #paper-path button{border:0;background:#edf4ef;color:#205442;max-width:165px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;padding:3px 6px;flex:none}
 #paper-path span{color:#52685c}
 #paper-selection span{display:inline-block;border-radius:4px;background:#deefe3;color:#174e3c;margin-right:6px;padding:2px 5px}

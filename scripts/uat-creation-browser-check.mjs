@@ -212,12 +212,13 @@ try{
   await id('paper').getByRole('button',{name:'{{เลขหน้า}}',exact:true}).waitFor();
   const guide=name=>id('creation-next').getByRole('button',{name,exact:true});
   await byKind('section').click();await firstArea.click();
+  assert.equal(await id('structure-form').locator('[name=key]').getAttribute('placeholder'),'เช่น parts');
+  assert.equal(await id('structure-form').locator('[name=format]').getAttribute('placeholder'),'เช่น cover');
   await form({key:'parts',format:'cover'});
   await id('tree').locator('[data-kind=format]').first().waitFor();
   assert.equal(await id('tree').locator('[data-kind=format]').count(),1);
   await photo('03-first-area');
-  await guide('เปิด Format cover').click();
-  await guide('เลือกกล่องข้อความ').click();
+  assert.match(await id('paper-selection').textContent(),/กล่องข้อความ.*ข้อความใหม่/);
   await guide('ประกาศตัวแปร').click();await form({key:'title',type:'string',required:'yes'});
   await guide('ผูกตัวแปรกับกล่องนี้').click();await form({field:'local:title'});
   const boundTitle=id('paper').getByRole('button',{name:'{{title}}',exact:true});

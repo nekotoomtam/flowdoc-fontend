@@ -389,7 +389,7 @@ function variableOptionsFor(input:HTMLInputElement,root:Element,catalog:Catalog)
   }));
 }
 export function openVisualAuthoring(
-  dialog:HTMLDialogElement,part:string,label:string,input:unknown,catalog:Catalog,commit:(value:unknown)=>void,focusNodeId?:string,
+  dialog:HTMLDialogElement,part:string,label:string,input:unknown,catalog:Catalog,commit:(value:unknown)=>void,focus?:string|string[],
 ){
   const form=make('form'),head=make('header'),title=make('h2',label),body=make('div'),footer=make('footer');
   const error=make('p');error.setAttribute('role','alert');error.className='visual-error';
@@ -466,9 +466,17 @@ export function openVisualAuthoring(
     catch(cause){error.textContent=cause instanceof Error?cause.message:String(cause);}
   };
   dialog.showModal();
-  if(focusNodeId){
-    const input=Array.from(body.querySelectorAll<HTMLInputElement>('[data-visual-field="id"] input'))
-      .find(candidate=>candidate.value===focusNodeId);
+  if(focus){
+    const input=typeof focus==='string'
+      ?Array.from(body.querySelectorAll<HTMLInputElement>('[data-visual-field="id"] input')).find(candidate=>candidate.value===focus)
+      :Array.from(body.querySelectorAll<HTMLInputElement>('[data-visual-key]')).find(candidate=>{
+        const path:string[]=[];
+        for(let row=candidate.closest('[data-visual-row]');row;row=row.parentElement?.closest('[data-visual-row]')??null){
+          const key=row.querySelector<HTMLInputElement>(':scope > .visual-row-body > label > [data-visual-key]');
+          if(key)path.unshift(key.value);
+        }
+        return path.length===focus.length&&path.every((key,index)=>key===focus[index]);
+      });
     if(input){
       const first=input.closest('details');
       for(let row=first;row;row=row.parentElement?.closest('details')??null)row.open=true;

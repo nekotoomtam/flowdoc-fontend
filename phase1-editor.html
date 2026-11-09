@@ -34,8 +34,10 @@
     <section class="panel" aria-label="Tree โครงสร้าง"><h2>โครงสร้างเอกสาร</h2><div class="structure-tools"><button id="add-section" type="button">+ เพิ่ม Section</button></div><div id="tree"></div></section>
     <section class="panel workspace" aria-label="กระดาษนิยาม"><div class="paper-toolbar"><h2>กระดาษนิยาม</h2><div class="paper-controls"><button id="zoom-out" type="button" aria-label="ย่อกระดาษ" disabled>−</button><span id="paper-zoom">100%</span><button id="zoom-in" type="button" aria-label="ขยายกระดาษ">+</button><button id="show-structure-sequence" type="button" aria-pressed="false" aria-controls="paper">ดูโครงต่อเนื่อง</button><details class="paper-view-options"><summary>มุมมอง</summary><div class="paper-view-menu"><button id="show-guides" type="button" aria-pressed="true">เส้นช่วยดูโครง</button><button id="show-handles" type="button" aria-pressed="false">แสดงจุดเลือก</button><p id="guide-legend">กรอบเขียวแสดงขอบตาราง · แถบสีอำพันคือช่องว่างที่กดปรับได้</p></div></details></div></div>
       <div id="paper-edit-tools" class="paper-edit-tools" role="group" aria-label="แก้ไขบนกระดาษ">
-        <nav id="paper-path" aria-label="ตำแหน่งในโครงเอกสาร"></nav>
-        <p id="paper-selection" aria-live="polite"></p>
+        <div class="paper-context">
+          <nav id="paper-path" aria-label="ตำแหน่งในโครงเอกสาร"></nav>
+          <p id="paper-selection" aria-live="polite"></p>
+        </div>
         <div id="creation-next" class="creation-next" hidden></div>
         <p id="paper-layout-summary" hidden></p>
         <div id="paper-actions"></div>
@@ -47,7 +49,14 @@
     <aside class="inspector-tools" aria-label="เครื่องมือแก้โครง">
       <details id="variable-panel" name="inspector-tools">
         <summary>นิยามตัวแปร</summary>
-        <div class="panel inspector-drawer"><p id="variable-detail" role="status"></p><div id="variables"></div></div>
+        <div class="panel inspector-drawer">
+          <strong id="selected-variable-title" hidden>ตัวแปรที่เลือก</strong>
+          <p id="variable-detail" role="status"></p><div id="selected-variable-actions" class="structure-tools"></div>
+          <details id="variable-directory" open>
+            <summary hidden>ดูตัวแปรทั้งหมด</summary>
+            <p id="directory-variable-detail" role="status"></p><div id="variables"></div>
+          </details>
+        </div>
       </details>
       <details id="layout-inspector" name="inspector-tools">
         <summary>รายละเอียดตำแหน่ง</summary>

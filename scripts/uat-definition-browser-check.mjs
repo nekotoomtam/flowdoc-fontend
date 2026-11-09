@@ -72,8 +72,10 @@ try{
   assert.match(await page.locator('#tree [aria-current=true]').textContent(),/menu/);
   assert.match(await page.locator('#variable-detail').textContent(),/members\[\].*menu/);
   if(await page.locator('#variable-panel').getAttribute('open')===null)await page.locator('#variable-panel > summary').click();
+  await page.locator('#variable-directory > summary').click();
   await page.locator('#variables .scope').filter({has:page.getByText('Format · summary-dynamic',{exact:true})}).locator('[data-variable-path="totals[].pass"]').click();
-  assert.match(await page.locator('#variable-detail').textContent(),/totals\[\]\.pass/);
+  assert.match(await page.locator('#directory-variable-detail').textContent(),/totals\[\]\.pass/);
+  assert.match(await page.locator('#variable-detail').textContent(),/members\[\].*menu/);
   await token.click();
   assert.match(await page.locator('#variable-detail').textContent(),/members\[\].*menu/);
   await page.screenshot({path:join(output,'uat-definition-menu-binding.png')});

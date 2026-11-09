@@ -599,34 +599,41 @@ function scrollWithin(viewport:HTMLElement,target:HTMLElement){
   if(selected.top<box.top)viewport.scrollTop+=selected.top-box.top-8;
   else if(selected.bottom>box.bottom)viewport.scrollTop+=selected.bottom-box.bottom+8;
 }
+type VariableScope={scope:string;label:string;schema:Schema;at:Ref;part:Part;path:string[]};
 function variableScopes(item:Outline){
-  const scopes: {scope:string;label:string;schema:Schema}[]=[
-    {scope:'global',label:'ทั้งเอกสาร',schema:draft.definition.globalSchema},
-    {scope:'section',label:'ส่วนเอกสาร',schema:item.section.inputSchema}
+  const section={sectionId:item.ref.sectionId};
+  const scopes:VariableScope[]=[
+    {scope:'global',label:'ทั้งเอกสาร',schema:draft.definition.globalSchema,at:roots[0].ref,part:'globalSchema',path:[]},
+    {scope:'section',label:'ส่วนเอกสาร',schema:item.section.inputSchema,at:section,part:'section-schema',path:[]}
   ];
-  if(item.band)scopes.push({scope:item.ref.band!,label:item.ref.band==='header'?'หัวกระดาษ':'ท้ายกระดาษ',schema:item.band.inputSchema});
-  if(item.format)scopes.push({scope:'local',label:'รูปแบบ · '+item.format.key,schema:item.format.inputSchema});
+  if(item.band)scopes.push({scope:item.ref.band!,label:item.ref.band==='header'?'หัวกระดาษ':'ท้ายกระดาษ',schema:item.band.inputSchema,
+    at:{...section,band:item.ref.band},part:'band-schema',path:[]});
+  if(item.format)scopes.push({scope:'local',label:'รูปแบบ · '+item.format.key,schema:item.format.inputSchema,
+    at:{...section,formatId:item.ref.formatId},part:'format-schema',path:[]});
   const host=item.format??item.band??item.section.source;
   const lineage=new Set<string>();
   for(let p:Outline|undefined=item;p;p=p.parent)if(p.node)lineage.add(p.node.id);
-  const scopeField=(source?:{scope:string;key:string})=>source?scopes.find(x=>x.scope===source.scope)?.schema.fields[source.key]:undefined;
+  const repeatedScope=(source:{scope:string;key:string},scope:string,label:string)=>{
+    const owner=scopes.find(candidate=>candidate.scope===source.scope);
+    const schema=owner?.schema.fields[source.key]?.items;
+    return owner&&schema?{...owner,scope,label,schema,path:[...owner.path,source.key]}:undefined;
+  };
   const group=host.rowGroups?.find(group=>group.rowTemplateIds.some(row=>lineage.has(row)));
-  const groupSchema=scopeField(group?.source)?.items;
-  if(group&&groupSchema){
-    scopes.push({scope:'group',label:'กลุ่ม · '+group.source.key+'[]',schema:groupSchema});
+  const groupScope=group&&repeatedScope(group.source,'group','กลุ่ม · '+group.source.key+'[]');
+  if(group&&groupScope){
+    scopes.push(groupScope);
     const member=group.memberRepeat;
-    const schema=groupSchema.fields[member.source.key]?.items;
-    if(schema&&lineage.has(member.rowTemplateId))
-      scopes.push({scope:'item',label:'รายการในกลุ่ม · '+member.source.key+'[]',schema});
+    const itemScope=repeatedScope(member.source,'item','รายการในกลุ่ม · '+member.source.key+'[]');
+    if(itemScope&&lineage.has(member.rowTemplateId))scopes.push(itemScope);
   }
   const repeat=host.repeats?.find(repeat=>lineage.has(repeat.rowTemplateId));
   const cellRepeat=host.cellRepeats?.find(repeat=>repeat.childTemplateIds.some(node=>lineage.has(node)));
-  const activeRepeat=cellRepeat??repeat;
-  const itemSchema=scopeField(activeRepeat?.source)?.items;
-  if(activeRepeat?.source&&itemSchema){
+  const repeatSource=(cellRepeat??repeat)?.source;
+  const itemScope=repeatSource&&repeatedScope(repeatSource,'item','รายการที่วนซ้ำ · '+repeatSource.key+'[]');
+  if(itemScope){
     const old=scopes.findIndex(x=>x.scope==='item');
     if(old>=0)scopes.splice(old,1);
-    scopes.push({scope:'item',label:'รายการที่วนซ้ำ · '+activeRepeat.source.key+'[]',schema:itemSchema});
+    scopes.push(itemScope);
   }
   return scopes;
 }
@@ -637,7 +644,7 @@ function variableGroup(schema:Schema,scope:string,label:string,at?:Ref){
   container.dataset.scope=scope;
   if(at)container.dataset.owner=refKey(at);
   container.append(element('summary',label));
-  const value=q('variable-detail');
+  const value=q('directory-variable-detail');
   function fields(current:Schema,base=''):HTMLUListElement{
     const list=element('ul');
     for(const [key,definition] of Object.entries(current.fields)){
@@ -694,13 +701,17 @@ function drawVariables(item:Outline){
   const selected=item.inline?.type==='field-ref'&&item.inline.scope&&item.inline.key
     ?{scope:item.inline.scope,key:item.inline.key}:item.node?.type==='image'?item.node.props?.source:undefined;
   variables.querySelector('[aria-current=true]')?.removeAttribute('aria-current');
-  q('variable-detail').textContent='';
+  const detail=q('variable-detail'),heading=q('selected-variable-title'),actions=q('selected-variable-actions');
+  const directory=q<HTMLDetailsElement>('variable-directory'),panel=q<HTMLDetailsElement>('variable-panel');
+  const hadField=!heading.hidden;
+  detail.textContent='';q('directory-variable-detail').textContent='';actions.replaceChildren();
   for(const stale of contextVariables.children){
     for(const [schema,group] of variableGroups)if(group===stale)variableGroups.delete(schema);
   }
   const scopes=variableScopes(item);
   contextVariables.replaceChildren(...scopes.filter(scope=>scope.scope==='group'||scope.scope==='item')
     .map(({schema,scope,label})=>variableGroup(schema,scope,label)));
+  heading.hidden=true;
   if(selected){
     const scope=scopes.find(scope=>scope.scope===selected.scope);
     const group=scope&&variableGroups.get(scope.schema);
@@ -708,10 +719,26 @@ function drawVariables(item:Outline){
       .find(control=>control.dataset.variablePath===selected.key);
     if(field&&scope){
       field.setAttribute('aria-current','true');
-      q('variable-detail').textContent=scope.label+' › '+field.textContent;
-      q<HTMLDetailsElement>('variable-panel').open=true;
+      detail.textContent=scope.label+' › '+field.textContent;
+      heading.hidden=false;
+      if(creationMode()){
+        const edit=button('แก้นิยาม',()=>void editPart(scope.at,scope.part,'ตัวแปร · '+scope.label+' › '+selected.key,[...scope.path,selected.key]));
+        edit.dataset.schemaAction='';
+        edit.disabled=isSaving||hasConflict;
+        actions.append(edit);
+      }
+      if(item.inline?.type==='field-ref'){
+        const bind=button('เปลี่ยนตัวแปรที่ผูก',()=>askBinding(item));
+        bind.dataset.schemaAction='';
+        bind.disabled=isSaving||hasConflict;
+        actions.append(bind);
+      }
+      panel.open=true;
     }
   }
+  directory.querySelector('summary')!.hidden=heading.hidden;
+  directory.open=heading.hidden;
+  if(heading.hidden&&hadField)panel.open=false;
 }
 
 function select(item: Outline, measure: boolean, spacing?:'before'|'after') {
@@ -782,7 +809,7 @@ function refreshButtons(){
   save.disabled=dirty||isSaving||hasConflict||!templateId;
   input.readOnly=dirty||isSaving;
   if(selection)showActions(selection);
-  for(const control of variables.querySelectorAll<HTMLButtonElement>('[data-schema-action]'))control.disabled=isSaving||hasConflict;
+  for(const control of q('variable-panel').querySelectorAll<HTMLButtonElement>('[data-schema-action]'))control.disabled=isSaving||hasConflict;
 }
 function showDraft(data: Draft, keep?: Ref) {
   draft=data;
@@ -824,7 +851,7 @@ function showDraft(data: Draft, keep?: Ref) {
   document.body.dataset.revision=String(data.revision);
 }
 const dialog=q<HTMLDialogElement>('structure-dialog'), actionForm=q<HTMLFormElement>('structure-form');
-type FormField={key:string;label:string;options?:[string,string][];value?:string;numeric?:boolean};
+type FormField={key:string;label:string;options?:[string,string][];value?:string;numeric?:boolean;placeholder?:string};
 type FormControls=Map<string,HTMLInputElement|HTMLSelectElement>;
 function ask(title:string, fields:FormField[], run:(values:Record<string,string>)=>void, note?:string, setup?:(controls:FormControls)=>void){
   const heading=element('h2',title);heading.id='structure-dialog-title';
@@ -835,7 +862,10 @@ function ask(title:string, fields:FormField[], run:(values:Record<string,string>
     const label=element('label',field.label);
     const control=field.options?element('select'):element('input');
     control.required=true;control.name=field.key;
-    if(control instanceof HTMLInputElement&&field.numeric){control.type='number';control.min='0';control.step='any';}
+    if(control instanceof HTMLInputElement){
+      if(field.numeric){control.type='number';control.min='0';control.step='any';}
+      if(field.placeholder)control.placeholder=field.placeholder;
+    }
     if(control instanceof HTMLSelectElement)for(const [value,text] of field.options??[]){
       const option=element('option',text);option.value=value;control.append(option);
     }
@@ -880,8 +910,11 @@ function destinations(item:Outline){
   return [];
 }
 function askArea(at:Ref){
-  ask('เพิ่ม Area พร้อม Format แรก',[{key:'key',label:'ชื่อ Area'},{key:'format',label:'ชื่อ Format แรก'}],
-    v=>stage({kind:'area',at,key:v.key,format:v.format}),'Area เป็นตำแหน่งบนกระดาษ ส่วน Format กำหนดสิ่งที่จะวางในพื้นที่นี้');
+  ask('วางพื้นที่และสร้างแม่แบบแรก',[
+    {key:'key',label:'รหัสพื้นที่ (Area)',placeholder:'เช่น parts'},
+    {key:'format',label:'รหัสแม่แบบแรก (Format)',placeholder:'เช่น cover'},
+  ],v=>stage({kind:'area',at,key:v.key,format:v.format}),
+  'Area คือจุดวางเนื้อหา ส่วน Format คือแม่แบบที่ใช้ตรงนั้น ทั้งสองรหัสขึ้นต้นด้วยตัวอักษรอังกฤษ และใช้ตัวเลข _ หรือ - ต่อได้');
 }
 function askFormat(area:Outline){
   ask('เพิ่ม Format ใน '+area.label,[{key:'key',label:'ชื่อในนิยาม'}],values=>stage({kind:'format',at:area.ref,key:values.key}));
@@ -905,7 +938,7 @@ function listFonts(){
     return body.value.releases as FontOption[];
   }).catch(()=>{fontCatalog=undefined;return [];});
 }
-async function editPart(at:Ref,part:Part,label:string,focusNodeId?:string){
+async function editPart(at:Ref,part:Part,label:string,focus?:string|string[]){
   const fonts=part==='styles'?await listFonts():[];
   if(isSaving||hasConflict)return;
   const section=draft.definition.sections.find(s=>s.id===at.sectionId)!;
@@ -918,7 +951,7 @@ async function editPart(at:Ref,part:Part,label:string,focusNodeId?:string){
       ...(at.band?{[at.band]:section[at.band]?.inputSchema}:{}),
       local:draft.definition.areaFormats?.[at.formatId??'']?.inputSchema},
     localScope:part==='format'?'local':part==='band'?at.band:undefined,
-  },value=>stageDefinition(applyPart(draft.definition,at,part,value),focusNodeId?selection!.ref:at,'part'),focusNodeId);
+  },value=>stageDefinition(applyPart(draft.definition,at,part,value),focus?selection!.ref:at,'part'),focus);
 }
 function paperSettings(item:Outline){
   const at=item.ref;
@@ -968,8 +1001,16 @@ function askBinding(item:Outline){
   const options=variableScopes(item).flatMap(({scope,label,schema})=>Object.entries(schema.fields)
     .filter(([,f])=>f.type==='string'||f.type==='link').map(([key])=>[scope+':'+key,label+' › '+key] as [string,string]));
   if(!options.length){status.textContent='ประกาศตัวแปรข้อความหรือลิงก์ในขอบเขตนี้ก่อน';return;}
-  ask('ผูกตัวแปรกับข้อความ',[{key:'field',label:'ตัวแปร',options}],values=>{
+  const prior=item.inline?.type==='field-ref'?item.inline.scope+':'+item.inline.key:undefined;
+  if(prior&&!options.some(([key])=>key===prior))options.unshift([prior,'ตัวแปรที่ผูกอยู่ · '+item.inline!.key]);
+  ask(prior?'เปลี่ยนตัวแปรที่ผูก':'ผูกตัวแปรกับข้อความ',[{key:'field',label:'ตัวแปร',options,value:prior}],values=>{
+    if(values.field===prior)return;
     const [scope,key]=values.field.split(':');stage({kind:'binding',at:item.ref,scope,key});
+  },prior?'เลือกตัวแปรอื่นเพื่อยืนยันการเปลี่ยน':undefined,controls=>{
+    if(!prior)return;
+    const field=controls.get('field')!,confirm=actionForm.querySelector<HTMLButtonElement>('button[type=submit]')!;
+    const update=()=>{confirm.disabled=field.value===prior;};
+    field.addEventListener('change',update);update();
   });
 }
 function displayLength(value:Length){return new Intl.NumberFormat('th-TH',{maximumFractionDigits:3}).format(value.value)+' '+value.unit;}
@@ -1086,7 +1127,7 @@ function showLayoutFacts(item:Outline,spacing?:'before'|'after'){
   const note=(label:string,value:string)=>{
     const block=element('div');block.className='layout-fact';
     block.append(element('strong',label),element('p',value));panel.append(block);
-    if(summary.hidden&&item.type!=='section'){summary.textContent=label+' · '+value;summary.hidden=false;}
+    if(summary.hidden&&item.type!=='section'&&item.inline?.type!=='field-ref'){summary.textContent=label+' · '+value;summary.hidden=false;}
   };
   const navigate=(label:string,target:Outline)=>panel.append(button(label,()=>select(target,true)));
   const edit=(label:string,run:()=>void)=>{
@@ -1107,13 +1148,17 @@ function showLayoutFacts(item:Outline,spacing?:'before'|'after'){
     const position=[rowNumber?'แถว '+rowNumber+(rowNumber<=(table.node?.props?.headerRowCount??0)?' (หัวตาราง)':''):'',
       column?'คอลัมน์ '+column+(cell?.node?.props?.colSpan&&cell.node.props.colSpan>1?' ครอบ '+cell.node.props.colSpan+' คอลัมน์':''):''].filter(Boolean);
     note(position.length?'อยู่ในตาราง · '+position.join(' · '):'ตาราง',rows+' แถวต้นแบบ × '+columns+' คอลัมน์');
-    actions.append(element('strong','แก้ตาราง'));
-    const editRow=edit('การแบ่งหน้าแถว',()=>editTableRow(table,row));
-    if(rows<=(table.node?.props?.headerRowCount??0)){
-      editRow.disabled=true;editRow.title='ตารางนี้มีเฉพาะหัวตาราง';
+    if(item===table||item===row||item===cell)actions.append(element('strong','แก้'+itemType(item)));
+    if(item===table||item===row){
+      const editRow=edit('การแบ่งหน้าแถว',()=>editTableRow(table,row));
+      if(rows<=(table.node?.props?.headerRowCount??0)){
+        editRow.disabled=true;editRow.title='ตารางนี้มีเฉพาะหัวตาราง';
+      }
     }
-    edit('ความกว้างคอลัมน์',()=>editTableColumn(table,Math.max(0,column-1)));
-    edit('ระยะขอบในเซลล์',()=>editTableCell(table,cell));
+    if(item===table||item===cell){
+      edit('ความกว้างคอลัมน์',()=>editTableColumn(table,Math.max(0,column-1)));
+      edit('ระยะขอบในเซลล์',()=>editTableCell(table,cell));
+    }
     if(row)note('การแบ่งหน้า',
       rowNumber<=(table.node?.props?.headerRowCount??0)?'หัวตารางอยู่ด้วยกัน':
       row.node?.props?.allowBreak?'อนุญาตให้แบ่งแถวข้ามหน้า':'ย้ายทั้งแถวไปหน้าถัดไปเมื่อพื้นที่ไม่พอ');
@@ -1204,6 +1249,7 @@ function showPaperLocation(item:Outline){
   selected.title=outlinePath(item);
 
   const ordered=item.inline&&item.parent?item.parent:item;
+  if(item.inline?.type==='field-ref')return;
   const state=structureOrder(draft.definition,ordered.ref);
   if(state?.ids.length===1&&state.up==='ถึงขอบเขตที่ย้ายได้แล้ว')return;
   if(!state){

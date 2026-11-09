@@ -21,7 +21,7 @@ type DrawPage = {
 };
 type TrialTab = {occurrence:string;pageIndex:number};
 type PreviewEdit = {previous?:TrialTab;next?:TrialTab;key:string;occurrence:string;start:number;end:number;blank?:boolean;contentWidth?:number;align?:string;clusters:[number,number,number][]};
-type Preview = {trialPatchBase?:boolean;pageKeys?:(string|null)[];pageSizes?:[number,number,string][];pageIndex?:number;previewId?:string;revision: number; fingerprint: string; engineVersion: string; engineMs: number; renderMs: number; layoutHash: string; renderPath?:string; pageCount: number; pages: DrawPage[]; paged?:boolean; entryCount?:number; imagePlacements?:number};
+type Preview = {trialPatchBase?:boolean;pageKeys?:(string|null)[];pageSizes?:[number,number,string][];pageIndex?:number;previewId?:string;revision: number; fingerprint: string; engineVersion: string; engineMs: number; renderMs: number; layoutHash?: string; renderPath?:string; pageCount: number; pages: DrawPage[]; paged?:boolean; entryCount?:number; imagePlacements?:number};
 type ServiceReply = {ok: boolean; value?: Draft; issues?: {code: string; path?:string}[]};
 const q = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id)! as T;
 const title = q('title'), status = q('status'), editor = q('editor'), tree = q('tree'), paper = q('paper'), variables = q('variables');
@@ -33,6 +33,7 @@ const jump=q<HTMLInputElement>('jump-page');
 const benchmark=sessionStorage.getItem('flowdoc:benchmark-preview')==='1';
 const canvasPreview=new URLSearchParams(location.search).get('previewRenderer')==='canvas';
 const resumablePreview=new URLSearchParams(location.search).get('previewEngine')==='resume';
+const browserPreview=new URLSearchParams(location.search).get('previewEngine')==='worker';
 const fullTrialTransport=new URLSearchParams(location.search).get('previewTransport')==='full'||
   sessionStorage.getItem('flowdoc:full-trial-transport')==='1';
 let pendingPage:AbortController|undefined;
@@ -1294,6 +1295,7 @@ async function readDraft() {
   return reply.value;
 }
 function cancelPreview() {
+  disposePreviewWorker();
   pendingPreview?.abort();pendingPreview=undefined;
   paperDraft=undefined;closePaperEdit();
   resetPreviewPages();paperInteractionBlocked=false;jump.disabled=true;
@@ -1678,11 +1680,18 @@ function ensurePage(index:number):Promise<boolean>{
     try{
       let page=result.paged?(index===(result.pageIndex??0)?result.pages[0]:undefined):result.pages[index];
       if(!page){
-        const route=result.previewId?'/preview-runs/'+encodeURIComponent(result.previewId)+'/pages/'+index:'/preview-pages/'+result.revision+'/'+index;
-        const response=await fetch(endpoint+route,{signal:AbortSignal.any([controller.signal,AbortSignal.timeout(15000)])});
-        const data=await response.json();
-        if(!response.ok||data.revision!==result.revision||data.index!==index||!data.page)throw Error('Page unavailable');
-        page=data.page as DrawPage;
+        if(result.renderPath==='browser-wasm'){
+          const local=await workerPage(result.previewId!,index);
+          page=local.page;
+          if(result.pageKeys)result.pageKeys[index]=local.key;
+        }
+        else{
+          const route=result.previewId?'/preview-runs/'+encodeURIComponent(result.previewId)+'/pages/'+index:'/preview-pages/'+result.revision+'/'+index;
+          const response=await fetch(endpoint+route,{signal:AbortSignal.any([controller.signal,AbortSignal.timeout(15000)])});
+          const data=await response.json();
+          if(!response.ok||data.revision!==result.revision||data.index!==index||!data.page)throw Error('Page unavailable');
+          page=data.page as DrawPage;
+        }
       }
       await readyImages(page,result.previewId);
       if(preview!==result||controller.signal.aborted||!showingPreview)return false;
@@ -1790,6 +1799,68 @@ window.addEventListener('scroll',()=>{
   });
 },{passive:true});
 
+let previewWorker:Worker|undefined,workerSequence=0,paintedWorkerRevision=0;
+const workerLayouts=new Map<number,{focus?:Trial['focus'];current:()=>boolean;usable:()=>boolean;started:number}>();
+type WorkerPage={page:DrawPage;key:string};
+const workerPages=new Map<number,{resolve:(result:WorkerPage)=>void;reject:(error:Error)=>void}>();
+function disposePreviewWorker(){
+  previewWorker?.terminate();previewWorker=undefined;
+  workerLayouts.clear();
+  for(const {reject} of workerPages.values())reject(Error('Preview closed'));
+  workerPages.clear();
+}
+function getPreviewWorker(){
+  if(previewWorker)return previewWorker;
+  const worker=new Worker(new URL('./preview-layout-worker.mjs',import.meta.url),{type:'module'});
+  previewWorker=worker;
+  worker.onerror=()=>{
+    if(previewWorker!==worker)return;
+    disposePreviewWorker();
+    previewStatus.textContent='เปิด Engine บนเบราว์เซอร์ไม่สำเร็จ';
+  };
+  worker.onmessage=({data})=>{
+    if(previewWorker!==worker)return;
+    if(data.kind==='page'){
+      const task=workerPages.get(data.id);
+      workerPages.delete(data.id);
+      if(data.error)task?.reject(Error(data.error));
+      else task?.resolve({page:data.page,key:data.key});
+      return;
+    }
+    const task=workerLayouts.get(data.revision);
+    workerLayouts.delete(data.revision);
+    if(data.kind!=='layout'||!task?.usable()||!showingPreview||data.revision<=paintedWorkerRevision)return;
+    if(data.error){
+      if(task.current())previewStatus.textContent='จัดหน้าในเบราว์เซอร์ไม่สำเร็จ · '+data.error;
+      return;
+    }
+    const result=data.preview as Preview;
+    if(result.revision!==draft.revision||result.fingerprint!==draft.fingerprint)return;
+    paintedWorkerRevision=data.revision;
+    const desired=task.focus?.occurrence!==paperEdit?.occurrence?Math.min(pageIndex,result.pageCount-1):undefined;
+    if(task.current())paperDraft=undefined;
+    mountPreview(result,desired);
+    previewStatus.textContent=task.current()?'Core WASM · '+result.pageCount+' หน้า':
+      'แสดงผลจัดหน้าล่าสุดในเบราว์เซอร์ · กำลังจัดหน้าต่อ…';
+    afterPaint('flowdoc:engine-preview',task.started,{revision:result.revision,inputRevision:data.revision,
+      pageCount:result.pageCount,engineMs:result.engineMs,renderMs:result.renderMs,renderPath:result.renderPath});
+  };
+  worker.postMessage({kind:'open',draft});
+  return worker;
+}
+function workerPage(run:string,index:number){
+  if(!previewWorker)return Promise.reject(Error('Browser Engine unavailable'));
+  const id=++workerSequence;
+  return new Promise<WorkerPage>((resolve,reject)=>{
+    workerPages.set(id,{resolve,reject});
+    previewWorker!.postMessage({kind:'page',id,run,index});
+  });
+}
+function queueWorkerPreview(trial:Trial,current:()=>boolean,usable:()=>boolean){
+  const worker=getPreviewWorker(),revision=++workerSequence;
+  workerLayouts.set(revision,{focus:trial.focus,current,usable,started:performance.now()});
+  worker.postMessage({kind:'layout',revision,trial});
+}
 async function loadPreview(trial?:Trial,current=()=>true,usable=current,structure=0,fields?:ReadonlyMap<string,HTMLTextAreaElement>) {
   if(!draft||pendingPreview||!showingPreview||isDirty())return;
   const started=performance.now(), revision=draft.revision, fingerprint=draft.fingerprint;
@@ -1866,6 +1937,7 @@ function openPreview(){
   const starter=new Map([...activeFormats.values()].map(format=>[format.ownerAreaId,format.key]));
   trialForm=mountTrial(q<HTMLFormElement>('trial-form'),draft.definition,starter,(structural,key)=>{
     if(structural){
+      disposePreviewWorker();
       paperInteractionBlocked=true;paperDraft=undefined;closePaperEdit();
     }else if(key){
       if(paperDraft?.key===key&&!trialPaperDraft.hidden)showDraftText();
@@ -1874,6 +1946,11 @@ function openPreview(){
     previewStatus.textContent='กำลังอัปเดตข้อมูลทดลอง…';
   },(trial,current,usable,structure,fields)=>{
     if(trialVersion!==version||!showingPreview||isDirty())return Promise.resolve();
+    if(browserPreview&&!trial.images.length){
+      queueWorkerPreview({...trial,pageIndex},current,usable);
+      return Promise.resolve();
+    }
+    disposePreviewWorker();
     return loadPreview({...trial,pageIndex},current,usable,structure,fields);
   });
 }
@@ -1882,7 +1959,7 @@ function changeMode(toPreview: boolean) {
   defineTab.setAttribute('aria-pressed',String(!toPreview));previewTab.setAttribute('aria-pressed',String(toPreview));
   if(toPreview){openPreview();positionPaperEditor();pumpPages();}
   if(!toPreview)closePaperEdit();
-  if(!toPreview&&pendingPreview){
+  if(!toPreview&&(pendingPreview||previewWorker)){
     cancelPreview();refreshPreview.disabled=false;
     if(!benchmark)previewStatus.textContent='กำลังรอเปิดกระดาษทดลอง';
   }

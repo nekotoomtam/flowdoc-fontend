@@ -9,6 +9,7 @@
     "check:browser": "node scripts/browser-check.mjs",
     "build:wasm": "node scripts/build-wasm.mjs",
     "build:core-layout": "node scripts/build-core-layout.mjs",
+    "build:worker-engine": "node scripts/build-worker-engine.mjs",
     "check:live": "node scripts/live-input-check.mjs"
   },
   "dependencies": {

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
 import {loadOriginalUat} from './original-uat-preview.mjs';
+import {projectTrialPage,trialFocusPage} from './trial-preview-projection.mjs';
 import {trialImages} from './trial-preview-images.mjs';
 import {applyTrialValueChanges} from './trial-value-delta.mjs';
 import {layoutPreview} from './trial-engine-layout.mjs';
@@ -98,35 +99,6 @@ function identifyTrialPages(draw,bindings,fonts){
   });
   return {pageKeys,layoutHash:documentHash.update(']').digest('hex')};
 }
-function projectOriginalPage(cache,index){
-  const {commands,images,...page}=cache.draw.pages[index];
-  const glyphs=Object.create(null);
-  const lines=commands.map(command=>{
-    const {text,bounds,fontId,fontSizePt,baselineOffsetPt,color,glyphs:run}=command;
-    const [units,paths]=cache.paths[fontId];
-    const font=cache.fonts.indexOf(fontId), scale=fontSizePt/units;
-    let advance=0;
-    const glyphUses=[];
-    for(const g of run){
-      const d=paths[g.glyphId], key='g'+font+'-'+g.glyphId;
-      if(d){glyphs[key]=d;glyphUses.push([key,bounds.xPt+advance+g.offsetXPt,bounds.yPt+baselineOffsetPt-g.offsetYPt]);}
-      advance+=g.advancePt;
-    }
-    const owner=cache.bindings?.lines.get(command);
-    let edit;
-    if(owner){
-      let x=0;
-      const clusters=run.map(g=>{
-        const cluster=[x,owner.blank?0:owner.start+g.clusterStartOffset,owner.blank?0:owner.start+g.clusterEndOffset];
-        x+=g.advancePt;return cluster;
-      });
-      edit={...owner,clusters,...cache.bindings.tab.get(owner.occurrence)};
-    }
-    return {text,...bounds,fontSizePt,baselineOffsetPt,color,scale,glyphUses,...(edit?{edit}:{})};
-  });
-  return {...page,sampleImages:images??[],glyphs,lines};
-}
-
 let resumePreview;
 try {
   if(process.env.FLOWDOC_RESUMABLE_PREVIEW==='1')resumePreview=await createResumePreview();
@@ -233,18 +205,8 @@ try {
         const paths=await glyphPaths(draw,resources);
         const cache={revision:draft.revision,fingerprint:draft.fingerprint,draw,paths,fonts:Object.keys(paths)};
         if(custom)cache.bindings=trialBindings(draft.definition,resolved,sample,draw);
-        const focus=trial?.focus;
-        const candidates=typeof focus?.key==='string'?cache.bindings?.locations.get(focus.key):undefined;
-        const matching=candidates?.filter(position=>position.occurrence===focus.occurrence);
-        const positions=matching?.length?matching:candidates;
-        const requestedPage=focus?.pageIndex??trial?.pageIndex;
-        const preferred=Number.isSafeInteger(requestedPage)?Math.min(Math.max(0,requestedPage),draw.pages.length-1):0;
-        const caret=Number.isSafeInteger(focus?.offset)?focus.offset:0;
-        const position=positions?.find(p=>p.pageIndex===preferred&&p.start<=caret&&caret<=p.end)
-          ??positions?.find(p=>p.start<=caret&&caret<=p.end)
-          ??positions?.find(p=>p.pageIndex===preferred);
-        const pageIndex=position?.pageIndex??preferred;
-        const first=projectOriginalPage(cache,pageIndex);
+        const pageIndex=trialFocusPage(trial,draw,cache.bindings);
+        const first=projectTrialPage(cache,pageIndex);
         const identity=custom?identifyTrialPages(draw,cache.bindings,resources.fonts):{layoutHash:hash(draw.pages)};
         cache.header={revision:cache.revision,fingerprint:cache.fingerprint,pages:[first],pageIndex,paged:true,
           pageCount:draw.pages.length,pageSizes,...identity,renderPath:'engine-layout',engineMs,renderMs:performance.now()-started,
@@ -355,14 +317,14 @@ try {
       }
       const index=packet.body.index;
       if(!Number.isSafeInteger(index)||index<0||index>=cache.draw.pages.length)return {status:404,body:{error:'not_found'}};
-      return {status:200,body:{revision:cache.revision,index,page:projectOriginalPage(cache,index)}};
+      return {status:200,body:{revision:cache.revision,index,page:projectTrialPage(cache,index)}};
     }
     if (packet.action === 'preview-page') {
       const {revision,index}=packet.body;
       if(originalPreview?.revision!==revision)return {status:409,body:{error:'PREVIEW_EXPIRED'}};
       if(!Number.isSafeInteger(index)||index<0||index>=originalPreview.draw.pages.length)
         return {status:404,body:{error:'not_found'}};
-      return {status:200,body:{revision,index,page:projectOriginalPage(originalPreview,index)}};
+      return {status:200,body:{revision,index,page:projectTrialPage(originalPreview,index)}};
     }
     if (packet.action === 'preview-asset') {
       const asset=(await original()).assets.get(packet.body.key);

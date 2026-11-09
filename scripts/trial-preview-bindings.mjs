@@ -1,12 +1,10 @@
-import {randomUUID} from 'node:crypto';
-
 export const blankGlyph='\u00a0';
 const blankGroupGlyph='\u200b';
 export function previewInput(sample,paths=[]){
   if(!Array.isArray(paths)||paths.length>50000)throw Error('invalid_blank_fields');
   const marks=new Set();
   if(!paths.length)return {input:sample,marks};
-  const input=structuredClone(sample),prefix='trial-'+randomUUID()+'-';
+  const input=structuredClone(sample),prefix='trial-'+globalThis.crypto.randomUUID()+'-';
   for(const path of paths){
     if(!Array.isArray(path)||!path.length||path.length>32||!['data','sections'].includes(path[0]))throw Error('invalid_blank_path');
     let parent=input;

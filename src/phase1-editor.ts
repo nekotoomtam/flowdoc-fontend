@@ -3,6 +3,7 @@ import {addBand,addVariable,applyPart,changePage,newDefinition,partValue,setting
 import type {Part} from './editor-creation';
 import {openVisualAuthoring} from './editor-visual-authoring';
 import {mountTrial} from './editor-trial';
+import {paperCaretStops,paperOffsetMap} from './paper-selection.mjs';
 import {trialValueChanges} from '../scripts/trial-value-delta.mjs';
 import type {Trial} from './editor-trial';
 
@@ -1297,7 +1298,7 @@ async function readDraft() {
 function cancelPreview() {
   disposePreviewWorker();
   pendingPreview?.abort();pendingPreview=undefined;
-  paperDraft=undefined;closePaperEdit();
+  renderedTrial=undefined;closePaperEdit();
   resetPreviewPages();paperInteractionBlocked=false;jump.disabled=true;
   preview=undefined;trialBase=undefined;previewPaper.replaceChildren();
   delete previewPaper.dataset.revision;
@@ -1364,7 +1365,6 @@ function paintBorders(sheet:SVGElement,page:DrawPage){
       ...(dash.length?{'stroke-dasharray':dash.join(' ')}:{}),...(cap==='round'?{'stroke-linecap':cap}:{})}));
   });
 }
-const canvasInk=new WeakMap<Element,(occurrence?:string)=>void>();
 function canvasSurface(page:DrawPage,cssWidth:number,sheet:SVGElement){
   // Keep the experiment on pages whose paint is entirely described by Engine geometry.
   if(!page.glyphs||page.lines.some(line=>!line.glyphUses)||(page.sampleImages??[]).some(image=>image.resourceId))return;
@@ -1377,128 +1377,126 @@ function canvasSurface(page:DrawPage,cssWidth:number,sheet:SVGElement){
   canvas.setAttribute('aria-hidden','true');
   const surface=element('div');surface.className='preview-canvas-surface';surface.append(canvas,sheet);
   const glyphs=new Map(Object.entries(page.glyphs).map(([id,path])=>[id,new Path2D(path)]));
-  const editable=new Set(page.lines.flatMap(line=>line.edit?[line.edit.occurrence]:[]));
-  let hidden:string|undefined,painted=false;
-  function paint(occurrence?:string){
-    const active=occurrence&&editable.has(occurrence)?occurrence:undefined;
-    if(painted&&active===hidden)return;
-    hidden=active;painted=true;
     ctx.setTransform(scaleX,0,0,scaleY,0,0);
-    ctx.fillStyle=color(page.backgroundColor);ctx.fillRect(0,0,page.widthPt,page.heightPt);
-    for(const f of page.fills??[]){
-      ctx.fillStyle=color(f.color);ctx.fillRect(f.xPt,f.yPt,f.widthPt,f.heightPt);
-    }
-    visitBorderStrokes(page,(x1,y1,x2,y2,width,ink,dash,cap)=>{
-      ctx.strokeStyle=ink;ctx.lineWidth=width;ctx.lineCap=cap;ctx.setLineDash(dash);
-      ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
-    });
-    for(const line of page.lines){
-      if(active&&line.edit?.occurrence===active)continue;
-      ctx.fillStyle=color(line.color);
-      const scale=line.scale??1;
-      for(const [glyph,x,y] of line.glyphUses!){
-        const path=glyphs.get(glyph);
-        if(!path)continue;
-        ctx.setTransform(scale*scaleX,0,0,-scale*scaleY,x*scaleX,y*scaleY);ctx.fill(path);
-      }
-    }
-    ctx.setTransform(scaleX,0,0,scaleY,0,0);
-    for(const image of page.sampleImages??[])if(image.color){
-      ctx.fillStyle=color(image.color);ctx.fillRect(image.xPt,image.yPt,image.widthPt,image.heightPt);
+  ctx.fillStyle=color(page.backgroundColor);ctx.fillRect(0,0,page.widthPt,page.heightPt);
+  for(const f of page.fills??[]){
+    ctx.fillStyle=color(f.color);ctx.fillRect(f.xPt,f.yPt,f.widthPt,f.heightPt);
+  }
+  visitBorderStrokes(page,(x1,y1,x2,y2,width,ink,dash,cap)=>{
+    ctx.strokeStyle=ink;ctx.lineWidth=width;ctx.lineCap=cap;ctx.setLineDash(dash);
+    ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+  });
+  for(const line of page.lines){
+    ctx.fillStyle=color(line.color);
+    const scale=line.scale??1;
+    for(const [glyph,x,y] of line.glyphUses!){
+      const path=glyphs.get(glyph);
+      if(!path)continue;
+      ctx.setTransform(scale*scaleX,0,0,-scale*scaleY,x*scaleX,y*scaleY);ctx.fill(path);
     }
   }
-  canvasInk.set(surface,paint);
+  ctx.setTransform(scaleX,0,0,scaleY,0,0);
+  for(const image of page.sampleImages??[])if(image.color){
+    ctx.fillStyle=color(image.color);ctx.fillRect(image.xPt,image.yPt,image.widthPt,image.heightPt);
+  }
   return surface;
 }
 const trialPaperValue=q<HTMLTextAreaElement>('trial-paper-value');
-const trialPaperDraft=q('trial-paper-draft');
+const paperMarkers=q('trial-paper-markers');
 let trialForm:ReturnType<typeof mountTrial>|undefined;
 let paperInteractionBlocked=false;
-let paperEdit:{key:string;occurrence:string;pageIndex:number;composing:boolean;previous?:TrialTab;next?:TrialTab}|undefined;
-let paperDraft:{key:string;occurrence?:string}|undefined;
-let draftStart=0;
-const trialHits=new WeakMap<SVGElement,PreviewEdit>();
-let coveredInk:{surface:Element;occurrence:string}|undefined;
-function updatePaperInk(surface?:Element|null,occurrence?:string){
-  if(coveredInk&&coveredInk.surface===surface&&coveredInk.occurrence===occurrence)return;
-  if(coveredInk){
-    const previous=coveredInk.surface;
-    for(const ink of previous.querySelectorAll('.trial-ink-active'))ink.classList.remove('trial-ink-active');
-    if(previous!==surface||!occurrence)canvasInk.get(previous)?.();
+let renderedTrial:Trial|undefined;
+type PaperEdit={key:string;occurrence:string;pageIndex:number;lineStart?:number;composing:boolean;previous?:TrialTab;next?:TrialTab};
+type PaperHit={element:SVGElement;edit:PreviewEdit;pageIndex:number;width:number;left:number;stops:[number,number][]};
+let paperEdit:PaperEdit|undefined,paperPositionFrame=0;
+let paperDrag:{pointer:number;owner:PaperEdit;anchor:number}|undefined;
+const trialHits=new WeakMap<Element,PaperHit>();
+function paperOffsets(key:string,input:string){
+  let value:unknown=renderedTrial;
+  for(const part of JSON.parse(key) as (string|number)[]){
+    value=value&&typeof value==='object'&&Object.hasOwn(value,part)?(value as Record<string|number,unknown>)[part]:undefined;
   }
-  coveredInk=surface&&occurrence?{surface,occurrence}:undefined;
-  if(coveredInk){
-    for(const ink of coveredInk.surface.querySelectorAll<SVGElement>('[data-trial-ink]'))
-      if(ink.dataset.trialInk===occurrence)ink.classList.add('trial-ink-active');
-    canvasInk.get(coveredInk.surface)?.(occurrence);
+  return paperOffsetMap(typeof value==='string'?value.replace(/\r\n?/g,'\n'):input,input);
+}
+function editingLines(occurrence:string){
+  const selector='[data-trial-occurrence='+CSS.escape(occurrence)+']';
+  return [...mountedPages].sort((a,b)=>a-b).flatMap(index=>
+    [...pageSlots[index].querySelectorAll(selector)].map(hit=>trialHits.get(hit)!));
+}
+function caretLine(lines:PaperHit[],offset:number,index:number,lineStart?:number){
+  const contains=(hit:PaperHit)=>hit.edit.start<=offset&&offset<=hit.edit.end;
+  return lines.find(hit=>hit.pageIndex===index&&hit.edit.start===lineStart&&contains(hit))
+    ??lines.find(hit=>hit.pageIndex===index&&contains(hit))??lines.find(contains)??lines.find(hit=>hit.edit.start>offset)??lines.at(-1);
+}
+function caretX(hit:PaperHit,offset:number){
+  let point=hit.stops[0][0];
+  for(const [x,start] of hit.stops){
+    if(start>offset)break;
+    point=x;
   }
+  return Math.max(0,Math.min(hit.width,hit.left+point));
 }
-function fitPaperInput(input:HTMLElement,first:SVGRectElement,last:SVGRectElement){
-  const bounds=first.getBoundingClientRect();
-  const bottom=Math.min(last.getBoundingClientRect().bottom,first.closest('.preview-page-sheet')!.getBoundingClientRect().bottom);
-  const scale=bounds.height/Number(first.getAttribute('height'));
-  Object.assign(input.style,{
-    left:bounds.left+'px',top:bounds.top+'px',width:bounds.width+'px',height:Math.max(0,bottom-bounds.top)+'px',
-    fontSize:Number(first.dataset.fontSize)*scale+'px',lineHeight:bounds.height+'px',
-    fontWeight:first.dataset.weight??'400',textAlign:first.dataset.align??'left',color:first.dataset.inkColor??'#172b21',
-  });
+function pointOffset(hit:PaperHit,x:number){
+  for(const [index,[left,offset]] of hit.stops.entries()){
+    const right=hit.stops[index+1]?.[0];
+    if(right===undefined||x<hit.left+(left+right)/2)return offset;
+  }
+  return hit.edit.end;
 }
-function showDraftText(){
-  trialPaperDraft.textContent=(paperDraft&&trialForm?.read(paperDraft.key) || '').slice(draftStart);
+function hitOffset(hit:PaperHit,clientX:number){
+  const bounds=hit.element.getBoundingClientRect();
+  return pointOffset(hit,(clientX-bounds.left)*hit.width/bounds.width);
 }
 function positionPaperEditor(){
-  trialPaperDraft.hidden=true;
-  if(!showingPreview){updatePaperInk();return;}
-  if(paperEdit){
-    const slot=pageSlots[paperEdit.pageIndex];
-    const hits=[...slot?.querySelectorAll<SVGRectElement>('[data-trial-key]')??[]]
-      .filter(hit=>hit.dataset.trialOccurrence===paperEdit?.occurrence);
-    trialPaperValue.style.opacity=hits.length?'':'0';
-    if(!hits.length){updatePaperInk();return;}
-    const owner=trialHits.get(hits[0])!;
-    paperEdit.previous=owner.previous;paperEdit.next=owner.next;
-    fitPaperInput(trialPaperValue,hits[0],hits.at(-1)!);
-    updatePaperInk(slot.firstElementChild,paperEdit.occurrence);
-    return;
-  }
-  if(paperDraft){
-    const {key,occurrence:preferred}=paperDraft;
-    for(const index of [...mountedPages].sort((a,b)=>Math.abs(a-pageIndex)-Math.abs(b-pageIndex))){
-      const slot=pageSlots[index];
-      const hits=[...slot.querySelectorAll<SVGRectElement>('[data-trial-key]')].filter(hit=>
-        hit.dataset.trialKey===key&&(!preferred||hit.dataset.trialOccurrence===preferred));
-      const visible=hits.find(hit=>{
-        const bounds=hit.getBoundingClientRect();
-        return bounds.bottom>0&&bounds.top<innerHeight;
-      });
-      if(!visible)continue;
-      const occurrence=visible.dataset.trialOccurrence;
-      const fragment=hits.filter(hit=>hit.dataset.trialOccurrence===occurrence);
-      draftStart=trialHits.get(fragment[0])!.start;
-      showDraftText();
-      fitPaperInput(trialPaperDraft,fragment[0],fragment.at(-1)!);
-      trialPaperDraft.hidden=false;
-      updatePaperInk(slot.firstElementChild,occurrence);
-      return;
+  if(!showingPreview||!paperEdit){paperMarkers.replaceChildren();return;}
+  const lines=editingLines(paperEdit.occurrence),offsets=paperOffsets(paperEdit.key,trialPaperValue.value);
+  const start=offsets.toPaper(trialPaperValue.selectionStart),end=offsets.toPaper(trialPaperValue.selectionEnd);
+  const cursor=trialPaperValue.selectionDirection==='backward'?start:end;
+  const caret=caretLine(lines,cursor,paperEdit.pageIndex,paperEdit.lineStart);
+  if(!caret){paperMarkers.replaceChildren();return;}
+  paperEdit.pageIndex=caret.pageIndex;paperEdit.lineStart=caret.edit.start;
+  paperEdit.previous=caret.edit.previous;paperEdit.next=caret.edit.next;
+  const marks=document.createDocumentFragment();
+  function mark(hit:PaperHit,from:number,to?:number){
+    const bounds=hit.element.getBoundingClientRect();
+    const scale=bounds.width/hit.width;
+    const x=caretX(hit,from),left=bounds.left+x*scale;
+    if(to===undefined){
+      trialPaperValue.style.left=left+'px';
+      trialPaperValue.style.top=Math.max(0,Math.min(innerHeight-1,bounds.top))+'px';
     }
+    if(bounds.bottom<=0||bounds.top>=innerHeight)return;
+    const span=element('span');
+    Object.assign(span.style,{left:left+'px',top:bounds.top+'px',height:bounds.height+'px'});
+    if(to===undefined)span.className='paper-caret';
+    else span.style.width=(caretX(hit,to)-x)*scale+'px';
+    marks.append(span);
   }
-  updatePaperInk();
+  if(start!==end)for(const hit of lines){
+    if(hit.edit.end>start&&hit.edit.start<end)mark(hit,Math.max(start,hit.edit.start),Math.min(end,hit.edit.end));
+  }
+  mark(caret,cursor);
+  paperMarkers.replaceChildren(marks);
+}
+function schedulePaperPosition(){
+  if(!paperEdit||paperPositionFrame)return;
+  paperPositionFrame=requestAnimationFrame(()=>{paperPositionFrame=0;positionPaperEditor();});
 }
 function beginPaperEdit(edit:PreviewEdit,offset:number,index:number){
   if(paperInteractionBlocked)return;
   const value=trialForm?.read(edit.key);
   if(value===undefined)return;
-  paperEdit={key:edit.key,occurrence:edit.occurrence,pageIndex:index,composing:false,previous:edit.previous,next:edit.next};
-  trialPaperValue.value=value;
-  trialPaperValue.scrollTop=0;
+  paperEdit={key:edit.key,occurrence:edit.occurrence,pageIndex:index,lineStart:edit.start,composing:false,previous:edit.previous,next:edit.next};
+  if(trialPaperValue.value!==value)trialPaperValue.value=value;
   trialForm?.reveal(edit.key);
   trialPaperValue.hidden=false;
+  offset=paperOffsets(edit.key,value).toInput(offset);
+  trialPaperValue.setSelectionRange(offset,offset);
   positionPaperEditor();
   trialPaperValue.focus({preventScroll:true});
-  trialPaperValue.setSelectionRange(offset,offset);
 }
 function closePaperEdit(){
-  paperEdit=undefined;trialPaperValue.hidden=true;positionPaperEditor();
+  paperEdit=undefined;paperDrag=undefined;trialPaperValue.hidden=true;positionPaperEditor();
 }
 function syncPaperEdit(composing:boolean){
   if(!paperEdit)return;
@@ -1506,7 +1504,8 @@ function syncPaperEdit(composing:boolean){
   const fallback={key,occurrence,pageIndex:active.pageIndex,offset:trialPaperValue.selectionStart};
   const readFocus=()=>paperEdit===active?{...fallback,pageIndex:active.pageIndex,offset:trialPaperValue.selectionStart}:fallback;
   trialForm?.write(key,value,readFocus,composing);
-  paperDraft={key,occurrence};
+  schedulePaperPosition();
+  if(!previewStatus.textContent?.startsWith('กำลังจัดหน้า'))previewStatus.textContent='กำลังจัดหน้าตามข้อความที่พิมพ์…';
 }
 trialPaperValue.addEventListener('compositionstart',()=>{if(paperEdit)paperEdit.composing=true;});
 trialPaperValue.addEventListener('input',event=>syncPaperEdit(Boolean(paperEdit?.composing||(event as InputEvent).isComposing)));
@@ -1520,12 +1519,16 @@ async function tabOnPaper(stop:TrialTab){
   if(paperEdit!==active)return;
   const hit=[...pageSlots[stop.pageIndex]?.querySelectorAll<SVGRectElement>('[data-trial-occurrence]')??[]]
     .find(element=>element.dataset.trialOccurrence===stop.occurrence);
-  const edit=hit&&trialHits.get(hit);
+  const edit=hit&&trialHits.get(hit)?.edit;
   if(edit){
     hit.scrollIntoView({block:'nearest',inline:'nearest'});
     beginPaperEdit(edit,edit.start,stop.pageIndex);
     reportPage(stop.pageIndex);
   }
+}
+function selectPaperRange(anchor:number,offset:number){
+  trialPaperValue.setSelectionRange(Math.min(anchor,offset),Math.max(anchor,offset),offset<anchor?'backward':'forward');
+  positionPaperEditor();
 }
 trialPaperValue.addEventListener('keydown',event=>{
   if(!paperEdit||paperEdit.composing||event.isComposing)return;
@@ -1534,17 +1537,45 @@ trialPaperValue.addEventListener('keydown',event=>{
     const stop=event.shiftKey?paperEdit.previous:paperEdit.next;
     if(stop){event.preventDefault();void tabOnPaper(stop);}
   }
+  if(event.ctrlKey||event.metaKey||event.altKey||!['ArrowUp','ArrowDown','Home','End'].includes(event.key))return;
+  event.preventDefault();
+  const lines=editingLines(paperEdit.occurrence),offsets=paperOffsets(paperEdit.key,trialPaperValue.value);
+  const {selectionStart:start,selectionEnd:end,selectionDirection:direction}=trialPaperValue;
+  const offset=offsets.toPaper(direction==='backward'?start:end),line=caretLine(lines,offset,paperEdit.pageIndex,paperEdit.lineStart);
+  if(!line)return;
+  const adjacent=lines[lines.indexOf(line)+(event.key==='ArrowUp'?-1:1)];
+  const next=event.key==='Home'?line.edit.start:event.key==='End'?line.edit.end:
+    adjacent?pointOffset(adjacent,caretX(line,offset)):offset;
+  if(adjacent&&(event.key==='ArrowUp'||event.key==='ArrowDown')){
+    paperEdit.pageIndex=adjacent.pageIndex;paperEdit.lineStart=adjacent.edit.start;
+  }
+  const input=offsets.toInput(next);
+  selectPaperRange(event.shiftKey?(direction==='backward'?end:start):input,input);
 });
 trialPaperValue.addEventListener('blur',closePaperEdit);
-window.addEventListener('resize',positionPaperEditor);
-window.addEventListener('scroll',positionPaperEditor,true);
+trialPaperValue.addEventListener('select',schedulePaperPosition);
+document.addEventListener('selectionchange',schedulePaperPosition);
+window.addEventListener('resize',schedulePaperPosition);
+window.addEventListener('scroll',schedulePaperPosition,true);
+window.addEventListener('pointermove',event=>{
+  if(!paperDrag||event.pointerId!==paperDrag.pointer||paperEdit!==paperDrag.owner)return;
+  const element=document.elementFromPoint(event.clientX,event.clientY),hit=element&&trialHits.get(element);
+  if(hit?.edit.occurrence!==paperEdit.occurrence)return;
+  paperEdit.pageIndex=hit.pageIndex;paperEdit.lineStart=hit.edit.start;
+  const offset=paperOffsets(paperEdit.key,trialPaperValue.value).toInput(hitOffset(hit,event.clientX));
+  selectPaperRange(paperDrag.anchor,offset);
+});
+function endPaperDrag(event:PointerEvent){
+  if(paperDrag?.pointer===event.pointerId)paperDrag=undefined;
+}
+window.addEventListener('pointerup',endPaperDrag);
+window.addEventListener('pointercancel',endPaperDrag);
 function showPage(page:DrawPage,index:number) {
   if(!preview)return;
   const sheet=svg('svg',{viewBox:'0 0 '+page.widthPt+' '+page.heightPt,role:preview.previewId?'group':'img','aria-label':'กระดาษ Engine หน้า '+(index+1)});
   const surface=canvasPreview&&preview.previewId?canvasSurface(page,pageSlots[index].clientWidth||previewPaper.clientWidth,sheet):undefined;
   if(surface){
     for(const line of page.lines)sheet.append(svg('g',{role:'img','aria-label':line.text}));
-    canvasInk.get(surface)?.();
   }else{
     sheet.append(svg('rect',{width:page.widthPt,height:page.heightPt,fill:color(page.backgroundColor)}));
     for(const f of page.fills??[])sheet.append(svg('rect',{x:f.xPt,y:f.yPt,width:f.widthPt,height:f.heightPt,fill:color(f.color)}));
@@ -1552,14 +1583,12 @@ function showPage(page:DrawPage,index:number) {
     for(const line of page.lines){
       if(line.glyphUses){
         const run=svg('g',{fill:color(line.color),'aria-label':line.text});
-        if(line.edit)run.dataset.trialInk=line.edit.occurrence;
         for(const [glyph,x,y] of line.glyphUses)
           run.append(svg('use',{href:'#p'+index+'-'+glyph,transform:'translate('+x+' '+y+') scale('+line.scale+' -'+line.scale+')'}));
         sheet.append(run);
       }else{
         const text=svg('text',{x:line.xPt,y:line.yPt+line.baselineOffsetPt,fill:color(line.color),
           'font-size':line.fontSizePt,'font-weight':line.weight??400,'xml:space':'preserve'});
-        if(line.edit)text.dataset.trialInk=line.edit.occurrence;
         text.textContent=line.text;sheet.append(text);
       }
     }
@@ -1581,21 +1610,19 @@ function showPage(page:DrawPage,index:number) {
     const left=edit.align==='right'?width-line.widthPt:edit.align==='center'?(width-line.widthPt)/2:0;
     const hit=svg('rect',{x:line.xPt-left,y:line.yPt,width,
       height:line.heightPt,fill:'transparent',tabindex:0,role:'button','aria-label':edit.blank?'พิมพ์ค่า '+JSON.parse(edit.key).at(-1):'แก้ค่า '+line.text});
-    hit.dataset.fontSize=String(line.fontSizePt);hit.dataset.align=edit.align??'left';hit.dataset.inkColor=color(line.color);
-    hit.dataset.weight=String(line.weight??400);
     if(edit.blank)hit.classList.add('trial-field-blank');
-    hit.classList.add('trial-field-hit');trialHits.set(hit,edit);
+    const record:PaperHit={element:hit,edit,pageIndex:index,width,left,stops:paperCaretStops(edit,line.widthPt) as [number,number][]};
+    hit.classList.add('trial-field-hit');trialHits.set(hit,record);
     hit.dataset.trialKey=edit.key;hit.dataset.trialOccurrence=edit.occurrence;hit.dataset.start=String(edit.start);hit.dataset.end=String(edit.end);
+    hit.addEventListener('pointerdown',event=>{
+      if(event.pointerType!=='mouse'||event.button!==0||paperInteractionBlocked)return;
+      event.preventDefault();
+      beginPaperEdit(edit,hitOffset(record,event.clientX),index);
+      if(paperEdit?.occurrence===edit.occurrence)paperDrag={pointer:event.pointerId,owner:paperEdit,anchor:trialPaperValue.selectionStart};
+    });
     hit.addEventListener('click',event=>{
-      const mouse=event as MouseEvent,rect=hit.getBoundingClientRect();
-      const x=(mouse.clientX-rect.left)*width/rect.width-left;
-      let offset=edit.end;
-      for(let i=0;i<edit.clusters.length;i++){
-        const [start,from]=edit.clusters[i];
-        const end=edit.clusters[i+1]?.[0]??line.widthPt;
-        if(x<(start+end)/2){offset=from;break;}
-      }
-      beginPaperEdit(edit,offset,index);
+      const pointer=event as PointerEvent;
+      if(pointer.pointerType!=='mouse')beginPaperEdit(edit,hitOffset(record,pointer.clientX),index);
     });
     hit.addEventListener('keydown',event=>{
       const key=(event as KeyboardEvent).key;
@@ -1605,7 +1632,7 @@ function showPage(page:DrawPage,index:number) {
   }
   pageSlots[index]?.replaceChildren(surface??sheet);
   mountedPages.add(index);
-  if(paperEdit?.pageIndex===index||(!paperEdit&&paperDraft))positionPaperEditor();
+  schedulePaperPosition();
 }
 let pageSlots:HTMLElement[]=[];
 let pageObserver:IntersectionObserver|undefined;
@@ -1632,13 +1659,12 @@ function restorePage(index:number){
   const sheet=removeRetainedPage(index);
   if(!sheet)return false;
   pageSlots[index].replaceChildren(sheet);mountedPages.add(index);
-  if(paperEdit?.pageIndex===index||(!paperEdit&&paperDraft))positionPaperEditor();
+  schedulePaperPosition();
   return true;
 }
 function retainPage(index:number){
   const sheet=pageSlots[index].firstElementChild;
   if(!sheet)return;
-  if(coveredInk?.surface===sheet)updatePaperInk();
   const nodes=1+sheet.querySelectorAll('*').length;
   const canvas=sheet.querySelector('canvas');
   const bitmapBytes=canvas?canvas.width*canvas.height*4:0;
@@ -1800,7 +1826,7 @@ window.addEventListener('scroll',()=>{
 },{passive:true});
 
 let previewWorker:Worker|undefined,workerSequence=0,paintedWorkerRevision=0;
-const workerLayouts=new Map<number,{focus?:Trial['focus'];current:()=>boolean;usable:()=>boolean;started:number}>();
+const workerLayouts=new Map<number,{trial:Trial;current:()=>boolean;usable:()=>boolean;started:number}>();
 type WorkerPage={page:DrawPage;key:string};
 const workerPages=new Map<number,{resolve:(result:WorkerPage)=>void;reject:(error:Error)=>void}>();
 function disposePreviewWorker(){
@@ -1837,8 +1863,8 @@ function getPreviewWorker(){
     const result=data.preview as Preview;
     if(result.revision!==draft.revision||result.fingerprint!==draft.fingerprint)return;
     paintedWorkerRevision=data.revision;
-    const desired=task.focus?.occurrence!==paperEdit?.occurrence?Math.min(pageIndex,result.pageCount-1):undefined;
-    if(task.current())paperDraft=undefined;
+    const desired=task.trial.focus?.occurrence!==paperEdit?.occurrence?Math.min(pageIndex,result.pageCount-1):undefined;
+    renderedTrial=task.trial;
     mountPreview(result,desired);
     previewStatus.textContent=task.current()?'Core WASM · '+result.pageCount+' หน้า':
       'แสดงผลจัดหน้าล่าสุดในเบราว์เซอร์ · กำลังจัดหน้าต่อ…';
@@ -1858,7 +1884,7 @@ function workerPage(run:string,index:number){
 }
 function queueWorkerPreview(trial:Trial,current:()=>boolean,usable:()=>boolean){
   const worker=getPreviewWorker(),revision=++workerSequence;
-  workerLayouts.set(revision,{focus:trial.focus,current,usable,started:performance.now()});
+  workerLayouts.set(revision,{trial,current,usable,started:performance.now()});
   worker.postMessage({kind:'layout',revision,trial});
 }
 async function loadPreview(trial?:Trial,current=()=>true,usable=current,structure=0,fields?:ReadonlyMap<string,HTMLTextAreaElement>) {
@@ -1904,7 +1930,7 @@ async function loadPreview(trial?:Trial,current=()=>true,usable=current,structur
     if(pendingPreview!==request||!usable()||draft.revision!==revision||!showingPreview)return;
     const desired=trial&&trial.focus?.occurrence!==paperEdit?.occurrence
       ?Math.min(pageIndex,data.pageCount-1):undefined;
-    if(current())paperDraft=undefined;
+    renderedTrial=trial;
     trialBase=trial&&data.trialPatchBase&&data.previewId?{previewId:data.previewId,trial,structure}:undefined;
     mountPreview(data,desired);
     if(pendingPreview!==request)return;
@@ -1932,16 +1958,13 @@ function openPreview(){
   const version=templateId+'/'+draft.revision+'/'+draft.fingerprint;
   if(trialVersion===version){if(!preview&&!pendingPreview)trialForm?.refresh();return;}
   trialVersion=version;trialBase=undefined;
-  trialForm?.dispose();paperDraft=undefined;closePaperEdit();
+  trialForm?.dispose();renderedTrial=undefined;closePaperEdit();
   previewStatus.textContent='กำลังเปิดกระดาษจากโครง · Revision '+draft.revision;
   const starter=new Map([...activeFormats.values()].map(format=>[format.ownerAreaId,format.key]));
-  trialForm=mountTrial(q<HTMLFormElement>('trial-form'),draft.definition,starter,(structural,key)=>{
+  trialForm=mountTrial(q<HTMLFormElement>('trial-form'),draft.definition,starter,structural=>{
     if(structural){
       disposePreviewWorker();
-      paperInteractionBlocked=true;paperDraft=undefined;closePaperEdit();
-    }else if(key){
-      if(paperDraft?.key===key&&!trialPaperDraft.hidden)showDraftText();
-      else{paperDraft={key};positionPaperEditor();}
+      paperInteractionBlocked=true;closePaperEdit();
     }
     previewStatus.textContent='กำลังอัปเดตข้อมูลทดลอง…';
   },(trial,current,usable,structure,fields)=>{

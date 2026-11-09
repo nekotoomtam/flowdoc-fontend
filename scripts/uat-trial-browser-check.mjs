@@ -21,6 +21,19 @@ const path='/api/editor-phase1/drafts/'+id;
 const form=page.locator('#trial-form'),paper=page.locator('#preview-paper'),editor=page.locator('#trial-paper-value');
 const read=async()=>(await (await page.request.get(base+path)).json()).value;
 const photo=name=>page.screenshot({path:join(output,name+'.png')});
+const coverInk=()=>paper.locator('.preview-page-sheet').first().evaluate(sheet=>
+  sheet.querySelector('canvas')?.toDataURL()??sheet.querySelector('svg').outerHTML);
+async function whilePreviewHeld(action,check){
+  const release=Promise.withResolvers(),entered=Promise.withResolvers();
+  const route='**/drafts/'+id+'/preview';
+  const hold=async request=>{entered.resolve();await release.promise;await request.continue();};
+  await page.route(route,hold,{times:1});
+  try{
+    await action();
+    await entered.promise;
+    await check();
+  }finally{release.resolve();}
+}
 const snapshots=new Map();
 const requestValue=(request,part,index)=> {
   const {trial,trialPatch}=request.postDataJSON();
@@ -74,23 +87,37 @@ try{
   const cover=form.getByText('รายการ 1 · cover',{exact:true}).locator('..');
   const localTitle='ชื่อจากฟอร์ม';
   const beforeTitle=await paper.getAttribute('data-run');
-  const title=await nextRender(async()=>{
-    const release=Promise.withResolvers();
-    const route='**/drafts/'+id+'/preview';
-    const hold=async request=>{await release.promise;await request.continue();};
-    await page.route(route,hold,{times:1});
-    try{
-      await cover.getByLabel(/^title/).fill(localTitle);
-      await page.locator('#trial-paper-draft').filter({hasText:localTitle}).waitFor({timeout:3000});
-      assert.equal(await paper.getAttribute('data-run'),beforeTitle);
-    }finally{release.resolve();}
-  });
-  assert.equal(await page.locator('#trial-paper-draft').isVisible(),false);
+  const blankInk=await coverInk();
+  const title=await nextRender(()=>whilePreviewHeld(()=>cover.getByLabel(/^title/).fill(localTitle),async()=>{
+    assert.equal(await cover.getByLabel(/^title/).inputValue(),localTitle);
+    assert.equal(await paper.getAttribute('data-run'),beforeTitle);
+    assert.equal(await coverInk(),blankInk);
+  }));
   assert.equal(title.request.sections[0].data.parts[0].data.title,'ชื่อจากฟอร์ม');
   assert.ok(await paper.getByRole('button',{name:'แก้ค่า ชื่อจากฟอร์ม',exact:true}).isVisible());
-  await paper.getByRole('button',{name:'แก้ค่า ชื่อจากฟอร์ม',exact:true}).click();
-  await nextRender(()=>editor.fill('ชื่อจากกระดาษ'));
+  const titleInk=await coverInk();
+  const titleHit=paper.getByRole('button',{name:'แก้ค่า ชื่อจากฟอร์ม',exact:true});
+  await titleHit.scrollIntoViewIfNeeded();
+  const titleBox=await titleHit.boundingBox();
+  assert.ok(titleBox);
+  await page.mouse.move(titleBox.x+2,titleBox.y+titleBox.height/2);
+  await page.mouse.down();
+  await page.mouse.move(titleBox.x+Math.min(130,titleBox.width-2),titleBox.y+titleBox.height/2,{steps:6});
+  await page.mouse.up();
+  assert.equal(await editor.evaluate(input=>input===document.activeElement&&input.selectionEnd>input.selectionStart),true);
+  assert.equal(await coverInk(),titleInk);
+  await nextRender(()=>whilePreviewHeld(()=>editor.fill('ชื่อจากกระดาษ'),async()=>{
+    assert.equal(await cover.getByLabel(/^title/).inputValue(),'ชื่อจากกระดาษ');
+    assert.equal(await editor.evaluate(input=>getComputedStyle(input).opacity),'0');
+    assert.equal(await coverInk(),titleInk);
+    await page.locator('#trial-paper-markers .paper-caret').waitFor();
+    await photo('01b-typing-with-engine-paper');
+    await editor.press('Escape');
+    assert.equal(await coverInk(),titleInk);
+  }));
   assert.equal(await cover.getByLabel(/^title/).inputValue(),'ชื่อจากกระดาษ');
+  assert.notEqual(await coverInk(),titleInk);
+  await photo('01c-engine-paper-settled');
 
   const heading=form.locator('summary').filter({hasText:/^รายการ \d+ · heading$/}).first().locator('..');
   await nextRender(()=>heading.getByLabel(/^anchor/).fill('trial-heading'));
@@ -171,7 +198,6 @@ try{
   const burst='ก'.repeat(85);
   const burstValue='เมนูไทย'+burst+'เหมือนกัน';
   const beforeBurst=await paper.getAttribute('data-run');
-  const originalHeight=await editor.evaluate(input=>input.getBoundingClientRect().height);
   const started=Date.now(),updates=new Map();
   const finalResponse=page.waitForResponse(response=>{
     const request=response.request();
@@ -183,8 +209,6 @@ try{
     await page.keyboard.insertText('ก');
     await new Promise(resolve=>setTimeout(resolve,45));
     const run=await paper.getAttribute('data-run');
-    if(run===beforeBurst)assert.ok(await editor.evaluate((input,height)=>
-      input.getBoundingClientRect().height<=height+.5,originalHeight),'native editor must stay inside its Engine fragment');
     if(run&&run!==beforeBurst&&!updates.has(run))updates.set(run,{stroke:index+1,ms:Date.now()-started});
   }
   assert.ok([...updates.values()].some(update=>update.stroke<burst.length),'Engine preview must update while input continues');
@@ -314,8 +338,8 @@ try{
     derivedContents:true,duplicateContentsRejected:true,unsupportedGlyphRejected:true,continuousThaiStrokes:burst.length,updatesDuringTyping:[...updates.values()],
     heldFormKeydowns:70,engineUpdatesBeforeKeyup:heldRuns.size,staleRenderDropped:true,staleRevisionRejected:true,missingBaseRejected:true,missingBaseRecovered:true,
     finalThaiEngineMs:Math.round(final.engineMs),finalThaiLabRenderMs:Math.round(final.renderMs),
-    tabAndShiftTab:true,caretAfterPageReflow:true,scrollBackAndContinue:true,formPaintBeforeEngineReply:true,
-    boundedPaperEditor:true,expandedPages:expanded.body.pageCount,definitionWrites:0};
+    tabAndShiftTab:true,caretAfterPageReflow:true,scrollBackAndContinue:true,
+    engineInkUnchangedUntilEngineReply:true,selectionUsesPaperGeometry:true,expandedPages:expanded.body.pageCount,definitionWrites:0};
   await writeFile(join(output,'trial-preview-verification.json'),JSON.stringify(result,null,2)+'\n');
   console.log(JSON.stringify(result));
 }finally{await browser.close();}

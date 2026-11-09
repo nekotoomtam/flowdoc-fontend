@@ -121,7 +121,11 @@ async function profile(member){
     const target=page.locator('[data-trial-key='+await page.evaluate(value=>CSS.escape(value),key)+']');
     const editor=page.locator('#trial-paper-value');
     await slot.nth(member===1?2:185).evaluate(node=>node.scrollIntoView({block:'center'}));
+    const beforeFocus=await target.first().evaluate(hit=>hit.closest('.preview-page-sheet').querySelector('canvas')?.toDataURL());
     await target.first().click();
+    assert.equal(await editor.evaluate(input=>getComputedStyle(input).opacity),'0','the browser textarea must never paint a second text layout');
+    assert.equal(await target.first().evaluate(hit=>hit.closest('.preview-page-sheet').querySelector('canvas')?.toDataURL()),beforeFocus,
+      'focusing a cell must leave the Engine bitmap intact');
     await fields.nth(member).evaluate(input=>{window.testField=input;});
     let value=startValue;
     const bursts=[];

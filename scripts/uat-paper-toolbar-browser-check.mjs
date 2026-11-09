@@ -80,16 +80,18 @@ try{
     await dragSource.hover({position:{x:5,y:5}});
     const gripBox=await grip.boundingBox(),destinationBox=await destination.boundingBox();
     assert.ok(gripBox&&destinationBox);
-    const x=destinationBox.x+20,y=destinationBox.y+destinationBox.height-2;
+    const x=destinationBox.x-8,y=destinationBox.y+destinationBox.height-2;
     await page.mouse.move(gripBox.x+gripBox.width/2,gripBox.y+gripBox.height/2);
     await page.mouse.down();
     await page.mouse.move(x,y,{steps:12});
-    await page.mouse.move(x+1,y);
+    await page.mouse.move(x,y-1);
+    assert.equal(await dragSource.getAttribute('data-flow-drag-source'),'');
     await destination.locator(':scope[data-flow-drop=after]').waitFor({state:'attached'});
   }
   await dragToLine();
   await photo('12-flow-drop-line');
   await page.mouse.up();
+  assert.equal(await paper.locator('[data-flow-drag-source]').count(),0);
   assert.deepEqual(await order(),[before[1],before[2],before[0],...before.slice(3)]);
   await undo();
   assert.deepEqual(await order(),before);

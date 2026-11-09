@@ -190,7 +190,7 @@ function drawBranch(items: Outline[], depth = 0) {
 }
 const paperSizes:Record<string,[number,number]>={A4:[595.276,841.89],A3:[841.89,1190.551],Letter:[612,792],Legal:[612,1008]};
 const flowBlocks=new WeakMap<HTMLElement,Outline>();
-let flowDrag:{item:Outline;order:NonNullable<ReturnType<typeof structureOrder>>}|undefined;
+let flowDrag:{item:Outline;block:HTMLElement;order:NonNullable<ReturnType<typeof structureOrder>>}|undefined;
 let flowDrop:{block:HTMLElement;side:'before'|'after';delta:number}|undefined;
 paper.addEventListener('click',event=>{
   const target=event.target as Element;
@@ -205,16 +205,19 @@ function clearFlowDrop(){
 }
 function endFlowDrag(){
   clearFlowDrop();
+  if(flowDrag)delete flowDrag.block.dataset.flowDragSource;
   flowDrag=undefined;
   paper.classList.remove('is-flow-dragging');
 }
 paper.addEventListener('dragstart',event=>{
   const grip=(event.target as HTMLElement).closest('.flow-grip');
   if(!grip||!event.dataTransfer)return;
-  const item=flowBlocks.get(grip.parentElement!);
+  const block=grip.parentElement!;
+  const item=flowBlocks.get(block);
   const order=item&&structureOrder(draft.definition,item.ref);
   if(!item||!order||(order.up&&order.down)||isSaving||hasConflict){event.preventDefault();return;}
-  flowDrag={item,order};
+  flowDrag={item,block,order};
+  block.dataset.flowDragSource='';
   paper.classList.add('is-flow-dragging');
   event.dataTransfer.effectAllowed='move';
   event.dataTransfer.setData('application/x-flowdoc-block',refKey(item.ref));

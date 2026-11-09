@@ -40,6 +40,8 @@ try{
   assert.equal(await page.locator('#advanced-details').getAttribute('open'),null);
   const variablePanel=page.locator('#variable-panel');
   assert.equal(await variablePanel.getAttribute('open'),null);
+  const widePaper=await paper.locator('..').boundingBox();
+  assert.ok(widePaper&&widePaper.width>=720,'Closed tools leave the reclaimed width for the paper');
   assert.equal(await page.locator('#layout-inspector').getAttribute('open'),null);
   assert.equal(await page.locator('#layout-facts').isVisible(),false);
   assert.equal(await tree.locator('[data-kind=format]').count(),0);
@@ -242,6 +244,26 @@ try{
   await tableField.click();
   assert.ok(await variablePanel.getAttribute('open')!==null);
   assert.match(await page.locator('#variable-detail').innerText(),/cover.*title.*string/);
+  const paperPosition=()=>tableField.evaluate(field=>{
+    const view=field.closest('.definition-viewport');
+    const {x,y,width,height}=field.getBoundingClientRect();
+    return {x,y,width,height,top:view.scrollTop,left:view.scrollLeft,windowTop:window.scrollY,zoom:document.getElementById('paper-zoom').textContent};
+  });
+  const atVariable=await paperPosition();
+  assert.equal(atVariable.zoom,'100%');
+  const variableToggle=variablePanel.locator(':scope > summary');
+  await variableToggle.click();
+  assert.equal(await variablePanel.getAttribute('open'),null);
+  assert.deepEqual(await paperPosition(),atVariable);
+  await variableToggle.click();
+  assert.equal(await page.locator('#variable-detail').isVisible(),true);
+  assert.deepEqual(await paperPosition(),atVariable);
+  const layoutToggle=page.locator('#layout-inspector > summary');
+  await layoutToggle.click();
+  assert.equal(await variablePanel.getAttribute('open'),null);
+  assert.equal(await facts.isVisible(),true);
+  assert.deepEqual(await paperPosition(),atVariable);
+  await variableToggle.click();
   assert.match(await facts.textContent(),/อยู่ในตาราง.*แถว 1.*คอลัมน์/);
   assert.match(await facts.textContent(),/เส้นขอบสีขาว/);
   assert.equal(await paper.locator('.definition-table:has(button[aria-current=true])').count(),1);
@@ -346,5 +368,5 @@ try{
   assert.match(await compact.textContent(),/อยู่ในตาราง.*คอลัมน์ 2/);
   assert.deepEqual(errors,[]);
   assert.deepEqual(writes,[]);
-  console.log(JSON.stringify({id,addedSection:true,reorderedOnPaper:true,editedText:true,openedSelectedStyle:true,addedAndRemovedContent:true,addedAndRemovedVariable:true,tableOwnership:true,authoredSpacing:true,editedLineSpacing:true,editedRowBreak:true,editedColumnWidth:true,editedCellPadding:true,changesUndone:true,writes:0}));
+  console.log(JSON.stringify({id,paperViewportWidth:widePaper.width,variablePanelAtSamePaperPosition:true,addedSection:true,reorderedOnPaper:true,editedText:true,openedSelectedStyle:true,addedAndRemovedContent:true,addedAndRemovedVariable:true,tableOwnership:true,authoredSpacing:true,editedLineSpacing:true,editedRowBreak:true,editedColumnWidth:true,editedCellPadding:true,changesUndone:true,writes:0}));
 }finally{await browser.close();}

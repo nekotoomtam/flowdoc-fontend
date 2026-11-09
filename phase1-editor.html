@@ -44,14 +44,22 @@
         <div id="structure-sequence-note" class="sequence-note" hidden><strong>ตัวอย่างลำดับโครง</strong><span>ใช้เฉพาะนิยาม · แสดงแต่ละ Format หนึ่งครั้งตามรายการใน Area · กดป้าย Format เพื่อแก้</span><button id="exit-structure-sequence" type="button">กลับไปดูทีละ Format</button></div>
       </div>
       <div class="definition-viewport"><article id="paper" class="show-guides"></article></div></section>
-    <aside>
-      <details id="variable-panel" class="panel extra-panel"><summary>นิยามตัวแปร</summary><p id="variable-detail" role="status"></p><div id="variables"></div></details>
-      <details id="layout-inspector" class="panel extra-panel"><summary>รายละเอียดตำแหน่ง</summary><div id="layout-facts"></div></details>
-      <details id="advanced-details" class="panel extra-panel"><summary>คำสั่งเพิ่มเติม</summary>
+    <aside class="inspector-tools" aria-label="เครื่องมือแก้โครง">
+      <details id="variable-panel" name="inspector-tools">
+        <summary>นิยามตัวแปร</summary>
+        <div class="panel inspector-drawer"><p id="variable-detail" role="status"></p><div id="variables"></div></div>
+      </details>
+      <details id="layout-inspector" name="inspector-tools">
+        <summary>รายละเอียดตำแหน่ง</summary>
+        <div class="panel inspector-drawer" id="layout-facts"></div>
+      </details>
+      <details id="advanced-details" name="inspector-tools"><summary>คำสั่งเพิ่มเติม</summary>
+      <div class="panel inspector-drawer">
       <h2 id="selection"></h2><p id="path"></p><p id="selection-detail"></p>
       <form id="rename" hidden><label for="section-name">ชื่อส่วนเอกสาร</label><input id="section-name" required maxlength="128"><button class="primary" id="save" type="submit">บันทึกชื่อ Section</button></form>
       <div id="actions" class="structure-tools"></div>
       <div id="conflict" hidden><p>มีฉบับใหม่กว่าในระบบ การแก้ในหน้านี้ยังอยู่จนกว่าจะกดโหลดฉบับล่าสุด</p><button id="reload">โหลดฉบับล่าสุด</button></div>
+      </div>
       </details>
     </aside>
   </div>

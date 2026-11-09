@@ -34,7 +34,7 @@
 
   <div class="grid" id="editor" hidden>
     <section class="panel" aria-label="Tree โครงสร้าง"><h2>โครงสร้างเอกสาร</h2><p>เลือกจาก Tree หรือจากกระดาษ</p><div class="structure-tools"><button id="add-section" type="button">+ เพิ่ม Section</button></div><div id="tree"></div></section>
-    <section class="panel workspace" aria-label="กระดาษนิยาม"><div class="paper-toolbar"><div><h2>กระดาษนิยาม</h2><p>เลือกบนกระดาษเพื่อดูว่ารายการนั้นอยู่ตรงไหนและวางตำแหน่งอย่างไร</p></div><div class="paper-controls"><button id="zoom-out" type="button" aria-label="ย่อกระดาษ" disabled>−</button><span id="paper-zoom">100%</span><button id="zoom-in" type="button" aria-label="ขยายกระดาษ">+</button><button id="show-guides" type="button" aria-pressed="true">เส้นช่วยดูโครง</button><details class="paper-view-options"><summary>มุมมอง</summary><button id="show-handles" type="button" aria-pressed="false">แสดงจุดเลือก</button></details></div></div>
+    <section class="panel workspace" aria-label="กระดาษนิยาม"><div class="paper-toolbar"><div><h2>กระดาษนิยาม</h2><p>เลือกบนกระดาษเพื่อดูว่ารายการนั้นอยู่ตรงไหนและวางตำแหน่งอย่างไร</p></div><div class="paper-controls"><button id="zoom-out" type="button" aria-label="ย่อกระดาษ" disabled>−</button><span id="paper-zoom">100%</span><button id="zoom-in" type="button" aria-label="ขยายกระดาษ">+</button><button id="show-structure-sequence" type="button" aria-pressed="false" aria-controls="paper">ดูโครงต่อเนื่อง</button><button id="show-guides" type="button" aria-pressed="true">เส้นช่วยดูโครง</button><details class="paper-view-options"><summary>มุมมอง</summary><button id="show-handles" type="button" aria-pressed="false">แสดงจุดเลือก</button></details></div></div>
       <div id="paper-edit-tools" class="paper-edit-tools" role="group" aria-label="แก้ไขบนกระดาษ">
         <nav id="paper-path" aria-label="ตำแหน่งในโครงเอกสาร"></nav>
         <p id="paper-selection" aria-live="polite"></p>
@@ -42,6 +42,7 @@
         <div id="paper-actions"></div>
         <div id="paper-order"></div>
         <div id="paper-layout-actions"></div>
+        <div id="structure-sequence-note" class="sequence-note" hidden><strong>ตัวอย่างลำดับโครง</strong><span>ใช้เฉพาะนิยาม · แสดงแต่ละ Format หนึ่งครั้งตามรายการใน Area · กดป้าย Format เพื่อแก้</span><button id="exit-structure-sequence" type="button">กลับไปดูทีละ Format</button></div>
       </div>
       <p id="guide-legend">กรอบสีเขียวอ่อนคือขอบตาราง · แถบสีอำพันคือระยะเว้นที่กดตรวจได้</p>
       <div class="definition-viewport"><article id="paper" class="show-guides"></article></div></section>

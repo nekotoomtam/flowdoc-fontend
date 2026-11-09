@@ -52,6 +52,7 @@ let savedDefinition:Definition|undefined;
 let draft: Draft, selection: Outline | undefined;
 const sectionSheets=new Map<Outline,HTMLElement>();
 const activeFormats=new Map<string,Format>();
+let continuousStructure=new URLSearchParams(location.search).get('structureView')==='continuous';
 let roots:Outline[] = [], outlines=new Map<string,Outline>();
 const expanded=new Map<string,boolean>();
 const history:{definition:Definition;selection:Ref}[]=[];
@@ -181,6 +182,7 @@ function drawBranch(items: Outline[], depth = 0) {
 const paperSizes:Record<string,[number,number]>={A4:[595.276,841.89],A3:[841.89,1190.551],Letter:[612,792],Legal:[612,1008]};
 function drawSectionPaper(root: Outline, preferred?: Format) {
   const sheet=element('div');sheet.className='definition-sheet';sheet.dataset.sectionId=root.id;
+  sheet.classList.toggle('sequence-sheet',continuousStructure);
   const switcher=element('div');switcher.className='definition-section-tools structure-tools';
   const layout=draft.definition.pageLayouts?.[root.section.pageLayoutId??draft.definition.book.defaultPageLayoutId]?.page;
   const [short,long]=paperSizes[layout?.size??'A4']??paperSizes.A4;
@@ -189,8 +191,8 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
   const unit=(n:number)=>'calc('+n+' * var(--sheet-pt))';
   const length=(value?:Length)=>value?unit(points(value)):'';
   const hex=(value?:string)=>value&&/^[0-9a-f]{6}$/i.test(value)?'#'+value:'';
-  const choose=(item:Outline,label=item.label,className='definition-control')=>{
-    const control=button(label,()=>select(item,false));control.className=className;
+  const choose=(item:Outline,label=item.label,className='definition-control',activate=()=>select(item,false))=>{
+    const control=button(label,activate);control.className=className;
     control.dataset.paperRef=refKey(item.ref);
     control.dataset.kind=item.type;
     if(item.inline?.type==='text')control.addEventListener('dblclick',()=>openInlineEditor(item));
@@ -201,6 +203,10 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
     const props=item.node?.props;
     if(item.type==='area'){
       block.classList.add('definition-area');
+      if(continuousStructure){
+        block.append(choose(item,'Area · '+item.label,'sequence-area-label'),...item.children.map(contents));
+        return block;
+      }
       block.append(choose(item));
       const group=element('details');group.className='format-picker';
       const areaKey=refKey(item.ref);
@@ -217,7 +223,30 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
       if(active)block.append(contents(active));
     }else if(item.type==='format'){
       block.classList.add('definition-format');
-      block.append(choose(item),...item.children.map(contents));
+      if(continuousStructure){
+        const header=element('div');header.className='sequence-format-heading';
+        const order=(item.parent?.children.indexOf(item)??0)+1;
+        const label=choose(item,order+' · '+item.label,'sequence-format-label',()=>{
+          select(item,false);
+          if(creationMode())void editPart(item.ref,'format','แก้ Format · '+item.label);
+        });
+        label.dataset.sequenceFormat=item.format?.key??'';
+        if(creationMode())label.setAttribute('aria-label','แก้ Format '+item.label);
+        header.append(element('span','Area '+item.parent?.label+' · Format'),label);
+        const sources=item.format?.rowGroups?.map(group=>[group.source.key,group.memberRepeat?.source.key]
+          .filter(Boolean).map(key=>key+'[]').join(' › '))??[];
+        if(sources.length)header.append(element('small','แถววนตาม '+sources.join(' · ')));
+        block.append(header);
+      }else block.append(choose(item));
+      block.append(...item.children.map(contents));
+    }else if(continuousStructure&&item.type==='page-break'){
+      block.classList.add('sequence-page-break');
+      const label='ขึ้นหน้าใหม่หลังจุดนี้'+(item.format?' · '+item.format.key:'');
+      block.append(choose(item,label,'sequence-break-label'));
+    }else if(continuousStructure&&item.type==='table-of-contents'){
+      block.classList.add('sequence-contents');
+      block.append(choose(item,'สารบัญอัตโนมัติ','sequence-contents-label'),
+        element('small','ดึงจากหัวข้อที่ตั้งให้เข้าสารบัญ'));
     }else if(item.type==='table'){
       const table=element('table'), body=element('tbody'), columns=element('colgroup');
       const widths=(item.node?.columns??[]).map(column=>points(column.width));
@@ -327,18 +356,30 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
       const band=item.band, layout=band.placement, header=item.ref.band==='header';
       const offset=points(layout?.offset??(header?margin.top:margin.bottom));
       const view=contents(item);view.classList.add('definition-band');
-      view.style.left=length(layout?.left??margin.left)||'0';
-      view.style.right=length(layout?.right??margin.right)||'0';
-      view.style.setProperty(header?'top':'bottom',unit(offset));
       if(band.sizing?.height)view.style.minHeight=length(band.sizing.height);
       const reserve=offset+points(band.sizing?.height)+points(band.gap);
-      if(header)top=Math.max(top,reserve);
-      else bottom=Math.max(bottom,reserve);
+      const left=length(layout?.left??margin.left)||'0',right=length(layout?.right??margin.right)||'0';
+      if(continuousStructure){
+        view.style.marginLeft=left;view.style.marginRight=right;
+        view.style.marginTop=header?unit(offset):length(band.gap);
+        view.style.marginBottom=header?length(band.gap):unit(offset);
+        if(header)top=Math.max(0,top-reserve);
+        else bottom=Math.max(0,bottom-reserve);
+      }else{
+        view.style.left=left;view.style.right=right;
+        view.style.setProperty(header?'top':'bottom',unit(offset));
+        if(header)top=Math.max(top,reserve);
+        else bottom=Math.max(bottom,reserve);
+      }
       sheet.append(view);
     }else body.append(contents(item));
   }
   body.style.padding=unit(top)+' '+unit(points(margin.right))+' '+unit(bottom)+' '+unit(points(margin.left));
-  sheet.prepend(body);
+  function placeBody(page:HTMLElement,content:HTMLElement){
+    if(continuousStructure)page.insertBefore(content,page.querySelector(':scope > .definition-band[data-kind="footer"]'));
+    else page.prepend(content);
+  }
+  placeBody(sheet,body);
   const control=choose(root,root.label+' · '+sheet.dataset.pageSize,'definition-section-control');
   switcher.prepend(control);
   const unitPanel=element('section');unitPanel.className='definition-section';unitPanel.append(switcher);
@@ -371,17 +412,23 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
     const content=index===0?body:body.cloneNode(false) as HTMLElement;
     content.replaceChildren(...blocks);
     if(index>0){
-      page.append(content);
       for(const band of bands){
         const copy=band.cloneNode(true) as HTMLElement;
         copy.inert=true;
         for(const control of copy.querySelectorAll('[data-paper-ref]'))control.removeAttribute('data-paper-ref');
         page.append(copy);
       }
+      placeBody(page,content);
     }
     page.dataset.authoringPage=String(index+1);
     page.setAttribute('aria-label',root.label+' · หน้า '+(index+1));
     page.addEventListener('click',event=>{if(event.target===page||event.target===content)select(root,false);});
+    if(continuousStructure){
+      const caption=element('div');caption.className='sequence-sheet-caption';
+      caption.append(element('strong','แผ่นตัวอย่าง '+(index+1)));
+      if(index>0)caption.append(element('span','เริ่มหลังคำสั่งขึ้นหน้าใหม่'));
+      unitPanel.append(caption);
+    }
     unitPanel.append(page);
   }
   return unitPanel;
@@ -528,7 +575,7 @@ function select(item: Outline, measure: boolean, spacing?:'before'|'after') {
   const preferred=item.format;
   const currentSheet=sectionSheets.get(root);
   const control=paperNodes.get(item);
-  if(preferred&&(!currentSheet?.contains(control??null)||control?.classList.contains('definition-format-choice'))){
+  if(!continuousStructure&&preferred&&(!currentSheet?.contains(control??null)||control?.classList.contains('definition-format-choice'))){
     for(const [candidate] of paperNodes)if(candidate.section===root.section)paperNodes.delete(candidate);
     const nextSheet=drawSectionPaper(root,preferred);
     currentSheet?.replaceWith(nextSheet);sectionSheets.set(root,nextSheet);
@@ -1225,6 +1272,29 @@ function zoomPaper(delta:number){
 }
 q('zoom-in').addEventListener('click',()=>zoomPaper(25));
 q('zoom-out').addEventListener('click',()=>zoomPaper(-25));
+function updateStructureSequenceControl(){
+  q('show-structure-sequence').setAttribute('aria-pressed',String(continuousStructure));
+  q('structure-sequence-note').hidden=!continuousStructure;
+}
+function toggleStructureSequence(){
+  if(!draft)return;
+  continuousStructure=!continuousStructure;
+  updateStructureSequenceControl();
+  const url=new URL(location.href);
+  if(continuousStructure)url.searchParams.set('structureView','continuous');
+  else url.searchParams.delete('structureView');
+  window.history.replaceState(null,'',url);
+  closeInlineEditor();
+  sectionSheets.clear();paperNodes.clear();
+  paper.replaceChildren(...roots.map(root=>{
+    const sheet=drawSectionPaper(root,root.section===selection?.section?selection.format:undefined);
+    sectionSheets.set(root,sheet);return sheet;
+  }));
+  select(selection??roots[0],true);
+}
+updateStructureSequenceControl();
+q('show-structure-sequence').addEventListener('click',toggleStructureSequence);
+q('exit-structure-sequence').addEventListener('click',toggleStructureSequence);
 q('show-guides').addEventListener('click',()=>{
   const control=q('show-guides'),show=control.getAttribute('aria-pressed')!=='true';
   control.setAttribute('aria-pressed',String(show));
@@ -2074,7 +2144,12 @@ previous.addEventListener('click',()=>void goPage(pageIndex-1));
 next.addEventListener('click',()=>void goPage(pageIndex+1));
 jump.addEventListener('change',()=>{if(jump.checkValidity()&&jump.value)void goPage(Number(jump.value)-1);});
 refreshPreview.addEventListener('click',()=>{cancelPreview();void loadPreview();});
-function historyReplaceDraft(id:string){window.history.replaceState(null,'','/phase1-editor.html?id='+encodeURIComponent(id));}
+function historyReplaceDraft(id:string){
+  const url=new URL('/phase1-editor.html',location.href);
+  url.searchParams.set('id',id);
+  if(continuousStructure)url.searchParams.set('structureView','continuous');
+  window.history.replaceState(null,'',url);
+}
 if(newMode&&!templateId){
   q('title').textContent='สร้างโครงเอกสาร';q('new-document').hidden=false;
   q<HTMLFormElement>('new-document-form').addEventListener('submit',event=>{

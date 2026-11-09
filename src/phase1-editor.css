@@ -41,7 +41,7 @@ aside{display:grid;gap:10px}.panel h2{font-size:16px}.panel p,.type{color:var(--
 
 .definition-area{border:1px dashed #a4b7aa;border-radius:7px;padding:8px;margin:6px 0}.definition-area small{margin-left:5px}.definition-formats{display:flex;gap:4px;flex-wrap:wrap}.definition-format{margin-top:7px;padding-top:6px;border-top:1px solid #dce6de}.workspace article .definition-text{width:100%;padding:0;border:0;border-radius:0;background:transparent;font-family:FlowDocLab,sans-serif;white-space:pre-wrap}.workspace article .definition-cell-control{background:#eaf2ec;color:#32644f;font-size:10px;padding:0 3px;margin:0 0 2px}.definition-image{background:#eef4f0;border-style:dashed}.definition-rule{width:100%;border-width:0 0 1px;border-radius:0}.definition-columns{display:flex;gap:8px}.definition-columns>div{flex:1;min-width:0}
 
-.definition-viewport{max-height:72vh;overflow:auto;padding:0 4px 8px}
+.definition-viewport{max-height:72vh;overflow:auto;isolation:isolate;padding:0 4px 8px}
 #paper{container-type:inline-size;width:min(100%,680px);padding:0;min-height:0}
 .definition-sheet{position:relative}
 .definition-band{position:absolute}

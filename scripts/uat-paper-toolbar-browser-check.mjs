@@ -263,6 +263,29 @@ try{
   assert.match(await facts.textContent(),/แถว 1.*คอลัมน์ 2.*บน 5 pt/);
   await undo();
   assert.equal(await td.getAttribute('style'),priorPadding);
+
+  await page.setViewportSize({width:1280,height:600});
+  await paper.getByRole('button',{name:'เว้นก่อนเส้น 142 pt',exact:true}).click();
+  await form.getByRole('button',{name:'ยกเลิก',exact:true}).click();
+  await page.mouse.move(20,100);
+  const scrolledOverlap=await paper.locator('.definition-line:has(button[aria-current=true]) > .flow-grip').evaluate(grip=>{
+    const viewport=grip.closest('.definition-viewport');
+    const toolbar=document.getElementById('paper-edit-tools');
+    window.scrollTo(0,document.documentElement.scrollHeight);
+    const bar=toolbar.getBoundingClientRect(),g=grip.getBoundingClientRect();
+    const x=g.left+g.width/2,y=bar.bottom-15;
+    viewport.scrollTop+=g.top+8-y;
+    const rail=grip.getBoundingClientRect(),view=viewport.getBoundingClientRect();
+    return {
+      geometry:{y,viewTop:view.top,viewBottom:view.bottom,railTop:rail.top,railBottom:rail.bottom,scroll:viewport.scrollTop,barTop:bar.top,barBottom:bar.bottom},
+      intersects:y>Math.max(view.top,rail.top,bar.top)&&y<Math.min(view.bottom,rail.bottom,bar.bottom),
+      railVisible:getComputedStyle(grip).opacity==='1',
+      hitToolbar:toolbar.contains(document.elementFromPoint(x,y)),
+    };
+  });
+  assert.ok(scrolledOverlap.intersects&&scrolledOverlap.railVisible,JSON.stringify(scrolledOverlap));
+  assert.equal(scrolledOverlap.hitToolbar,true,JSON.stringify(scrolledOverlap));
+  await photo('14-paper-rail-below-toolbar');
   await page.setViewportSize({width:640,height:850});
   await page.reload();
   await menu('+ เพิ่ม').waitFor();

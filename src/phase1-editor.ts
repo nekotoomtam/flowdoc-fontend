@@ -190,8 +190,12 @@ function drawBranch(items: Outline[], depth = 0) {
 }
 const paperSizes:Record<string,[number,number]>={A4:[595.276,841.89],A3:[841.89,1190.551],Letter:[612,792],Legal:[612,1008]};
 const flowBlocks=new WeakMap<HTMLElement,Outline>();
+const flowViewport=paper.parentElement!;
+const flowToolbar=q('paper-edit-tools');
 let flowDrag:{item:Outline;block:HTMLElement;order:NonNullable<ReturnType<typeof structureOrder>>}|undefined;
 let flowDrop:{block:HTMLElement;side:'before'|'after';delta:number}|undefined;
+let flowPointer:{x:number;y:number}|undefined;
+let flowScrollFrame=0,flowScrollTime=0;
 paper.addEventListener('click',event=>{
   const target=event.target as Element;
   if(target.closest('button, td, table'))return;
@@ -203,7 +207,14 @@ function clearFlowDrop(){
   if(flowDrop)delete flowDrop.block.dataset.flowDrop;
   flowDrop=undefined;
 }
+function stopFlowScroll(){
+  cancelAnimationFrame(flowScrollFrame);
+  flowScrollFrame=0;
+  flowScrollTime=0;
+}
 function endFlowDrag(){
+  stopFlowScroll();
+  flowPointer=undefined;
   clearFlowDrop();
   if(flowDrag)delete flowDrag.block.dataset.flowDragSource;
   flowDrag=undefined;
@@ -222,9 +233,9 @@ paper.addEventListener('dragstart',event=>{
   event.dataTransfer.effectAllowed='move';
   event.dataTransfer.setData('application/x-flowdoc-block',refKey(item.ref));
 });
-paper.addEventListener('dragover',event=>{
-  if(!flowDrag||!event.dataTransfer)return;
-  let block=(event.target as HTMLElement).closest<HTMLElement>('[data-flow-block]');
+function updateFlowDrop(hit:Element|null,y:number){
+  if(!flowDrag)return;
+  let block=hit?.closest<HTMLElement>('[data-flow-block]')??null;
   let item=block&&flowBlocks.get(block);
   while(block&&item?.parent!==flowDrag.item.parent){
     block=block.parentElement?.closest<HTMLElement>('[data-flow-block]')??null;
@@ -232,7 +243,7 @@ paper.addEventListener('dragover',event=>{
   }
   if(!block||!item||item===flowDrag.item){clearFlowDrop();return;}
   const {top,height}=block.getBoundingClientRect();
-  const side=event.clientY<top+height/2?'before':'after';
+  const side=y<top+height/2?'before':'after';
   const {order}=flowDrag,target=order.ids.indexOf(item.id);
   const delta=target-order.index+(side==='after'?1:0)-(target>order.index?1:0);
   if(!delta||target<0){clearFlowDrop();return;}
@@ -242,16 +253,56 @@ paper.addEventListener('dragover',event=>{
     flowDrop={block,side,delta};
     block.dataset.flowDrop=side;
   }
+}
+function flowScrollVelocity(x:number,y:number){
+  const view=flowViewport.getBoundingClientRect();
+  const top=Math.max(0,view.top,flowToolbar.getBoundingClientRect().bottom);
+  const bottom=Math.min(view.bottom,window.innerHeight);
+  if(x<view.left||x>=view.right||y<top||y>=bottom)return 0;
+  const band=Math.min(56,(bottom-top)/2);
+  if(y<top+band&&flowViewport.scrollTop>0)return -900*(1-(y-top)/band);
+  const end=flowViewport.scrollHeight-flowViewport.clientHeight;
+  if(y>bottom-band&&flowViewport.scrollTop<end-1)return 900*(1-(bottom-y)/band);
+  return 0;
+}
+function scrollFlow(time:number){
+  flowScrollFrame=0;
+  if(!flowDrag||!flowPointer)return;
+  const {x,y}=flowPointer;
+  const velocity=flowScrollVelocity(x,y);
+  if(!velocity){flowScrollTime=0;return;}
+  const elapsed=flowScrollTime?Math.min(time-flowScrollTime,32):16;
+  flowScrollTime=time;
+  flowViewport.scrollTop+=Math.sign(velocity)*Math.max(1,Math.abs(velocity*elapsed/1000));
+  updateFlowDrop(document.elementFromPoint(x,y),y);
+  flowScrollFrame=requestAnimationFrame(scrollFlow);
+}
+flowViewport.addEventListener('dragover',event=>{
+  if(!flowDrag||!event.dataTransfer)return;
+  const {clientX:x,clientY:y}=event;
+  flowPointer={x,y};
+  updateFlowDrop(document.elementFromPoint(x,y),y);
+  const scrolling=Boolean(flowScrollVelocity(x,y));
+  if(scrolling&&!flowScrollFrame)flowScrollFrame=requestAnimationFrame(scrollFlow);
+  if(!scrolling)stopFlowScroll();
+  if(!flowDrop&&!scrolling)return;
   event.preventDefault();
   event.dataTransfer.dropEffect='move';
 });
-paper.addEventListener('dragleave',event=>{
-  if(!paper.contains(event.relatedTarget as Node|null))clearFlowDrop();
+flowViewport.addEventListener('dragleave',event=>{
+  if(!flowDrag)return;
+  const next=event.relatedTarget??document.elementFromPoint(event.clientX,event.clientY);
+  if(flowViewport.contains(next as Node|null))return;
+  flowPointer=undefined;
+  stopFlowScroll();
+  clearFlowDrop();
 });
-paper.addEventListener('drop',event=>{
+flowViewport.addEventListener('drop',event=>{
+  const hit=document.elementFromPoint(event.clientX,event.clientY);
+  updateFlowDrop(hit,event.clientY);
   const source=flowDrag,target=flowDrop;
   endFlowDrag();
-  if(!source||!target||!target.block.contains(event.target as Node)||
+  if(!source||!target||!target.block.contains(hit)||
     outlines.get(refKey(source.item.ref))!==source.item)return;
   event.preventDefault();
   tryStage({kind:'reorder',at:source.item.ref,delta:target.delta});

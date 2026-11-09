@@ -189,7 +189,9 @@ try{
     elements.map(node=>({zone:node.dataset.creationZone,top:node.getBoundingClientRect().top,icon:Boolean(node.querySelector('svg'))})));
   assert.deepEqual(zones.map(zone=>zone.zone),['header','body','footer']);
   assert.ok(zones.every((zone,index)=>zone.icon&&(!index||zones[index-1].top<zone.top)));
-  await id('creation-next').getByRole('button',{name:'วาง Area แรก'}).waitFor();
+  assert.equal(await id('creation-next').isVisible(),false);
+  const firstArea=id('paper').locator('[data-creation-zone=body]').getByRole('button',{name:'วาง Area แรก',exact:true});
+  await firstArea.waitFor();
   assert.equal(await id('tree').locator('[data-kind=area]').count(),0);
   assert.equal(await id('tree').locator('[data-kind=format]').count(),0);
   assert.equal(await id('paper').locator('.definition-sheet').getAttribute('data-page-size'),'A4');
@@ -209,7 +211,7 @@ try{
   await act('+ เพิ่มเลขหน้า');await form({field:'current'});
   await id('paper').getByRole('button',{name:'{{เลขหน้า}}',exact:true}).waitFor();
   const guide=name=>id('creation-next').getByRole('button',{name,exact:true});
-  await byKind('section').click();await guide('วาง Area แรก').click();
+  await byKind('section').click();await firstArea.click();
   await form({key:'parts',format:'cover'});
   await id('tree').locator('[data-kind=format]').first().waitFor();
   assert.equal(await id('tree').locator('[data-kind=format]').count(),1);

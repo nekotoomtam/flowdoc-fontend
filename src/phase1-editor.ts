@@ -365,7 +365,7 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
     zone('header','หัวกระดาษ','แถบด้านบน เช่น โลโก้หรือชื่อเอกสาร',!root.section.header?
       button('เพิ่มหัวกระดาษ',()=>addPaperBand(root.ref,'header')):undefined);
     zone('body','กระดาษเปล่า','พื้นที่กลางสำหรับเนื้อหา · UAT เริ่มที่ Area parts และ Format cover',
-      button('+ เพิ่มพื้นที่ (Area)',()=>askArea(root.ref)));
+      visualButton('วาง Area แรก','area',()=>askArea(root.ref)));
     empty.querySelector('[data-creation-zone="body"]')?.append(
       button('+ เพิ่มข้อความ',()=>tryStage({kind:'node',at:root.ref,type:'text-block'})));
     zone('footer','ท้ายกระดาษ','แถบด้านล่าง เช่น เลขหน้า',!root.section.footer?
@@ -570,7 +570,11 @@ function drawVariables(item:Outline){
     const group=scope&&variableGroups.get(scope.schema);
     const field=group&&[...group.querySelectorAll<HTMLButtonElement>('[data-variable-path]')]
       .find(control=>control.dataset.variablePath===selected.key);
-    if(field&&scope){field.setAttribute('aria-current','true');q('variable-detail').textContent=scope.label+' › '+field.textContent;}
+    if(field&&scope){
+      field.setAttribute('aria-current','true');
+      q('variable-detail').textContent=scope.label+' › '+field.textContent;
+      q<HTMLDetailsElement>('variable-panel').open=true;
+    }
   }
 }
 
@@ -648,7 +652,6 @@ function showDraft(data: Draft, keep?: Ref) {
   draft=data;
   title.textContent=data.name;
   q('revision').textContent=data.revision?'Model 20 · Revision '+data.revision:'Model 20 · ฉบับร่างใหม่';
-  q('creation-steps').hidden=Boolean(templateId)||!creationMode();
   const prior=new Map(roots.map(root=>[root.section,root]));
   roots=data.definition.sections.map(section=>prior.get(section)??outline(section));
   outlines=new Map();
@@ -1108,7 +1111,7 @@ function showPaperLocation(item:Outline){
 function showCreationNext(item:Outline){
   const panel=q('creation-next');
   panel.replaceChildren();
-  panel.hidden=Boolean(templateId)||!creationMode();
+  panel.hidden=Boolean(templateId)||!creationMode()||(item.type==='section'&&item.section.source.kind==='blank');
   if(panel.hidden)return;
   let root=item,format:Outline|undefined,area:Outline|undefined;
   for(let parent:Outline|undefined=item;parent;parent=parent.parent){
@@ -1151,16 +1154,10 @@ function showCreationNext(item:Outline){
     heading='เลือกฟอนต์ให้สไตล์ข้อความ';detail='สไตล์กำหนดขนาดและระยะบรรทัดของกล่องข้อความ';
     label='เลือกฟอนต์และสไตล์';action=()=>void editPart(root.ref,'styles','สไตล์เอกสาร');
   }
-  authoringRoadmap(q('creation-steps'),step);
   const copy=element('div');copy.append(element('strong',heading),element('small',detail));
   const next=visualButton(label,step,action);
   next.disabled=isSaving||hasConflict;
   panel.append(copy,next);
-  if(step==='review'&&area){
-    const more=visualButton('เพิ่ม Format ใน Area','format',()=>askFormat(area!));
-    more.disabled=next.disabled;
-    panel.append(more);
-  }
 }
 function showActions(item:Outline){
   const actions=q('actions'),paperActions=q('paper-actions');

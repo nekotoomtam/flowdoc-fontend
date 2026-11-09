@@ -38,7 +38,10 @@ try{
   const orderTools=page.locator('#paper-order');
   assert.equal(await orderTools.getByRole('button',{name:'เลื่อนขึ้น',exact:true}).count(),0);
   assert.equal(await page.locator('#advanced-details').getAttribute('open'),null);
-  assert.notEqual(await page.locator('#variable-panel').getAttribute('open'),null);
+  const variablePanel=page.locator('#variable-panel');
+  assert.equal(await variablePanel.getAttribute('open'),null);
+  assert.equal(await page.locator('#layout-inspector').getAttribute('open'),null);
+  assert.equal(await page.locator('#layout-facts').isVisible(),false);
   assert.equal(await tree.locator('[data-kind=format]').count(),0);
   assert.ok(await paper.getByRole('button',{name:'เลือกตาราง 1',exact:true}).isVisible());
   await photo('08-quiet-editor-on-open');
@@ -144,6 +147,8 @@ try{
   const facts=page.locator('#layout-facts');
   const tableField=paper.getByRole('button',{name:'{{title}}',exact:true});
   await tableField.click();
+  assert.ok(await variablePanel.getAttribute('open')!==null);
+  assert.match(await page.locator('#variable-detail').innerText(),/cover.*title.*string/);
   assert.match(await facts.textContent(),/อยู่ในตาราง.*แถว 1.*คอลัมน์/);
   assert.match(await facts.textContent(),/เส้นขอบสีขาว/);
   assert.equal(await paper.locator('.definition-table:has(button[aria-current=true])').count(),1);
@@ -163,7 +168,7 @@ try{
   await spacing.waitFor();
   const line=spacing.locator('..');
   const lineHeight=await line.evaluate(node=>node.getBoundingClientRect().height);
-  await page.getByRole('button',{name:'เส้นช่วยดูโครง',exact:true}).click();
+  await handles('เส้นช่วยดูโครง');
   assert.equal(await spacing.isVisible(),false);
   assert.equal(await line.evaluate(node=>node.getBoundingClientRect().height),lineHeight);
   await page.getByRole('button',{name:'เส้นช่วยดูโครง',exact:true}).click();

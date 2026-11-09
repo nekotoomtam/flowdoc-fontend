@@ -1295,6 +1295,7 @@ async function readDraft() {
 }
 function cancelPreview() {
   pendingPreview?.abort();pendingPreview=undefined;
+  paperDraft=undefined;closePaperEdit();
   resetPreviewPages();paperInteractionBlocked=false;jump.disabled=true;
   preview=undefined;trialBase=undefined;previewPaper.replaceChildren();
   delete previewPaper.dataset.revision;
@@ -1408,51 +1409,78 @@ function canvasSurface(page:DrawPage,cssWidth:number,sheet:SVGElement){
   return surface;
 }
 const trialPaperValue=q<HTMLTextAreaElement>('trial-paper-value');
+const trialPaperDraft=q('trial-paper-draft');
 let trialForm:ReturnType<typeof mountTrial>|undefined;
 let paperInteractionBlocked=false;
 let paperEdit:{key:string;occurrence:string;pageIndex:number;composing:boolean;previous?:TrialTab;next?:TrialTab}|undefined;
+let paperDraft:{key:string;occurrence?:string}|undefined;
+let draftStart=0;
 const trialHits=new WeakMap<SVGElement,PreviewEdit>();
-let paperGrowthFrame=0,paperLineHeight=0,paperBaseHeight=0;
-function updatePaperInk(occurrence?:string){
-  for(const ink of previewPaper.querySelectorAll('.trial-ink-active'))ink.classList.remove('trial-ink-active');
-  if(occurrence)for(const ink of previewPaper.querySelectorAll<SVGElement>('[data-trial-ink]'))
-    if(ink.dataset.trialInk===occurrence)ink.classList.add('trial-ink-active');
-  if(canvasPreview)for(const index of mountedPages){
-    const surface=pageSlots[index]?.firstElementChild;
-    if(surface)canvasInk.get(surface)?.(occurrence);
+let coveredInk:{surface:Element;occurrence:string}|undefined;
+function updatePaperInk(surface?:Element|null,occurrence?:string){
+  if(coveredInk&&coveredInk.surface===surface&&coveredInk.occurrence===occurrence)return;
+  if(coveredInk){
+    const previous=coveredInk.surface;
+    for(const ink of previous.querySelectorAll('.trial-ink-active'))ink.classList.remove('trial-ink-active');
+    if(previous!==surface||!occurrence)canvasInk.get(previous)?.();
+  }
+  coveredInk=surface&&occurrence?{surface,occurrence}:undefined;
+  if(coveredInk){
+    for(const ink of coveredInk.surface.querySelectorAll<SVGElement>('[data-trial-ink]'))
+      if(ink.dataset.trialInk===occurrence)ink.classList.add('trial-ink-active');
+    canvasInk.get(coveredInk.surface)?.(occurrence);
   }
 }
-function growPaperEditor(){
-  if(paperGrowthFrame||!paperEdit)return;
-  paperGrowthFrame=requestAnimationFrame(()=>{
-    paperGrowthFrame=0;
-    if(!paperEdit||!paperLineHeight)return;
-    const prior=trialPaperValue.scrollTop;
-    trialPaperValue.style.height=paperBaseHeight+'px';
-    const limit=paperBaseHeight+paperLineHeight*4;
-    const height=Math.max(paperBaseHeight,Math.min(limit,trialPaperValue.scrollHeight));
-    trialPaperValue.style.height=height+'px';
-    if(prior>0&&height< trialPaperValue.scrollHeight)trialPaperValue.scrollTop=prior;
+function fitPaperInput(input:HTMLElement,first:SVGRectElement,last:SVGRectElement){
+  const bounds=first.getBoundingClientRect();
+  const bottom=Math.min(last.getBoundingClientRect().bottom,first.closest('.preview-page-sheet')!.getBoundingClientRect().bottom);
+  const scale=bounds.height/Number(first.getAttribute('height'));
+  Object.assign(input.style,{
+    left:bounds.left+'px',top:bounds.top+'px',width:bounds.width+'px',height:Math.max(0,bottom-bounds.top)+'px',
+    fontSize:Number(first.dataset.fontSize)*scale+'px',lineHeight:bounds.height+'px',
+    fontWeight:first.dataset.weight??'400',textAlign:first.dataset.align??'left',color:first.dataset.inkColor??'#172b21',
   });
 }
+function showDraftText(){
+  trialPaperDraft.textContent=(paperDraft&&trialForm?.read(paperDraft.key) || '').slice(draftStart);
+}
 function positionPaperEditor(){
-  if(!paperEdit)return;
-  const hits=[...pageSlots[paperEdit.pageIndex]?.querySelectorAll<SVGRectElement>('[data-trial-key]')??[]]
-    .filter(hit=>hit.dataset.trialOccurrence===paperEdit?.occurrence);
-  if(!hits.length)return;
-  const first=hits[0],bounds=first.getBoundingClientRect();
-  const owner=trialHits.get(first);
-  if(owner){paperEdit.previous=owner.previous;paperEdit.next=owner.next;}
-  const height=Math.max(bounds.height,hits.at(-1)!.getBoundingClientRect().bottom-bounds.top);
-  paperBaseHeight=height;paperLineHeight=bounds.height;
-  const scale=bounds.height/Number(first.getAttribute('height'));
-  Object.assign(trialPaperValue.style,{
-    left:bounds.left+'px',top:bounds.top+'px',width:bounds.width+'px',height:height+'px',
-    fontSize:Number(first.dataset.fontSize)*scale+'px',lineHeight:bounds.height+'px',
-    textAlign:first.dataset.align??'left',color:first.dataset.inkColor??'#172b21',
-  });
-  updatePaperInk(paperEdit.occurrence);
-  growPaperEditor();
+  trialPaperDraft.hidden=true;
+  if(!showingPreview){updatePaperInk();return;}
+  if(paperEdit){
+    const slot=pageSlots[paperEdit.pageIndex];
+    const hits=[...slot?.querySelectorAll<SVGRectElement>('[data-trial-key]')??[]]
+      .filter(hit=>hit.dataset.trialOccurrence===paperEdit?.occurrence);
+    trialPaperValue.style.opacity=hits.length?'':'0';
+    if(!hits.length){updatePaperInk();return;}
+    const owner=trialHits.get(hits[0])!;
+    paperEdit.previous=owner.previous;paperEdit.next=owner.next;
+    fitPaperInput(trialPaperValue,hits[0],hits.at(-1)!);
+    updatePaperInk(slot.firstElementChild,paperEdit.occurrence);
+    return;
+  }
+  if(paperDraft){
+    const {key,occurrence:preferred}=paperDraft;
+    for(const index of [...mountedPages].sort((a,b)=>Math.abs(a-pageIndex)-Math.abs(b-pageIndex))){
+      const slot=pageSlots[index];
+      const hits=[...slot.querySelectorAll<SVGRectElement>('[data-trial-key]')].filter(hit=>
+        hit.dataset.trialKey===key&&(!preferred||hit.dataset.trialOccurrence===preferred));
+      const visible=hits.find(hit=>{
+        const bounds=hit.getBoundingClientRect();
+        return bounds.bottom>0&&bounds.top<innerHeight;
+      });
+      if(!visible)continue;
+      const occurrence=visible.dataset.trialOccurrence;
+      const fragment=hits.filter(hit=>hit.dataset.trialOccurrence===occurrence);
+      draftStart=trialHits.get(fragment[0])!.start;
+      showDraftText();
+      fitPaperInput(trialPaperDraft,fragment[0],fragment.at(-1)!);
+      trialPaperDraft.hidden=false;
+      updatePaperInk(slot.firstElementChild,occurrence);
+      return;
+    }
+  }
+  updatePaperInk();
 }
 function beginPaperEdit(edit:PreviewEdit,offset:number,index:number){
   if(paperInteractionBlocked)return;
@@ -1460,6 +1488,7 @@ function beginPaperEdit(edit:PreviewEdit,offset:number,index:number){
   if(value===undefined)return;
   paperEdit={key:edit.key,occurrence:edit.occurrence,pageIndex:index,composing:false,previous:edit.previous,next:edit.next};
   trialPaperValue.value=value;
+  trialPaperValue.scrollTop=0;
   trialForm?.reveal(edit.key);
   trialPaperValue.hidden=false;
   positionPaperEditor();
@@ -1467,16 +1496,15 @@ function beginPaperEdit(edit:PreviewEdit,offset:number,index:number){
   trialPaperValue.setSelectionRange(offset,offset);
 }
 function closePaperEdit(){
-  paperEdit=undefined;trialPaperValue.hidden=true;updatePaperInk();
+  paperEdit=undefined;trialPaperValue.hidden=true;positionPaperEditor();
 }
 function syncPaperEdit(composing:boolean){
   if(!paperEdit)return;
-  const {key,occurrence}=paperEdit,value=trialPaperValue.value;
-  const offset=trialPaperValue.selectionStart;
-  const readFocus=()=>paperEdit?{key:paperEdit.key,occurrence:paperEdit.occurrence,pageIndex:paperEdit.pageIndex,offset:trialPaperValue.selectionStart}
-    :{key,occurrence,pageIndex,offset};
+  const active=paperEdit,{key,occurrence}=active,value=trialPaperValue.value;
+  const fallback={key,occurrence,pageIndex:active.pageIndex,offset:trialPaperValue.selectionStart};
+  const readFocus=()=>paperEdit===active?{...fallback,pageIndex:active.pageIndex,offset:trialPaperValue.selectionStart}:fallback;
   trialForm?.write(key,value,readFocus,composing);
-  growPaperEditor();
+  paperDraft={key,occurrence};
 }
 trialPaperValue.addEventListener('compositionstart',()=>{if(paperEdit)paperEdit.composing=true;});
 trialPaperValue.addEventListener('input',event=>syncPaperEdit(Boolean(paperEdit?.composing||(event as InputEvent).isComposing)));
@@ -1514,7 +1542,7 @@ function showPage(page:DrawPage,index:number) {
   const surface=canvasPreview&&preview.previewId?canvasSurface(page,pageSlots[index].clientWidth||previewPaper.clientWidth,sheet):undefined;
   if(surface){
     for(const line of page.lines)sheet.append(svg('g',{role:'img','aria-label':line.text}));
-    canvasInk.get(surface)?.(paperEdit?.occurrence);
+    canvasInk.get(surface)?.();
   }else{
     sheet.append(svg('rect',{width:page.widthPt,height:page.heightPt,fill:color(page.backgroundColor)}));
     for(const f of page.fills??[])sheet.append(svg('rect',{x:f.xPt,y:f.yPt,width:f.widthPt,height:f.heightPt,fill:color(f.color)}));
@@ -1529,6 +1557,7 @@ function showPage(page:DrawPage,index:number) {
       }else{
         const text=svg('text',{x:line.xPt,y:line.yPt+line.baselineOffsetPt,fill:color(line.color),
           'font-size':line.fontSizePt,'font-weight':line.weight??400,'xml:space':'preserve'});
+        if(line.edit)text.dataset.trialInk=line.edit.occurrence;
         text.textContent=line.text;sheet.append(text);
       }
     }
@@ -1546,11 +1575,12 @@ function showPage(page:DrawPage,index:number) {
   for(const line of page.lines){
     const edit=line.edit;
     if(!edit||trialForm?.read(edit.key)===undefined)continue;
-    const width=Math.max(line.widthPt,edit.contentWidth??(edit.blank?80:line.widthPt),5);
+    const width=Math.max(edit.contentWidth??(edit.blank?80:line.widthPt),1);
     const left=edit.align==='right'?width-line.widthPt:edit.align==='center'?(width-line.widthPt)/2:0;
     const hit=svg('rect',{x:line.xPt-left,y:line.yPt,width,
       height:line.heightPt,fill:'transparent',tabindex:0,role:'button','aria-label':edit.blank?'พิมพ์ค่า '+JSON.parse(edit.key).at(-1):'แก้ค่า '+line.text});
     hit.dataset.fontSize=String(line.fontSizePt);hit.dataset.align=edit.align??'left';hit.dataset.inkColor=color(line.color);
+    hit.dataset.weight=String(line.weight??400);
     if(edit.blank)hit.classList.add('trial-field-blank');
     hit.classList.add('trial-field-hit');trialHits.set(hit,edit);
     hit.dataset.trialKey=edit.key;hit.dataset.trialOccurrence=edit.occurrence;hit.dataset.start=String(edit.start);hit.dataset.end=String(edit.end);
@@ -1573,7 +1603,7 @@ function showPage(page:DrawPage,index:number) {
   }
   pageSlots[index]?.replaceChildren(surface??sheet);
   mountedPages.add(index);
-  if(paperEdit?.pageIndex===index)positionPaperEditor();
+  if(paperEdit?.pageIndex===index||(!paperEdit&&paperDraft))positionPaperEditor();
 }
 let pageSlots:HTMLElement[]=[];
 let pageObserver:IntersectionObserver|undefined;
@@ -1600,14 +1630,13 @@ function restorePage(index:number){
   const sheet=removeRetainedPage(index);
   if(!sheet)return false;
   pageSlots[index].replaceChildren(sheet);mountedPages.add(index);
-  canvasInk.get(sheet)?.(paperEdit?.occurrence);
-  if(paperEdit?.pageIndex===index)positionPaperEditor();
+  if(paperEdit?.pageIndex===index||(!paperEdit&&paperDraft))positionPaperEditor();
   return true;
 }
 function retainPage(index:number){
   const sheet=pageSlots[index].firstElementChild;
   if(!sheet)return;
-  for(const ink of sheet.querySelectorAll('.trial-ink-active'))ink.classList.remove('trial-ink-active');
+  if(coveredInk?.surface===sheet)updatePaperInk();
   const nodes=1+sheet.querySelectorAll('*').length;
   const canvas=sheet.querySelector('canvas');
   const bitmapBytes=canvas?canvas.width*canvas.height*4:0;
@@ -1716,11 +1745,11 @@ function mountPreview(result:Preview,focusPage?:number){
   previewPaper.dataset.revision=String(result.revision);
   if(result.previewId)previewPaper.dataset.run=result.previewId;
   if(paperEdit)paperEdit.pageIndex=selected;
-  if(mountedPages.has(start)){if(paperEdit?.pageIndex===start)positionPaperEditor();}
-  else if(!restorePage(start))showPage(initial,start);
+  if(!mountedPages.has(start)&&!restorePage(start))showPage(initial,start);
   reportPage(selected);
   if(selected!==start)void ensurePage(selected);
   if(prior&&selected!==oldIndex)pageSlots[selected]?.parentElement?.scrollIntoView({block:'start'});
+  positionPaperEditor();
   if(!pageObserver){
     const observer=new IntersectionObserver(entries=>{
       if(pageObserver!==observer)return;
@@ -1802,8 +1831,9 @@ async function loadPreview(trial?:Trial,current=()=>true,usable=current,structur
     if(benchmark)await Promise.all([document.fonts.load('300 12px FlowDocLab'),document.fonts.load('400 12px FlowDocLab')]);
     await readyImages(data.pages[0],data.previewId);
     if(pendingPreview!==request||!usable()||draft.revision!==revision||!showingPreview)return;
-    const desired=trial?.focus&&paperEdit&&paperEdit.occurrence!==trial.focus.occurrence
+    const desired=trial&&trial.focus?.occurrence!==paperEdit?.occurrence
       ?Math.min(pageIndex,data.pageCount-1):undefined;
+    if(current())paperDraft=undefined;
     trialBase=trial&&data.trialPatchBase&&data.previewId?{previewId:data.previewId,trial,structure}:undefined;
     mountPreview(data,desired);
     if(pendingPreview!==request)return;
@@ -1831,12 +1861,16 @@ function openPreview(){
   const version=templateId+'/'+draft.revision+'/'+draft.fingerprint;
   if(trialVersion===version){if(!preview&&!pendingPreview)trialForm?.refresh();return;}
   trialVersion=version;trialBase=undefined;
-  trialForm?.dispose();closePaperEdit();
+  trialForm?.dispose();paperDraft=undefined;closePaperEdit();
   previewStatus.textContent='กำลังเปิดกระดาษจากโครง · Revision '+draft.revision;
   const starter=new Map([...activeFormats.values()].map(format=>[format.ownerAreaId,format.key]));
-  trialForm=mountTrial(q<HTMLFormElement>('trial-form'),draft.definition,starter,structural=>{
-    if(structural)paperInteractionBlocked=true;
-    closePaperEdit();
+  trialForm=mountTrial(q<HTMLFormElement>('trial-form'),draft.definition,starter,(structural,key)=>{
+    if(structural){
+      paperInteractionBlocked=true;paperDraft=undefined;closePaperEdit();
+    }else if(key){
+      if(paperDraft?.key===key&&!trialPaperDraft.hidden)showDraftText();
+      else{paperDraft={key};positionPaperEditor();}
+    }
     previewStatus.textContent='กำลังอัปเดตข้อมูลทดลอง…';
   },(trial,current,usable,structure,fields)=>{
     if(trialVersion!==version||!showingPreview||isDirty())return Promise.resolve();
@@ -1846,7 +1880,7 @@ function openPreview(){
 function changeMode(toPreview: boolean) {
   showingPreview=toPreview;previewPanel.hidden=!toPreview;editor.hidden=toPreview;
   defineTab.setAttribute('aria-pressed',String(!toPreview));previewTab.setAttribute('aria-pressed',String(toPreview));
-  if(toPreview){openPreview();pumpPages();}
+  if(toPreview){openPreview();positionPaperEditor();pumpPages();}
   if(!toPreview)closePaperEdit();
   if(!toPreview&&pendingPreview){
     cancelPreview();refreshPreview.disabled=false;

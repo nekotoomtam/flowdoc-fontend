@@ -29,15 +29,16 @@ async function fileBytes(file:File){
   for(let i=0;i<bytes.length;i+=16384)binary+=String.fromCharCode(...bytes.subarray(i,i+16384));
   return btoa(binary);
 }
-export function mountTrial(form:HTMLFormElement,definition:Definition,starter:ReadonlyMap<string,string>,changed:(structural:boolean)=>void,render:(trial:Trial,current:()=>boolean,usable:()=>boolean,structure:number,fields:ReadContext['fields'])=>Promise<void>){
+export function mountTrial(form:HTMLFormElement,definition:Definition,starter:ReadonlyMap<string,string>,changed:(structural:boolean,key?:string)=>void,render:(trial:Trial,current:()=>boolean,usable:()=>boolean,structure:number,fields:ReadContext['fields'])=>Promise<void>){
   const error=node('p');error.className='trial-error';error.setAttribute('role','alert');
   let editVersion=0,structureVersion=0,bindings=new Map<string,HTMLTextAreaElement>(),running=false;
+  let keys:WeakMap<HTMLTextAreaElement,string>|undefined;
   let timer:number|undefined,queued:(()=>TrialFocus|undefined)|undefined,disposed=false;
   const encoded=new WeakMap<File,Promise<string>>();
-  const invalidate=(structural=false,composing=false)=>{
+  const invalidate=(structural=false,composing=false,key?:string)=>{
     editVersion++;error.textContent='';
-    if(structural){structureVersion++;bindings.clear();}
-    changed(structural);
+    if(structural){structureVersion++;bindings.clear();keys=undefined;}
+    changed(structural,key);
     if(composing){queued=undefined;window.clearTimeout(timer);timer=undefined;}
     else{queued=()=>undefined;schedule();}
   };
@@ -183,10 +184,14 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
   const fieldsPanel=node('div');fieldsPanel.className='trial-input-scroll';
   fieldsPanel.append(details('ตัวแปรทั้งเอกสาร',global.element,true),...sections.map(section=>section.element));
   form.replaceChildren(fieldsPanel,error);
+  const finishComposition=(event:CompositionEvent)=>{
+    if(event.target instanceof HTMLTextAreaElement)invalidate(false,false,keys?.get(event.target));
+  };
+  form.addEventListener('compositionend',finishComposition);
   form.oninput=event=>{
     const input=event.target;
     if(input instanceof HTMLSelectElement||input instanceof HTMLInputElement&&input.type==='file')return;
-    invalidate(false,(event as InputEvent).isComposing);
+    invalidate(false,(event as InputEvent).isComposing,input instanceof HTMLTextAreaElement?keys?.get(input):undefined);
   };
   form.onchange=event=>{
     if(event.target instanceof HTMLSelectElement||event.target instanceof HTMLInputElement&&event.target.type==='file')
@@ -217,7 +222,14 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
         if(!bytes){bytes=fileBytes(file);encoded.set(file,bytes);}
         return {id,bytes:await bytes};
       }));
-      if(usable()){bindings=context.fields;await render({data,sections:values,images,blanks:context.blanks,focus},current,usable,structure,context.fields);}
+      if(usable()){
+        bindings=context.fields;
+        if(!keys){
+          keys=new WeakMap();
+          for(const [key,input] of bindings)keys.set(input,key);
+        }
+        await render({data,sections:values,images,blanks:context.blanks,focus},current,usable,structure,context.fields);
+      }
     }catch(cause){
       if(current())error.textContent=cause instanceof Error?cause.message:'จัดหน้าทดลองไม่สำเร็จ';
     }finally{running=false;schedule(0);}
@@ -243,6 +255,6 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
       if(composing){queued=undefined;window.clearTimeout(timer);timer=undefined;}
       else{queued=focus;schedule();}
     },
-    dispose(){disposed=true;editVersion++;queued=undefined;window.clearTimeout(timer);},
+    dispose(){disposed=true;editVersion++;queued=undefined;window.clearTimeout(timer);form.removeEventListener('compositionend',finishComposition);},
   };
 }

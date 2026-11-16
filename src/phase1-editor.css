@@ -244,10 +244,16 @@ main{padding:0 14px 24px}
 .trial-field-blank{fill:#d9eddf32;stroke:#80a892;stroke-width:.65;stroke-dasharray:3 2}
 #paper{background:transparent;box-shadow:none}
 .definition-section+.definition-section{margin-top:16px}
-.definition-section-tools{margin:6px 0}
+.definition-section-tools{margin:6px 0;flex-wrap:wrap}
+.definition-area-tools{display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap;min-width:0}
+#paper .definition-area-control{background:#e6f0e9;color:#205442;border-color:#9eb9ac}
 .definition-section-tools .format-picker .format-choices{z-index:4}
-.definition-sheet{background:white;box-shadow:0 4px 12px #152b281a}
-.definition-body{position:relative;overflow:visible}
+.definition-sheet{background:white;box-shadow:0 4px 12px #152b281a;display:grid;grid-template-rows:auto 1fr auto}
+.definition-body{position:relative;overflow:visible;grid-row:2;min-width:0}
+.definition-band-slot{display:flex;flex-direction:column;min-width:0;box-sizing:border-box}
+.definition-band-header{grid-row:1}
+.definition-band-footer{grid-row:3;justify-content:flex-end}
+#paper .definition-band-slot>.definition-band{position:relative}
 .variable-section{padding-top:8px;border-top:1px solid var(--line)}
 .variable-section h3,.variable-area h4{margin:5px 0;font-size:13px;color:#23533f}
 .variable-area{padding-left:8px;border-left:2px solid #dcebe2}

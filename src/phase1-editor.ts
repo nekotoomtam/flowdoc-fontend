@@ -200,7 +200,8 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
     const props=item.node?.props;
     if(item.type==='area'){
       block.classList.add('definition-area');
-      block.append(choose(item));
+      const areaControl=choose(item,'Area '+item.label,'definition-area-control');
+      areaControl.title='เลือกพื้นที่ '+item.label;
       const group=element('details');group.className='format-picker';
       const areaKey=refKey(item.ref);
       const active=item.children.find(child=>child.format===preferred)
@@ -212,7 +213,9 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
         if(format===active)continue;
         options.append(choose(format,format.label,'definition-format-choice'));
       }
-      group.append(options);switcher.append(group);
+      group.append(options);
+      const tools=element('div');tools.className='definition-area-tools';
+      tools.append(areaControl,group);switcher.append(tools);
       if(active)block.append(contents(active));
     }else if(item.type==='format'){
       block.classList.add('definition-format');
@@ -328,23 +331,27 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
     body.append(empty);
   }
   const margin=layout?.margin??{};
-  let top=points(margin.top),bottom=points(margin.bottom);
+  let top=margin.top,bottom=margin.bottom;
   for(const item of root.children){
     if(item.ref.band&&item.band){
       const band=item.band, layout=band.placement, header=item.ref.band==='header';
-      const offset=points(layout?.offset??(header?margin.top:margin.bottom));
+      const edge=header?'top':'bottom';
+      const offset=layout?.offset??margin[edge];
       const view=contents(item);view.classList.add('definition-band');
-      view.style.left=length(layout?.left??margin.left)||'0';
-      view.style.right=length(layout?.right??margin.right)||'0';
-      view.style.setProperty(header?'top':'bottom',unit(offset));
+      view.style.marginInlineStart=length(layout?.left??margin.left);
+      view.style.marginInlineEnd=length(layout?.right??margin.right);
       if(band.sizing?.height)view.style.minHeight=length(band.sizing.height);
-      const reserve=offset+points(band.sizing?.height)+points(band.gap);
-      if(header)top=Math.max(top,reserve);
-      else bottom=Math.max(bottom,reserve);
-      sheet.append(view);
+      // Keep each band in the sheet's layout so content-sized bands reserve their drawn height.
+      const slot=element('div');
+      slot.className='definition-band-slot definition-band-'+(header?'header':'footer');
+      slot.style.minHeight=length(margin[edge]);
+      slot.style.paddingTop=length(header?offset:band.gap);
+      slot.style.paddingBottom=length(header?band.gap:offset);
+      slot.append(view);sheet.append(slot);
+      if(header)top=undefined;else bottom=undefined;
     }else body.append(contents(item));
   }
-  body.style.padding=unit(top)+' '+unit(points(margin.right))+' '+unit(bottom)+' '+unit(points(margin.left));
+  body.style.padding=[top,margin.right,bottom,margin.left].map(value=>unit(points(value))).join(' ');
   sheet.prepend(body);
   const control=choose(root,root.label+' · '+sheet.dataset.pageSize,'definition-section-control');
   switcher.prepend(control);
@@ -372,7 +379,7 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
     return pages;
   }
   const authored=partition([...body.children] as HTMLElement[]);
-  const bands=[...sheet.querySelectorAll(':scope > .definition-band')];
+  const bands=[...sheet.querySelectorAll(':scope > .definition-band-slot')];
   for(const [index,blocks] of authored.entries()){
     const page=index===0?sheet:sheet.cloneNode(false) as HTMLElement;
     const content=index===0?body:body.cloneNode(false) as HTMLElement;

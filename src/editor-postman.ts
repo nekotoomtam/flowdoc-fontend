@@ -17,7 +17,7 @@ export function draftInputContract(definition:Definition):InputContract{
   }))};
 }
 const textExamples:Record<string,string>={
-  projectName:'โครงการตัวอย่าง FlowDoc',documentVersion:'1.0',updatedDate:'16/11/2026',date:'16/11/2026',
+  projectName:'โครงการตัวอย่าง FlowDoc',documentVersion:'1.0',docVersion:'1.0',updatedDate:'16/11/2026',date:'16/11/2026',
   author:'ทีมเอกสาร',name:'ผู้ทดสอบ',position:'วิศวกรระบบ',organization:'FlowDoc Lab',
   address:'กรุงเทพมหานคร',telephone:'02-000-0000',fax:'02-000-0001',code:'REQ',
   text:'ข้อความสำหรับทดสอบการออกเอกสาร',detail:'ระบบสามารถตรวจข้อมูลและสร้างเอกสารได้',

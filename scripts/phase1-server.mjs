@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
 import {loadOriginalUat} from './original-uat-preview.mjs';
 import {trialImages} from './trial-preview-images.mjs';
+import {createTrialExports} from './trial-export.mjs';
 import {applyTrialValueChanges} from './trial-value-delta.mjs';
 import {layoutPreview} from './trial-engine-layout.mjs';
 import {createResumePreview} from './trial-resume-layout.mjs';
@@ -158,6 +159,13 @@ try {
     take((await service('PUT',route,{definition,expectedRevision:0,idempotencyKey:'phase1-seed-uat'})).json());
   }
 
+  async function renderResources(templateId,draft,fontProbe){
+    const refs=await readReferences(pool,templateId,draft.revision);
+    const {snapshot,readiness}=await resolveFontReadiness(pool,draft.definition,draft.fingerprint,refs,
+      fontProbe,undefined,{deferFiles:true});
+    return readiness.status==='ready'?snapshotResources(snapshot,tempRoot):undefined;
+  }
+  const trialExports=createTrialExports(tempRoot,async templateId=>(await service('GET','/'+templateId)).json(),renderResources);
   let previewBusy = false;
   async function render(templateId,body) {
     const {expectedRevision,sample:mode,trialPatch,layoutMode}=body??{};
@@ -210,13 +218,10 @@ try {
         try{assets=await trialImages(trial.images);}
         catch{return {status:422,body:{error:'invalid_image'}};}
       }
-      const refs=await readReferences(pool,templateId,draft.revision);
       // The Engine shapes the actual trial below. Service actual-input preflight invokes a PDF writer.
       const fontProbe=custom?undefined:{document:resolved,input:sample};
-      const {snapshot,readiness} = await resolveFontReadiness(pool,draft.definition,draft.fingerprint,refs,
-        fontProbe,undefined,{deferFiles:true});
-      if(readiness.status!=='ready')return {status:422,body:{error:'font_not_ready'}};
-      const resources = await snapshotResources(snapshot,tempRoot);
+      const resources=await renderResources(templateId,draft,fontProbe);
+      if(!resources)return {status:422,body:{error:'font_not_ready'}};
       const engineStarted=performance.now();
       const dimensions=assets?.dimensions??(assets
         ?Object.fromEntries(Object.entries(assets.provider.images).map(([id,{width,height}])=>[id,{width,height}]))
@@ -322,7 +327,7 @@ try {
     const selectedRoute='/'+packet.templateId;
     if(packet.templateId!==identity){
       const owned=await pool.query('SELECT 1 FROM authoring_templates a JOIN templates t ON t.id=a.template_id WHERE a.principal=$1 AND t.id=$2 AND t.doc_key LIKE $3',[principal,packet.templateId,'editor-draft-%']);
-      if(!owned.rowCount||!['get','publication','rename','structure','preview','trial-page','trial-asset'].includes(packet.action))return {status:404,body:{error:'not_found'}};
+      if(!owned.rowCount||!['get','publication','rename','structure','preview','export','export-chunk','export-release','trial-page','trial-asset'].includes(packet.action))return {status:404,body:{error:'not_found'}};
     }
     if(packet.action==='publication'){
       const {rows:[published]}=await pool.query(
@@ -355,6 +360,9 @@ try {
       return {status:result.statusCode,body:result.json()};
     }
     if (packet.action === 'preview') return render(packet.templateId,packet.body);
+    if (packet.action === 'export') return trialExports.generate(packet.templateId,packet.body);
+    if (packet.action === 'export-chunk') return trialExports.chunk(packet.templateId,packet.body);
+    if (packet.action === 'export-release') return trialExports.release(packet.templateId,packet.body);
     if(packet.action==='trial-page'||packet.action==='trial-asset'){
       const cache=trialPreviews.get(packet.body.run);
       if(!cache||cache.templateId!==packet.templateId)return {status:404,body:{error:'PREVIEW_EXPIRED'}};

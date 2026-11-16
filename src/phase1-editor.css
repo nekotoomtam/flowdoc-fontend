@@ -227,6 +227,13 @@ main{padding:0 14px 24px}
 .trial-list-controls button,#trial-form fieldset button{font-size:12px;padding:4px 7px}
 .trial-error:not(:empty){color:#922c2c;font-weight:600}
 .trial-result{min-width:0}
+.trial-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.trial-heading h2{margin:0}
+#trial-export{position:relative;flex:none}
+#trial-export summary{cursor:pointer;padding:7px 12px;border:1px solid #b9ccc0;border-radius:7px;color:#124c3d;background:#fff}
+.trial-export-options{position:absolute;right:0;top:calc(100% + 4px);z-index:5;display:grid;gap:4px;min-width:max-content;padding:6px;border:1px solid #b9ccc0;border-radius:7px;background:#fff}
+.trial-export-options button{text-align:left}
+#trial-export-status{position:fixed;z-index:30;right:16px;bottom:16px;max-width:min(420px,calc(100vw - 32px));margin:0;padding:9px 12px;border:1px solid #b9ccc0;border-radius:7px;background:#fff;color:#124c3d;overflow-wrap:anywhere;pointer-events:none}
 @media(max-width:760px){.trial-layout{display:block}.trial-result{margin-top:14px}}
 .trial-input-scroll{max-height:min(60vh,620px);overflow:auto;scrollbar-gutter:stable;padding-right:3px}
 #trial-form>button[type=submit]{margin-top:7px;width:100%}

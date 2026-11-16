@@ -3,7 +3,7 @@ import type {Definition,Field,Schema} from './editor-structure';
 type SampleData=Record<string,unknown>;
 type Upload={id:string;bytes:string};
 type Path=(string|number)[];
-type ReadContext={files:Map<string,File>;fields:Map<string,HTMLTextAreaElement>;blanks:Path[];apiImages?:{path:Path;file?:File}[]};
+type ReadContext={files:Map<string,File>;fields:Map<string,HTMLTextAreaElement>;blanks:Path[];apiImages?:{path:Path;file?:File}[];requireImages?:boolean};
 type Read=(context:ReadContext,path:Path)=>unknown;
 export type TrialFocus={key:string;occurrence:string;offset:number;pageIndex:number};
 export type Trial={data:SampleData;sections:SampleData[];images:Upload[];blanks:Path[];pageIndex?:number;focus?:TrialFocus};
@@ -144,6 +144,7 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
           context.apiImages.push({path,file});
           return {image:{upload:true}};
         }
+        if(!file&&field.required&&context.requireImages)throw Error('เลือกไฟล์รูปสำหรับ '+label+' ก่อนดาวน์โหลด');
         if(!file)return field.required?id:undefined;
         if(file.size>maxImageBytes)throw Error('รูป '+key+' ต้องมีขนาดไม่เกิน 1 MB');
         context.files.set(id,file);return id;
@@ -190,6 +191,19 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
     return {data:global.read(context,['data']),sections:sections.map((section,i)=>section.read(context,['sections',i]))};
   }
   const fieldsPanel=node('div');fieldsPanel.className='trial-input-scroll';
+  async function snapshot(requireImages=false){
+    const context:ReadContext={files:new Map(),fields:new Map(),blanks:[],requireImages};
+    const values=readValues(context);
+    const files=[...context.files];
+    if(files.reduce((total,[,file])=>total+file.size,0)>maxImagesBytes)
+      throw Error('รูปทั้งหมดต้องมีขนาดรวมไม่เกิน 2 MB');
+    const images=await Promise.all(files.map(async ([id,file])=>{
+      let bytes=encoded.get(file);
+      if(!bytes){bytes=fileBytes(file);encoded.set(file,bytes);}
+      return {id,bytes:await bytes};
+    }));
+    return {trial:{...values,images,blanks:context.blanks},fields:context.fields};
+  }
   fieldsPanel.append(details('ตัวแปรทั้งเอกสาร',global.element,true),...sections.map(section=>section.element));
   form.replaceChildren(fieldsPanel,error);
   const finishComposition=(event:CompositionEvent)=>{
@@ -220,23 +234,14 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
     const current=()=>version===editVersion;
     const usable=()=>!disposed&&structure===structureVersion;
     try{
-      const context:ReadContext={files:new Map(),fields:new Map(),blanks:[]};
-      const values=readValues(context);
-      const files=[...context.files];
-      if(files.reduce((total,[,file])=>total+file.size,0)>maxImagesBytes)
-        throw Error('รูปทั้งหมดต้องมีขนาดรวมไม่เกิน 2 MB');
-      const images=await Promise.all(files.map(async ([id,file])=>{
-        let bytes=encoded.get(file);
-        if(!bytes){bytes=fileBytes(file);encoded.set(file,bytes);}
-        return {id,bytes:await bytes};
-      }));
+      const sample=await snapshot();
       if(usable()){
-        bindings=context.fields;
+        bindings=sample.fields;
         if(!keys){
           keys=new WeakMap();
           for(const [key,input] of bindings)keys.set(input,key);
         }
-        await render({...values,images,blanks:context.blanks,focus},current,usable,structure,context.fields);
+        await render({...sample.trial,focus},current,usable,structure,sample.fields);
       }
     }catch(cause){
       if(current())error.textContent=cause instanceof Error?cause.message:'จัดหน้าทดลองไม่สำเร็จ';
@@ -247,6 +252,7 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
   queueMicrotask(()=>{if(!running&&!disposed)void send();});
   return {
     refresh,
+    async exportSnapshot(){const {trial}=await snapshot(true);return {data:trial.data,sections:trial.sections,images:trial.images};},
     apiExample(){
       const apiImages:NonNullable<ReadContext['apiImages']>=[];
       const payload=readValues({files:new Map(),fields:new Map(),blanks:[],apiImages});

@@ -64,10 +64,20 @@
         <form id="trial-form"></form>
       </aside>
       <div class="trial-result">
-        <h2>กระดาษเสมือนจาก Engine</h2>
+        <div class="trial-heading">
+          <h2>กระดาษเสมือนจาก Engine</h2>
+          <details id="trial-export" hidden>
+            <summary>Export</summary>
+            <div class="trial-export-options">
+              <button type="button" data-export-format="pdf">ดาวน์โหลด PDF</button>
+              <button type="button" data-export-format="docx">ดาวน์โหลด Word (.docx)</button>
+            </div>
+          </details>
+        </div>
         <p id="trial-edit-hint" hidden>พิมพ์ในฟอร์มหรือบนกระดาษ ค่าจะอัปเดตทั้งสองฝั่ง · กด Tab ไปช่องถัดไป</p>
         <p id="legacy-preview-description">ใช้ข้อมูลและภาพจากชุด UAT ต้นฉบับกับนิยามฉบับที่บันทึกแล้ว</p>
         <p id="preview-status" role="status"></p>
+        <p id="trial-export-status" role="status" hidden></p>
         <div class="pager"><button id="previous-page" disabled>หน้าก่อน</button><span id="page-number"></span><label for="jump-page">ไปหน้า</label><input id="jump-page" type="number" min="1" step="1" disabled><button id="next-page" disabled>หน้าถัดไป</button></div>
         <div id="preview-paper"></div>
         <div id="trial-empty-sheet" hidden aria-label="กระดาษทดลองเปล่า"></div>

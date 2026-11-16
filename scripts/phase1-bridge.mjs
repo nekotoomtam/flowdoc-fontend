@@ -1,8 +1,11 @@
 import {spawn} from 'node:child_process';
 import {createInterface} from 'node:readline';
 import {isDeepStrictEqual} from 'node:util';
+import {Readable} from 'node:stream';
+import {pipeline} from 'node:stream/promises';
 
-const root='/home/ubuntu/flowdoc-editor-phase1-20261108';
+const root=process.env.FLOWDOC_EDITOR_LAB_ROOT??'/home/ubuntu/flowdoc-editor-phase1-20261108';
+if(!/^\/home\/ubuntu\/flowdoc-[a-z0-9-]+$/.test(root))throw Error('Invalid editor lab directory');
 const stage='/home/ubuntu/flowdoc-library-model20-staging-20261108';
 const candidate='/home/ubuntu/flowdoc-audit-187957aecc2d/flowdoc-schema-freshapi-git055-complete-20261106/candidate';
 const reference='/home/ubuntu/flowdoc-audit-187957aecc2d/flowdoc-schema-freshapi-full-direct-fonts4-20261106';
@@ -69,10 +72,10 @@ export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1',
     return proc;
   }
   function ask(packet) {
-    if(pending.size>=8)return Promise.resolve({status:429,body:{error:'lab_busy'}});
+    if(pending.size>=8&&packet.action!=='export-release')return Promise.resolve({status:429,body:{error:'lab_busy'}});
     const proc=start(), id=++sequence;
     return new Promise((resolve,reject)=>{
-      const timer=setTimeout(()=>stop(proc),packet.action==='preview'?120000:30000);
+      const timer=setTimeout(()=>stop(proc),['preview','export'].includes(packet.action)?120000:30000);
       pending.set(id,{timer,resolve,reject});
       proc.stdin.write(JSON.stringify({...packet,id})+'\n');
     });
@@ -90,7 +93,7 @@ export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1',
         (req.headers['sec-fetch-site']&&!['same-origin','none'].includes(req.headers['sec-fetch-site'])))
         return send(403,{error:'forbidden'});
       if(!enabled)return send(503,{error:'phase1_disabled'});
-      const match=/^\/drafts\/([^/]+)(\/(?:preview|structure|publication))?$/.exec(req.url??'');
+      const match=/^\/drafts\/([^/]+)(\/(?:preview|export|structure|publication))?$/.exec(req.url??'');
       const pageRoute=/^\/drafts\/([^/]+)\/preview-pages\/(\d+)\/(\d+)$/.exec(req.url??'');
       const assetRoute=/^\/drafts\/([^/]+)\/preview-assets\/([a-f0-9-]+)$/.exec(req.url??'');
       const trialRoute=/^\/drafts\/([^/]+)\/preview-runs\/([^/]+)\/(pages|assets)\/([^/]+)$/.exec(req.url??'');
@@ -104,6 +107,7 @@ export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1',
         if(req.method==='GET'&&match[2]==='/publication')action='publication';
         if(req.method==='PUT'&&!match[2])action='rename';
         if(req.method==='POST'&&match[2]==='/preview')action='preview';
+        if(req.method==='POST'&&match[2]==='/export')action='export';
         if(req.method==='PUT'&&match[2]==='/structure')action='structure';
       }
       if(req.method==='GET'&&pageRoute&&uuid.test(pageRoute[1])){
@@ -122,7 +126,7 @@ export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1',
         if(!/^application\/json(?:;|$)/i.test(req.headers['content-type']??''))return send(415,{error:'invalid_content_type'});
         try{
           const chunks=[];let bytes=0;
-          for await(const chunk of req){bytes+=chunk.length;if(bytes>(action==='preview'?4*1024*1024:['structure','create'].includes(action)?2*1024*1024:4096))return send(413,{error:'body_too_large'});chunks.push(chunk);}
+          for await(const chunk of req){bytes+=chunk.length;if(bytes>(['preview','export'].includes(action)?4*1024*1024:['structure','create'].includes(action)?2*1024*1024:4096))return send(413,{error:'body_too_large'});chunks.push(chunk);}
           body=JSON.parse(Buffer.concat(chunks).toString('utf8'));
         }catch{return send(400,{error:'invalid_json'});}
       }
@@ -131,12 +135,37 @@ export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1',
         if(action==='publication'&&reply.status===200&&reply.body?.value){
           const value=reply.body.value,target=await documentsTarget(documentsBaseUrl,value);
           send(200,{...reply.body,value:{...value,target}});
+        }else if(action==='export'&&reply.status===200){
+          const {id,size,mediaType,disposition,warningCount}=reply.body;
+          let released=false;
+          async function release(){
+            const result=await ask({action:'export-release',templateId,body:{id}});
+            released=result.status===200;
+          }
+          async function* chunks(){
+            for(let offset=0;offset<size;){
+              const result=await ask({action:'export-chunk',templateId,body:{id,offset}});
+              if(result.status!==200||!result.bytes)throw Error('Export stream unavailable');
+              const bytes=Buffer.from(result.bytes,'base64');
+              offset+=bytes.length;
+              if(!bytes.length||offset>size)throw Error('Invalid export chunk');
+              if(offset===size)await release().catch(()=>{});
+              yield bytes;
+            }
+          }
+          try{
+            if(!res.destroyed){
+              res.writeHead(200,{'Content-Type':mediaType,'Content-Disposition':disposition,'Content-Length':size,
+                'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-FlowDoc-Warnings':warningCount});
+              await pipeline(Readable.from(chunks()),res);
+            }
+          }finally{if(!released)await release().catch(()=>{});}
         }else if(['preview-asset','trial-asset'].includes(action)&&reply.status===200&&['image/png','image/jpeg'].includes(reply.mediaType)){
           res.writeHead(200,{'Content-Type':reply.mediaType,'Cache-Control':action==='trial-asset'?'no-store':'private, max-age=3600','X-Content-Type-Options':'nosniff'});
           res.end(Buffer.from(reply.bytes,'base64'));
         }else send(reply.status,reply.body);
       }
-      catch{send(503,{error:'phase1_unavailable'});}
+      catch{if(res.headersSent||res.destroyed)res.destroy();else send(503,{error:'phase1_unavailable'});}
     });
   }};
 }

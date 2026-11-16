@@ -4,6 +4,7 @@ import type {Part} from './editor-creation';
 import {openVisualAuthoring} from './editor-visual-authoring';
 import {mountTrial} from './editor-trial';
 import {showApi} from './editor-api';
+import {installTrialExport} from './editor-trial-export';
 import {trialValueChanges} from '../scripts/trial-value-delta.mjs';
 import type {Trial} from './editor-trial';
 
@@ -1949,8 +1950,14 @@ async function loadPreview(trial?:Trial,current=()=>true,usable=current,structur
   }
 }
 let trialVersion='';
+const trialExport=q<HTMLDetailsElement>('trial-export');
+installTrialExport(trialExport,q('trial-export-status'),()=>{
+  if(!showingPreview||isDirty()||!trialForm||!draft.docKey||trialVersion!==templateId+'/'+draft.revision+'/'+draft.fingerprint)return;
+  return {url:endpoint+'/export',docKey:draft.docKey,revision:draft.revision,fingerprint:draft.fingerprint,snapshot:trialForm.exportSnapshot};
+});
 function openPreview(){
   const custom=!benchmark;
+  trialExport.hidden=!custom;
   q('trial-input').hidden=!custom;
   q('legacy-preview-description').hidden=custom;
   q('trial-edit-hint').hidden=!custom;

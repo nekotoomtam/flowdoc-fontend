@@ -1,4 +1,6 @@
 import {createRequire} from 'node:module';
+import {createHash} from 'node:crypto';
+import {deflateSync} from 'node:zlib';
 
 const sharp=createRequire('/candidate/package.json')('sharp');
 const uuid=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
@@ -23,4 +25,36 @@ export async function trialImages(uploads){
     assets.set(id,{type:jpeg?'image/jpeg':'image/png',bytes:data});
   }
   return {assets,dimensions};
+}
+
+export async function trialImageProvider({assets,dimensions},contract){
+  const images=Object.create(null),blobs=new Map();
+  function ref(key,bytes){
+    blobs.set(key,bytes);
+    return {key,byteLength:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')};
+  }
+  for(const [id,asset] of assets){
+    const size=dimensions[id];
+    if(asset.type==='image/jpeg'){
+      images[id]={...size,kind:'jpeg',content:ref(id,asset.bytes)};
+      continue;
+    }
+    const pixels=await sharp(asset.bytes).ensureAlpha().raw().toBuffer();
+    const rgb=Buffer.allocUnsafe(pixels.length/4*3),alpha=Buffer.allocUnsafe(pixels.length/4);
+    let transparent=false;
+    for(let i=0;i<alpha.length;i++){
+      rgb[i*3]=pixels[i*4];rgb[i*3+1]=pixels[i*4+1];rgb[i*3+2]=pixels[i*4+2];
+      alpha[i]=pixels[i*4+3];transparent||=alpha[i]!==255;
+    }
+    images[id]={...size,kind:'rgb-deflate',content:ref(id,deflateSync(rgb)),
+      ...(transparent?{alpha:ref(id+'-alpha',deflateSync(alpha))}:{})};
+  }
+  return {contract,images,async *open({key},signal){
+    const bytes=blobs.get(key);
+    if(!bytes)throw Error('Unknown trial image');
+    for(let offset=0;offset<bytes.length;offset+=65536){
+      signal?.throwIfAborted();
+      yield bytes.subarray(offset,offset+65536);
+    }
+  }};
 }

@@ -20,10 +20,10 @@
       <label>ขนาดกระดาษ <select name="size"><option>A4</option><option>Letter</option></select></label>
       <label>แนวกระดาษ <select name="orientation"><option value="portrait">แนวตั้ง</option><option value="landscape">แนวนอน</option></select></label>
       <div class="margin-fields">
-        <label>บน (pt) <input name="top" type="number" value="36" min="0" max="180" required></label>
-        <label>ขวา (pt) <input name="right" type="number" value="36" min="0" max="180" required></label>
-        <label>ล่าง (pt) <input name="bottom" type="number" value="36" min="0" max="180" required></label>
-        <label>ซ้าย (pt) <input name="left" type="number" value="36" min="0" max="180" required></label>
+        <label>บน (pt) <input name="top" type="number" value="36" min="0" max="180" step="any" required></label>
+        <label>ขวา (pt) <input name="right" type="number" value="36" min="0" max="180" step="any" required></label>
+        <label>ล่าง (pt) <input name="bottom" type="number" value="36" min="0" max="180" step="any" required></label>
+        <label>ซ้าย (pt) <input name="left" type="number" value="36" min="0" max="180" step="any" required></label>
       </div>
     </fieldset>
     <p id="new-document-error" role="alert"></p>

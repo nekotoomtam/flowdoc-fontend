@@ -1,5 +1,5 @@
 import './phase1-editor.css';
-import {addBand,addVariable,applyPart,changePage,newDefinition,partValue,settings} from './editor-creation';
+import {addBand,addVariable,applyPart,canEditSectionContent,changePage,newDefinition,partValue,settings} from './editor-creation';
 import type {Part} from './editor-creation';
 import {openVisualAuthoring} from './editor-visual-authoring';
 import {mountTrial} from './editor-trial';
@@ -258,10 +258,17 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
     }else if(item.type==='text-block'){
       block.classList.add('definition-text');
       block.append(choose(item,'ข้อความ','definition-marker'));
-      const style=draft.definition.styles[props?.textStyleId??''] as {fontSize?:Length;lineHeightPt?:number;font?:{weight?:number}}|undefined;
+      const style=draft.definition.styles[props?.textStyleId??''] as {fontSize?:Length;lineHeightPt?:number;fontWeight?:string;font?:{weight?:number}}|undefined;
       if(style?.fontSize)block.style.fontSize=length(style.fontSize);
       if(style?.lineHeightPt)block.style.lineHeight=unit(style.lineHeightPt);
       if(style?.font?.weight)block.style.fontWeight=String(style.font.weight);
+      else if(style?.fontWeight)block.style.fontWeight=style.fontWeight;
+      if(props?.heightMode==='fixed'&&props.height){
+        block.style.minHeight=length(props.height);
+        if(item.children.length){
+          block.style.alignContent=props.verticalAlign==='bottom'?'end':props.verticalAlign==='center'?'center':'start';
+        }
+      }
       if(props?.textAlign)block.style.textAlign=props.textAlign;
       for(const part of item.children){
         if(part.type==='line-break')block.append(choose(part,'↵','definition-inline'),element('br'));
@@ -714,7 +721,7 @@ function paperSettings(item:Outline){
   const labels=['บน','ขวา','ล่าง','ซ้าย'];
   ask('ขนาดกระดาษและระยะขอบ',[{key:'size',label:'ขนาด',value:layout?.size??'A4',options:[['A4','A4'],['Letter','Letter']]},
     {key:'orientation',label:'แนว',value:layout?.orientation??'portrait',options:[['portrait','แนวตั้ง'],['landscape','แนวนอน']]},
-    ...edges.map((key,i)=>{const length=layout?.margin?.[key];return {key,label:'ขอบ'+labels[i]+' (pt)',value:String(length?length.value*(length.unit==='mm'?72/25.4:1):36)};})],
+    ...edges.map((key,i)=>{const length=layout?.margin?.[key];return {key,label:'ขอบ'+labels[i]+' (pt)',numeric:true,value:String(length?length.value*(length.unit==='mm'?72/25.4:1):36)};})],
     v=>stageDefinition(changePage(draft.definition,at,settings(v)),at,'page'));
 }
 function bandSettings(item:Outline){
@@ -1160,6 +1167,10 @@ function showActions(item:Outline){
   if(creationMode()){
     const part=(key:Part,label:string)=>add(label,()=>editPart(at,key,label));
     if(item.type==='section'){part('globalSchema','ตัวแปรทั้งเอกสาร');part('section-schema','ตัวแปรของ Section');part('styles','สไตล์เอกสาร');part('section-settings','กฎของ Section');}
+    if(!at.formatId&&!at.band&&canEditSectionContent(item.section)){
+      if(item.type==='section')part('section-content','จัดเนื้อหาและสไตล์ของ Section');
+      if(item.node)add('แก้รูปแบบรายการนี้',()=>editPart({sectionId:at.sectionId},'section-content','แก้รูปแบบ · '+item.label,item.id),'edit',false);
+    }
     if(item.type==='format')part('format','จัดเนื้อหา ตัวแปร และการวนแถว');
     if(item.type==='header'||item.type==='footer')part('band','จัดเนื้อหาและรูปแบบหัว–ท้าย');
     if(item.node&&at.formatId)add('แก้รูปแบบรายการนี้',()=>editPart({sectionId:at.sectionId,formatId:at.formatId},'format','แก้รูปแบบ · '+item.label,item.id),'edit',false);

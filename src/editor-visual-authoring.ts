@@ -38,7 +38,7 @@ function variable():Form{
   },'type');
 }
 function variableOptions(array=false,string=false):Form{
-  return object({required:field('บังคับส่งค่า',flag,true,true),...(string?{allowEmpty:field('ยอมให้ค่าว่าง',flag,true,true)}:{}),
+  return object({required:field('บังคับส่งค่า',flag,true,true),...(string?{allowEmpty:field('ยอมให้ค่าว่าง',flag,true,true),default:field('ค่าเริ่มต้น',text,true)}:{}),
     ...(array?{items:field('ตัวแปรในแต่ละรายการ',schema)}:{})});
 }
 function inline():Form{
@@ -53,6 +53,9 @@ function node():Form{
     'text-block':field('ข้อความ',()=>object({
       id:id(),props:field('หน้าตาข้อความ',()=>object({
         textAlign:align(),textStyleId:style(),pageFieldLayout:field('การวางเลขหน้า',()=>select('compact','fixed'),true),
+        heightMode:field('ความสูงของกล่องข้อความ',()=>select('content','fixed'),true),
+        height:len('ความสูงที่กำหนด'),
+        verticalAlign:field('แนวตั้ง',()=>select('top','center','bottom'),true),
         toc:field('แสดงในสารบัญ',()=>object({level:field('ระดับ',()=>number(1))}),true),
         anchorId:field('จุดอ้างอิง',()=>choice({literal:field('ข้อความ',text),variable:field('ตัวแปร',reference)}),true),
       })),children:field('เนื้อหาในบรรทัด',()=>list('เพิ่มข้อความ / ตัวแปร',inline)),
@@ -74,7 +77,7 @@ function node():Form{
     })),columns:field('ขนาดแต่ละคอลัมน์',()=>list('เพิ่มขนาดคอลัมน์',()=>object({width:len('กว้าง',false)}))),
     rows:field('แถวตาราง',()=>list('เพิ่มแถว',row))})),
     'table-of-contents':field('สารบัญ',()=>object({id:id(),props:field('รูปแบบสารบัญ',()=>object({
-      scope:field('ขอบเขตสารบัญ',()=>object({kind:field('แสดงรายการจาก',()=>select('section'))})),textStyleId:style(),
+      scope:field('ขอบเขตสารบัญ',()=>object({kind:field('แสดงรายการจาก',()=>select('section','document'))})),textStyleId:style(),
     }))})),
     'page-break':field('ขึ้นหน้าใหม่',()=>object({id:id()})),
   },'type');
@@ -111,6 +114,7 @@ const font=()=>object({kind:field('แหล่งฟอนต์',()=>select('l
 const textStyle=()=>object({font:field('ฟอนต์',font),fontSize:len('ขนาด',false),lineHeightPt:field('ความสูงบรรทัด (pt)',()=>number(18))});
 const forms:Record<string,()=>Form>={
   globalSchema:schema,'section-schema':schema,'format-schema':schema,'band-schema':schema,
+  'section-content':()=>object({fragment:field('เนื้อหาบนกระดาษ',fragment)}),
   styles:()=>list('เพิ่มสไตล์ข้อความ',textStyle,true),
   'section-settings':()=>object({nameBase:field('ชื่อพื้นฐาน',text),
     role:field('ประเภท Section',()=>select('body','cover'),true),
@@ -130,7 +134,7 @@ const forms:Record<string,()=>Form>={
 
 // The form shows nesting. The Engine stores the same structure as ordered ID references.
 export function visualValue(part:string,input:unknown):unknown{
-  if(part!=='format'&&part!=='band')return input;
+  if(part!=='format'&&part!=='band'&&part!=='section-content')return input;
   const host=record(input),fragment=record(host.fragment),byId=record(fragment.nodes);
   function expand(id:unknown):RecordValue{
     const raw=record(byId[String(id)]),node={...raw};
@@ -146,7 +150,7 @@ export function visualValue(part:string,input:unknown):unknown{
   return {...host,fragment:{...rest,roots:Array.isArray(rootIds)?rootIds.map(expand):[]}};
 }
 function engineValue(part:string,input:unknown):unknown{
-  if(part!=='format'&&part!=='band')return input;
+  if(part!=='format'&&part!=='band'&&part!=='section-content')return input;
   const host=record(input),{roots,...rest}=record(host.fragment);
   const byId:RecordValue=Object.create(null);
   const occupied=new Set<unknown>();
@@ -186,6 +190,7 @@ function button(label:string,action:()=>void){
 type Control={element:HTMLElement;read:()=>unknown};
 const optionNames:Record<string,string>={
   left:'ซ้าย',center:'กึ่งกลาง',right:'ขวา',justify:'ชิดสองด้าน',global:'ทั้งเอกสาร',section:'Section นี้',
+  document:'ทั้งเอกสาร',top:'ด้านบน',bottom:'ด้านล่าง',
   local:'Format นี้',header:'หัวกระดาษ',footer:'ท้ายกระดาษ',group:'กลุ่มปัจจุบัน',item:'รายการปัจจุบัน',
   current:'เลขหน้าปัจจุบัน',total:'จำนวนหน้าทั้งหมด',auto:'ตามเนื้อหา',content:'ตามเนื้อหา',fixed:'กำหนดเอง',
   page:'ขอบกระดาษ',library:'คลังฟอนต์',unselected:'ยังไม่เลือก',normal:'ปกติ',italic:'เอียง',

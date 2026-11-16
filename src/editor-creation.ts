@@ -1,4 +1,4 @@
-import type {Band, Definition, Format, Fragment, Length, Ref, Schema} from './editor-structure';
+import type {Band, Definition, Format, Fragment, Length, Ref, Schema, Section} from './editor-structure';
 
 type Edge = 'top'|'right'|'bottom'|'left';
 const edges:Edge[]=['top','right','bottom','left'];
@@ -8,7 +8,12 @@ const object=(x:unknown):x is Record<string,unknown>=>x!==null&&typeof x==='obje
 const invalid=(message:string):never=>{throw Error(message);};
 const idPattern=/^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 export type PaperSettings={size:string;orientation:string;margin:Record<Edge,Length>};
-export type Part='globalSchema'|'styles'|'section-settings'|'section-schema'|'format-schema'|'band-schema'|'format'|'band';
+export type Part='globalSchema'|'styles'|'section-settings'|'section-content'|'section-schema'|'format-schema'|'band-schema'|'format'|'band';
+export function canEditSectionContent(section:Section){
+  const source=section.source;
+  return ['blank','authored'].includes(source.kind)&&!source.repeats?.length&&!source.rowGroups?.length&&
+    !source.cellRepeats?.length&&!Object.values(source.fragment?.nodes??{}).some(node=>node.type==='area');
+}
 export function settings(values:Record<string,string>):PaperSettings{
   if(!['A4','Letter'].includes(values.size)||!['portrait','landscape'].includes(values.orientation))
     invalid('เลือกขนาดและแนวกระดาษ');
@@ -91,6 +96,7 @@ export function partValue(definition:Definition,at:Ref,part:Part):unknown{
   const section=definition.sections.find(s=>s.id===at.sectionId)!;
   if(part==='globalSchema'||part==='styles')return definition[part];
   if(part==='section-schema')return section.inputSchema;
+  if(part==='section-content')return {fragment:section.source.fragment??{rootIds:[],nodes:{}}};
   if(part==='format-schema')return definition.areaFormats![at.formatId!]!.inputSchema;
   if(part==='band-schema')return section[at.band!]!.inputSchema;
   if(part==='section-settings'){
@@ -108,6 +114,12 @@ export function applyPart(source:Definition,at:Ref,part:Part,input:unknown){
   else if(part==='styles'){
     if(!Object.keys(input).length)invalid('ต้องมีอย่างน้อยหนึ่งสไตล์');
     definition.styles=input;
+  }else if(part==='section-content'){
+    if(!canEditSectionContent(section))return invalid('จัดการ Area และการวนซ้ำจากตำแหน่งบนกระดาษ');
+    const next=fragment(input.fragment);
+    if(Object.values(next.nodes).some(node=>node.type==='area'))return invalid('เพิ่ม Area จากตำแหน่งบนกระดาษ');
+    if(section.source.kind!=='blank'||next.rootIds.length)
+      section.source={...section.source,kind:'authored',repeats:section.source.repeats??[],fragment:next};
   }else if(part==='section-schema'){
     const next=schema(input);
     for(const [key,field] of Object.entries(section.inputSchema.fields))

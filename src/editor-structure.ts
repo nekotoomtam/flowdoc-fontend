@@ -9,7 +9,7 @@ export const lengthInPoints=(value:Length)=>value.unit==='mm'?value.value*72/25.
 export type DocNode = {
   id:string; type:string; role?:{role:string};
   props?:{areaId?:string;verticalAlign?:string;colSpan?:number;rowSpan?:number;columnIndex?:number;
-    anchorId?:unknown;headerRowCount?:number;repeatHeaderRows?:boolean;allowBreak?:boolean;textStyleId?:string;
+    anchorId?:unknown;headerRowCount?:number;repeatHeaderRows?:boolean;allowBreak?:boolean;textStyleId?:string;heightMode?:'content'|'fixed';
     width?:Length;height?:Length;gap?:Length;borderWidth?:Length;borderColor?:string;headerFillColor?:string;fillColor?:string;
     textAlign?:string;align?:string;color?:string;thickness?:Length;spaceBefore?:Length;spaceAfter?:Length;padding?:CellPadding;source?:{scope:string;key:string}};
   rowIds?:string[];cellIds?:string[];childIds?:string[];

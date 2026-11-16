@@ -18,6 +18,7 @@ function button(label:string,run:()=>void){
 const json=(value:unknown)=>JSON.stringify(value,null,2)+'\n';
 const pointer=(path:Path)=>'/'+path.map(value=>String(value).replaceAll('~','~0').replaceAll('/','~1')).join('/');
 const imageName=(index:number,file?:File)=>'image-'+(index+1)+(/\.jpe?g$/i.test(file?.name??'')?'.jpg':'.png');
+const imagePart=(path:Path)=>pointer([...path,'image']);
 function download(name:string,value:Blob){
   const url=URL.createObjectURL(value),a=element('a');
   a.href=url;a.download=name;a.click();
@@ -29,17 +30,19 @@ function details(label:string,content:HTMLElement){
 }
 const shellLiteral=(value:string)=>"'"+value.replaceAll("'","'\\''")+"'";
 function generateCommand(docKey:string,images:Example['images']){
-  const command=[
+  return [
     'curl --request POST "${FLOWDOC_BASE_URL}/documents"',
     '  --header "Authorization: Bearer ${FLOWDOC_TOKEN}"',
     '  --header '+shellLiteral('Doc-Key: '+docKey),
     '  --header "Output-Format: pdf"',
     '  --header "Accept: multipart/mixed"',
     '  --form "payload=@payload.json;type=application/json"',
-    ...images.map((image,i)=>'  --form '+shellLiteral(pointer(image.path)+'=@'+imageName(i,image.file))),
+    ...images.map((image,i)=>{
+      const name=imageName(i,image.file),media=name.endsWith('.jpg')?'image/jpeg':'image/png';
+      return '  --form '+shellLiteral(imagePart(image.path)+'=@'+name+';type='+media);
+    }),
     '  --output response.multipart',
   ];
-  return command.join(' \\\n');
 }
 function schemaExample(definition:Definition):Example{
   const images:Example['images']=[];
@@ -117,7 +120,7 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
     assets.append(element('h4','ไฟล์ภาพที่ส่งพร้อมข้อมูล'),element('p','ใช้ชื่อช่องไฟล์ตามตำแหน่งด้านล่าง'));
     const files=element('ul');
     for(const [i,image] of example.images.entries()){
-      const item=element('li');item.append(element('code',pointer(image.path)));
+      const item=element('li');item.append(element('code',imagePart(image.path)));
       const name=imageName(i,image.file);
       if(image.file){
         const file=image.file;
@@ -148,13 +151,14 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
     const matches=value.fingerprint===ctx.fingerprint;
     status.textContent='เผยแพร่แล้ว · เวอร์ชัน '+value.version+(matches?' · ตรงกับฉบับที่บันทึก':' · คนละฉบับกับโครงที่บันทึก');
     const preview=element('pre');
-    updateCommand=()=>{preview.textContent=generateCommand(ctx.docKey,matches?example.images:[]);};
+    const command=()=>generateCommand(ctx.docKey,matches?example.images:[]);
+    updateCommand=()=>{preview.textContent=command().join(' \\\n');};
     updateCommand();
     publishedPane.append(element('h3','เรียกผ่าน Service · เวอร์ชัน '+value.version),
       element('p','ตั้งค่า FLOWDOC_BASE_URL และ FLOWDOC_TOKEN ที่เซิร์ฟเวอร์ผู้เรียก แล้วเตรียมไฟล์ตามสัญญาของฉบับเผยแพร่ หากมีภาพให้เพิ่มส่วนไฟล์ตามตำแหน่งที่ระบุ'),
       element('p','Service ใช้เวอร์ชันเผยแพร่ล่าสุดขณะรับงาน'+(matches?'':' · ใช้สัญญาด้านล่างเตรียมข้อมูลสำหรับเวอร์ชันที่เผยแพร่')),
       element('p','คำสั่งสำหรับ Bash'),
-      button('คัดลอกคำสั่งเรียก API',()=>copy(preview.textContent??'','คัดลอกคำสั่งเรียก API แล้ว')),preview,
+      button('คัดลอกคำสั่งเรียก API',()=>copy(command().map(line=>line.trimStart()).join(' '),'คัดลอกคำสั่งเรียก API แล้ว')),preview,
       details('สัญญาข้อมูลฉบับเผยแพร่',element('pre',json(value.contract))));
     publishedPane.hidden=false;
   }).catch(()=>{if(!signal.aborted)status.textContent='ตรวจสถานะการเผยแพร่ไม่ได้ · แสดงข้อมูลจากฉบับที่บันทึก';});

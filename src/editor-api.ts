@@ -1,5 +1,5 @@
 import type {Definition, Schema} from './editor-structure';
-import {draftInputContract,fullApiExample,imagePart,postmanCollection,postmanImage} from './editor-postman';
+import {draftInputContract,fullApiExample,imagePart,postmanCollection,postmanDocumentUrl,postmanImage} from './editor-postman';
 import type {ApiExample as Example,PublishedContract} from './editor-postman';
 
 type Publication={version:number;fingerprint:string;contract:PublishedContract};
@@ -46,14 +46,19 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
   const status=element('p','กำลังตรวจสถานะการเผยแพร่…');
   status.setAttribute('role','status');
   const notice=element('p');notice.setAttribute('role','status');notice.className='api-notice';
-  const copy=(value:string,message:string)=>void navigator.clipboard.writeText(value)
-    .then(()=>{notice.textContent=message;})
-    .catch(()=>{notice.textContent='คัดลอกอัตโนมัติไม่ได้ เลือกข้อความหรือดาวน์โหลดไฟล์ได้ครับ';});
+  async function copy(value:string,message:string){
+    try{
+      await navigator.clipboard.writeText(value);
+      notice.textContent=message;
+    }catch{
+      notice.textContent='คัดลอกอัตโนมัติไม่ได้ เลือกข้อความหรือใช้ปุ่มดาวน์โหลด Postman';
+    }
+  }
   const head=element('div');head.className='api-heading';
   const handoff=element('div');handoff.className='api-buttons';
   const identity=element('p');identity.append(element('code',ctx.docKey),element('span','ฉบับที่บันทึก · Revision '+ctx.revision));
   handoff.append(button('คัดลอก docKey',()=>copy(ctx.docKey,'คัดลอก docKey แล้ว')));
-  head.append(element('h2','นำโครงไปใช้ผ่าน API'),identity,status,handoff);
+  head.append(element('h2','นำโครงไปใช้ผ่าน API'),identity,status,handoff,notice);
   if(ctx.dirty)head.append(element('p','ตัวอย่างอ้างอิงฉบับที่บันทึกล่าสุด'));
 
   const spec=element('div');spec.className='api-scopes';
@@ -114,7 +119,7 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
   const scope=element('section');scope.append(element('h3','ข้อมูลที่โครงรับ'),spec);
   body.append(scope,examplePane);
   const publishedPane=element('section');publishedPane.hidden=true;publishedPane.className='api-published';
-  panel.replaceChildren(head,body,publishedPane,notice);
+  panel.replaceChildren(head,publishedPane,body);
   void fetch(ctx.publicationUrl,{signal}).then(async response=>{
     if(!response.ok)throw Error('Publication unavailable');
     const {value}=await response.json() as {value:Publication|null};
@@ -124,30 +129,52 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
     status.textContent='เผยแพร่แล้ว · เวอร์ชัน '+value.version+(matches?' · ตรงกับฉบับที่บันทึก':' · คนละฉบับกับโครงที่บันทึก');
     if(value.contract.assembly?.input==='array-by-section-key'){
       const full=fullApiExample(value.contract);
-      const collection=button('ดาวน์โหลด Postman',()=>{
-        const filename=value.contract.docKey+'.v'+value.version+'.postman_collection.json';
-        download(filename,new Blob([json(postmanCollection(value.contract,full))],{type:'application/json'}));
-      });
-      collection.className='primary';
-      handoff.prepend(collection);
+      const collection=json(postmanCollection(value.contract,full));
+      const request=element('section');request.className='api-request';
+      const address=element('div');address.className='api-request-address';
+      address.append(element('strong','POST'),element('code',postmanDocumentUrl));
+      const actions=element('div');actions.className='api-buttons';
+      const transfer=button('คัดลอกไป Postman',()=>void copy(collection,'คัดลอกคำขอทั้งหมดแล้ว'));
+      transfer.className='primary';
+      actions.append(transfer,notice);
+      const raw=element('pre',json(full.payload));
+      raw.className='api-request-json';raw.tabIndex=0;raw.setAttribute('aria-label','JSON ของช่อง payload');
+      request.append(address,actions,element('p','วางข้อความที่คัดลอกใน Import ของ Postman แล้วตั้ง URL และ Token ของ Service'),
+        element('h3','Body · form-data'),element('p','payload · application/json'),raw);
       if(full.images.length){
+        const attachments=element('ul');attachments.className='api-attachments';
+        for(const image of full.images){
+          const row=element('li');
+          row.append(element('code',imagePart(image.path)),element('span',postmanImage));
+          attachments.append(row);
+        }
         const image=element('a','ดาวน์โหลดรูปตัวอย่าง');
         image.href='/'+postmanImage;image.download=postmanImage;image.className='api-image-download';
-        handoff.append(image);
+        request.append(element('h4','รูปที่ส่งพร้อม Body'),attachments,image);
       }
-      head.append(element('p','Postman มีข้อมูลครบทุกตัวแปรของเวอร์ชัน '+value.version+' · ตั้ง URL และ Token ของ Service'+
-        (full.images.length?' แล้วใส่รูปตัวอย่างในช่องแนบ':'')+' ก่อนกด Send'));
+      const fallback=button('ดาวน์โหลด Postman',()=>{
+        const filename=value.contract.docKey+'.v'+value.version+'.postman_collection.json';
+        download(filename,new Blob([collection],{type:'application/json'}));
+      });
+      const headers=element('pre','Authorization: Bearer {{FLOWDOC_TOKEN}}\nDoc-Key: '+value.contract.docKey+
+        '\nOutput-Format: pdf\nAccept: multipart/mixed');
+      request.append(details('Headers',headers));
+      publishedPane.append(request);
+      const secondary=element('div');secondary.append(handoff,fallback,body);
+      panel.append(details('ดาวน์โหลดไฟล์และดูข้อมูลจาก Preview',secondary));
     }
     const preview=element('pre');
     const command=()=>generateCommand(ctx.docKey,matches?example.images:[]);
     updateCommand=()=>{preview.textContent=command().join(' \\\n');};
     updateCommand();
-    publishedPane.append(element('h3','เรียกผ่าน Service · เวอร์ชัน '+value.version),
+    const advanced=element('div');
+    advanced.append(element('h3','เรียกผ่าน Service · เวอร์ชัน '+value.version),
       element('p','ตั้งค่า FLOWDOC_BASE_URL และ FLOWDOC_TOKEN ที่เซิร์ฟเวอร์ผู้เรียก แล้วเตรียมไฟล์ตามสัญญาของฉบับเผยแพร่ หากมีภาพให้เพิ่มส่วนไฟล์ตามตำแหน่งที่ระบุ'),
       element('p','Service ใช้เวอร์ชันเผยแพร่ล่าสุดขณะรับงาน'+(matches?'':' · ใช้สัญญาด้านล่างเตรียมข้อมูลสำหรับเวอร์ชันที่เผยแพร่')),
       element('p','คำสั่งสำหรับ Bash'),
       button('คัดลอกคำสั่งเรียก API',()=>copy(command().map(line=>line.trimStart()).join(' '),'คัดลอกคำสั่งเรียก API แล้ว')),preview,
       details('สัญญาข้อมูลฉบับเผยแพร่',element('pre',json(value.contract))));
+    publishedPane.append(details('คำสั่ง Bash และสัญญาข้อมูล',advanced));
     publishedPane.hidden=false;
   }).catch(()=>{if(!signal.aborted)status.textContent='ตรวจสถานะการเผยแพร่ไม่ได้ · แสดงข้อมูลจากฉบับที่บันทึก';});
 }

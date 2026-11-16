@@ -285,6 +285,17 @@ main{padding:0 14px 24px}
 .api-buttons{display:flex;gap:6px;flex-wrap:wrap}
 .api-image-download{align-self:center;padding:4px 8px}
 .api-published{margin-top:15px}
+.api-request-address{display:flex;align-items:center;gap:10px;border:1px solid #b9ccc0;border-radius:7px;padding:8px 10px;margin-bottom:10px;background:#f7faf7}
+.api-request-address strong{background:#deefe3;color:#104d3d;border-radius:4px;padding:4px 7px;font-size:12px;letter-spacing:.04em}
+.api-request-address code{min-width:0;overflow-wrap:anywhere}
+.api-request>p{margin:7px 0 12px;color:#52685c}
+.api-request h3{margin-top:16px}
+.api-request h4{margin:12px 0 4px}
+.api-attachments{display:grid;gap:4px;margin:0 0 6px;padding-inline-start:1.25rem}
+.api-attachments li span{margin-inline-start:8px;color:#52685c}
+.api-panel>details,.api-published>details,.api-request>details{margin-top:12px}
+.api-panel>details>div{padding-top:8px}
+.api-request .api-notice{align-self:center;margin:0;color:#205442}
 .api-notice:empty{display:none}
 @media(max-width:680px){.api-body{grid-template-columns:minmax(0,1fr)}}
 #paper .definition-block[data-kind=page-break]{border-top:1px dashed #95a99f;margin-top:6px}

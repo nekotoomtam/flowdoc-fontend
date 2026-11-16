@@ -6,6 +6,7 @@ type InputSection={sectionKey:string;inputSchema:Schema;header?:Schema;footer?:S
 type InputContract={globalSchema:Schema;sections:InputSection[];areaFormats?:Record<string,Pick<Format,'ownerAreaId'|'key'|'inputSchema'>>};
 export type PublishedContract=InputContract&{docKey:string;version:number;assembly?:{input:string}};
 export const postmanImage='flowdoc-sample.png';
+export const postmanDocumentUrl='{{FLOWDOC_BASE_URL}}/documents';
 export const imagePart=(path:Path)=>'/'+[...path,'image'].map(value=>String(value).replaceAll('~','~0').replaceAll('/','~1')).join('/');
 
 export function draftInputContract(definition:Definition):InputContract{
@@ -73,7 +74,7 @@ export function postmanCollection(contract:PublishedContract,example:ApiExample)
       {name:'อ่านสัญญาข้อมูลของโครง',request:{method:'GET',
         url:'{{FLOWDOC_BASE_URL}}/templates/{{DOC_KEY}}/contract?version={{VERSION}}'}},
       {name:'ออก PDF · ตัวอย่างครบทุกตัวแปร',event:[{listen:'test',script:{type:'text/javascript',exec:tests}}],
-        request:{method:'POST',auth,url:'{{FLOWDOC_BASE_URL}}/documents',
+        request:{method:'POST',auth,url:postmanDocumentUrl,
           header:[{key:'Doc-Key',value:'{{DOC_KEY}}'},{key:'Output-Format',value:'pdf'},{key:'Accept',value:'multipart/mixed'}],
           body:{mode:'formdata',formdata:[
             {key:'payload',type:'text',contentType:'application/json',value:JSON.stringify(example.payload,null,2)},

@@ -176,15 +176,22 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
         '\nOutput-Format: docx\nAccept: '+wordMediaType);
       request.append(details('Headers',headers));
       if(value.version===2&&baseUrl){
-        const sampleUrl=ctx.publicationUrl.replace(/\/publication$/,'/sample-word');
+        const sampleUrl=ctx.publicationUrl.replace(/\/publication$/,'/sample-documents');
         void fetch(sampleUrl,{signal}).then(async result=>{
           if(!result.ok||!(await result.json()).available||signal.aborted)return;
           const commandBox=element('textarea');commandBox.readOnly=true;commandBox.rows=8;
           commandBox.setAttribute('aria-label','คำขอทดลองสำหรับ Postman');
           const sample=element('section');
+          const format=element('select');
+          for(const [value,label] of [['docx','Word (.docx)'],['pdf','PDF (.pdf)']]){
+            const option=element('option',label);option.value=value;format.append(option);
+          }
+          const formatLabel=element('label','รูปแบบไฟล์ ');
+          formatLabel.append(format);
+          format.onchange=()=>{commandBox.value='';commandBox.hidden=true;notice.textContent='';};
           const copySample=button('คัดลอกคำขอทดลองสำหรับ Postman',()=>{
-            copySample.disabled=true;
-            const issued=fetch(sampleUrl+'/issue',{method:'POST',signal}).then(async response=>{
+            copySample.disabled=true;format.disabled=true;
+            const issued=fetch(sampleUrl+'/issue/'+format.value,{method:'POST',signal}).then(async response=>{
               if(!response.ok)throw Error('Sample grant unavailable');
               return await response.json() as {command:string;expiresAt:string};
             });
@@ -196,13 +203,15 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
               if(await clipboard===false)await copy(value.command,'คัดลอกแล้ว · เปิด Import ใน Postman');
               else notice.textContent='คัดลอกแล้ว · เปิด Import ใน Postman';
             }).catch(()=>{if(!signal.aborted)notice.textContent='ออกสิทธิ์ทดลองไม่ได้ กรุณาลองอีกครั้ง';})
-              .finally(()=>{copySample.disabled=false;});
+              .finally(()=>{copySample.disabled=false;format.disabled=false;});
           });
           copySample.className='primary';commandBox.hidden=true;
-          sample.append(copySample,element('p','หลัง Import ให้แก้ JSON ใน Body → raw แล้วเลือก Download response'),
+          const sampleActions=element('div');sampleActions.className='api-buttons';sampleActions.append(formatLabel,copySample);
+          sample.append(sampleActions,element('p','หลัง Import ให้แก้ JSON ใน Body → raw แล้วเลือก Download response'),
             element('p','สิทธิ์ใช้ได้ครั้งเดียวภายใน 5 นาที · ใส่รูปตัวอย่างให้อัตโนมัติ'),commandBox);
           request.prepend(sample);
           transfer.classList.remove('primary');
+          transfer.textContent='คัดลอกคำขอ Word ที่ใช้ Token';
         }).catch(()=>{});
       }
       publishedPane.append(request);

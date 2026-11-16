@@ -27,9 +27,9 @@ function details(label:string,content:HTMLElement){
   const panel=element('details');
   panel.append(element('summary',label),content);return panel;
 }
-function generateCommand(docKey:string,images:Example['images']){
+function generateCommand(docKey:string,images:Example['images'],baseUrl:string){
   return [
-    'curl --request POST "${FLOWDOC_BASE_URL}/documents"',
+    'curl --request POST '+(baseUrl?shellLiteral(baseUrl+'/documents'):'"${FLOWDOC_BASE_URL}/documents"'),
     '  --header "Authorization: Bearer ${FLOWDOC_TOKEN}"',
     '  --header '+shellLiteral('Doc-Key: '+docKey),
     '  --header "Output-Format: docx"',
@@ -127,10 +127,10 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
     if(!value){status.textContent='ยังไม่เผยแพร่ · ใช้ข้อมูลด้านล่างเตรียมการเชื่อมระบบได้';return;}
     const matches=value.fingerprint===ctx.fingerprint;
     status.textContent='เผยแพร่แล้ว · เวอร์ชัน '+value.version+(matches?' · ตรงกับฉบับที่บันทึก':' · คนละฉบับกับโครงที่บันทึก');
+    const baseUrl=value.target?.status==='verified'?value.target.baseUrl:'';
     if(value.contract.assembly?.input==='array-by-section-key'){
       const full=fullApiExample(value.contract);
       const request=element('section');request.className='api-request';request.setAttribute('aria-label','คำขอดาวน์โหลด Word');
-      const baseUrl=value.target?.status==='verified'?value.target.baseUrl:'';
       const collection=json(postmanCollection(value.contract,full,baseUrl));
       const curl=postmanCurl(value.contract,full,baseUrl);
       const address=element('div');address.className='api-request-address';
@@ -180,12 +180,12 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
       panel.append(details('ดาวน์โหลดไฟล์และดูข้อมูลจาก Preview',secondary));
     }
     const preview=element('pre');
-    const command=()=>generateCommand(ctx.docKey,matches?example.images:[]);
+    const command=()=>generateCommand(ctx.docKey,matches?example.images:[],baseUrl);
     updateCommand=()=>{preview.textContent=command().join(' \\\n');};
     updateCommand();
     const advanced=element('div');
     advanced.append(element('h3','เรียกผ่าน Service · เวอร์ชัน '+value.version),
-      element('p','ตั้งค่า FLOWDOC_BASE_URL และ FLOWDOC_TOKEN ที่เซิร์ฟเวอร์ผู้เรียก แล้วเตรียมไฟล์ตามสัญญาของฉบับเผยแพร่ หากมีภาพให้เพิ่มส่วนไฟล์ตามตำแหน่งที่ระบุ'),
+      element('p','ตั้งค่า '+(baseUrl?'FLOWDOC_TOKEN':'FLOWDOC_BASE_URL และ FLOWDOC_TOKEN')+' ที่เซิร์ฟเวอร์ผู้เรียก แล้วเตรียมไฟล์ตามสัญญาของฉบับเผยแพร่ หากมีภาพให้เพิ่มส่วนไฟล์ตามตำแหน่งที่ระบุ'),
       element('p','Service ใช้เวอร์ชันเผยแพร่ล่าสุดขณะรับงาน'+(matches?'':' · ใช้สัญญาด้านล่างเตรียมข้อมูลสำหรับเวอร์ชันที่เผยแพร่')),
       element('p','คำสั่งสำหรับ Bash'),
       button('คัดลอกคำสั่งเรียก API',()=>copy(command().map(line=>line.trimStart()).join(' '),'คัดลอกคำสั่งเรียก API แล้ว')),preview);

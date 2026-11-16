@@ -94,14 +94,14 @@ export function postmanCollection(contract:PublishedContract,example:ApiExample,
   return {
     info:{name:'FlowDoc · '+contract.docKey+' · v'+contract.version,
       schema:'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
-      description:'ตั้ง FLOWDOC_BASE_URL และ FLOWDOC_TOKEN จาก Service ที่เผยแพร่โครงนี้ หากมีรูป ให้เลือก '+postmanImage+' ในช่องรูปของ Body → form-data'},
+      description:'ตั้ง '+(baseUrl?'FLOWDOC_TOKEN':'FLOWDOC_BASE_URL และ FLOWDOC_TOKEN')+' จาก Service ที่เผยแพร่โครงนี้ หากมีรูป ให้เลือก '+postmanImage+' ในช่องรูปของ Body → form-data'},
     variable:[
-      {key:'FLOWDOC_BASE_URL',value:baseUrl,type:'string'},{key:'FLOWDOC_TOKEN',value:'',type:'string'},
+      ...(!baseUrl?[{key:'FLOWDOC_BASE_URL',value:'',type:'string'}]:[]),{key:'FLOWDOC_TOKEN',value:'',type:'string'},
       {key:'DOC_KEY',value:contract.docKey,type:'string'},
     ],
     item:[
       {name:'ดาวน์โหลด Word',event:[{listen:'test',script:{type:'text/javascript',exec:tests}}],
-        request:{method:'POST',auth,url:postmanDocumentUrl,
+        request:{method:'POST',auth,url:baseUrl?baseUrl+'/documents':postmanDocumentUrl,
           header:[{key:'Doc-Key',value:'{{DOC_KEY}}'},{key:'Output-Format',value:'docx'},{key:'Accept',value:wordMediaType}],
           body:{mode:'formdata',formdata:[
             {key:'payload',type:'text',contentType:'application/json',value:JSON.stringify(example.payload,null,2)},

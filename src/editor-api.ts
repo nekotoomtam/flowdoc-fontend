@@ -130,7 +130,7 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
     status.textContent='เผยแพร่แล้ว · เวอร์ชัน '+value.version+(matches?' · ตรงกับฉบับที่บันทึก':' · คนละฉบับกับโครงที่บันทึก');
     if(value.contract.assembly?.input==='array-by-section-key'){
       const full=fullApiExample(value.contract);
-      const request=element('section');request.className='api-request';
+      const request=element('section');request.className='api-request';request.setAttribute('aria-label','คำขอออก PDF');
       const baseUrl=value.target?.status==='verified'?value.target.baseUrl:'';
       const collection=json(postmanCollection(value.contract,full,baseUrl));
       const address=element('div');address.className='api-request-address';
@@ -143,7 +143,7 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
         ?'ตรวจสอบ Service ปลายทางสำหรับโครงนี้ไม่สำเร็จ'
         :'ยังไม่มี Service สำหรับออกเอกสารที่ผูกกับโครงนี้'));
       const actions=element('div');actions.className='api-buttons';
-      const transfer=button('คัดลอกชุดสำหรับ Import',()=>void copy(collection,'คัดลอกแล้ว · เปิด Import ใน Postman แล้ววางข้อความ'));
+      const transfer=button('คัดลอกคำขอออก PDF สำหรับ Import',()=>void copy(collection,'คัดลอกแล้ว · เปิด Import ใน Postman แล้ววางข้อความ'));
       transfer.className='primary';
       actions.append(transfer,notice);
       const payload=json(full.payload);
@@ -151,7 +151,7 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
       raw.className='api-request-json';raw.tabIndex=0;raw.setAttribute('aria-label','JSON ของช่อง payload');
       const bodyHeading=element('div');bodyHeading.className='api-body-heading';
       bodyHeading.append(element('h3','Body · form-data'),button('คัดลอก Body JSON',()=>void copy(payload,'คัดลอก JSON แล้ว · วางในค่า payload ของ form-data')));
-      request.append(actions,element('p',baseUrl?'นำเข้าใน Postman หรือเลือก POST แล้ววาง URL และ Body ตามช่อง':'เตรียมคำขอและ Body ใน Postman ได้ · ส่งได้เมื่อมี Service ปลายทาง'),
+      request.append(actions,element('p',baseUrl?'นำเข้าใน Postman เพื่อใช้คำขอออก PDF ที่เตรียมไว้':'นำเข้าคำขอออก PDF ใน Postman ได้ · ส่งได้เมื่อมี Service ปลายทาง'),
         bodyHeading,element('p','payload · Text · application/json'),raw);
       if(full.images.length){
         const attachments=element('ul');attachments.className='api-attachments';
@@ -184,9 +184,9 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
       element('p','ตั้งค่า FLOWDOC_BASE_URL และ FLOWDOC_TOKEN ที่เซิร์ฟเวอร์ผู้เรียก แล้วเตรียมไฟล์ตามสัญญาของฉบับเผยแพร่ หากมีภาพให้เพิ่มส่วนไฟล์ตามตำแหน่งที่ระบุ'),
       element('p','Service ใช้เวอร์ชันเผยแพร่ล่าสุดขณะรับงาน'+(matches?'':' · ใช้สัญญาด้านล่างเตรียมข้อมูลสำหรับเวอร์ชันที่เผยแพร่')),
       element('p','คำสั่งสำหรับ Bash'),
-      button('คัดลอกคำสั่งเรียก API',()=>copy(command().map(line=>line.trimStart()).join(' '),'คัดลอกคำสั่งเรียก API แล้ว')),preview,
+      button('คัดลอกคำสั่งเรียก API',()=>copy(command().map(line=>line.trimStart()).join(' '),'คัดลอกคำสั่งเรียก API แล้ว')),preview);
+    publishedPane.append(details('คำสั่ง Bash สำหรับคำขอเดียวกัน',advanced),
       details('สัญญาข้อมูลฉบับเผยแพร่',element('pre',json(value.contract))));
-    publishedPane.append(details('คำสั่ง Bash และสัญญาข้อมูล',advanced));
     publishedPane.hidden=false;
   }).catch(()=>{if(!signal.aborted)status.textContent='ตรวจสถานะการเผยแพร่ไม่ได้ · แสดงข้อมูลจากฉบับที่บันทึก';});
 }

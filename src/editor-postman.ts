@@ -68,12 +68,10 @@ export function postmanCollection(contract:PublishedContract,example:ApiExample,
       description:'ตั้ง FLOWDOC_BASE_URL และ FLOWDOC_TOKEN จาก Service ที่เผยแพร่โครงนี้ หากมีรูป ให้เลือก '+postmanImage+' ในช่องรูปของ Body → form-data'},
     variable:[
       {key:'FLOWDOC_BASE_URL',value:baseUrl,type:'string'},{key:'FLOWDOC_TOKEN',value:'',type:'string'},
-      {key:'DOC_KEY',value:contract.docKey,type:'string'},{key:'VERSION',value:String(contract.version),type:'string'},
+      {key:'DOC_KEY',value:contract.docKey,type:'string'},
     ],
     item:[
-      {name:'อ่านสัญญาข้อมูลของโครง',request:{method:'GET',
-        url:'{{FLOWDOC_BASE_URL}}/templates/{{DOC_KEY}}/contract?version={{VERSION}}'}},
-      {name:'ออก PDF · ตัวอย่างครบทุกตัวแปร',event:[{listen:'test',script:{type:'text/javascript',exec:tests}}],
+      {name:'ออก PDF',event:[{listen:'test',script:{type:'text/javascript',exec:tests}}],
         request:{method:'POST',auth,url:postmanDocumentUrl,
           header:[{key:'Doc-Key',value:'{{DOC_KEY}}'},{key:'Output-Format',value:'pdf'},{key:'Accept',value:'multipart/mixed'}],
           body:{mode:'formdata',formdata:[

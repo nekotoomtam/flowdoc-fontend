@@ -9,7 +9,7 @@ import type {Trial} from './editor-trial';
 import {applyStructureChange, canAddPlainRows, defaultCellPadding, groupSources, lengthInPoints, paddingSides, refKey, structureOrder} from './editor-structure';
 import type {Band, Change, Definition, DocNode, Format, Fragment, Host, Inline, Length, Ref, Schema, Section} from './editor-structure';
 
-type Draft = {templateId:string;docKey?:string;name:string;revision:number;fingerprint:string;definition:Definition};
+type Draft = {readOnly?:boolean;templateId:string;docKey?:string;name:string;revision:number;fingerprint:string;definition:Definition};
 type Outline = {id:string;ref:Ref;label:string;type:string;section:Section;format?:Format;children:Outline[];parent?:Outline;node?:DocNode;band?:Band;inline?:Inline;detail?:string};
 type DrawPage = {
   widthPt: number; heightPt: number; backgroundColor: string;
@@ -85,7 +85,8 @@ function outline(section: Section): Outline {
       const areaField = node.type==='area' ? [section.inputSchema, draft.definition.globalSchema].flatMap(s=>Object.entries(s.fields))
         .find(([,f])=>f.type==='area'&&f.areaId===node.props?.areaId)?.[0] : undefined;
       const inline = node.children?.map(inlineText).join('');
-      const label = areaField ?? (inline || (['table-row','table-cell'].includes(node.type) ? kinds[node.type]+' '+(position+1) : kinds[node.type]??node.type));
+      const gap=node.type==='text-block'&&!node.children?.length&&node.props?.heightMode==='fixed'&&node.props.height;
+      const label = areaField ?? (inline || (gap?'เว้นระยะ '+displayLength(gap):['table-row','table-cell'].includes(node.type) ? kinds[node.type]+' '+(position+1) : kinds[node.type]??node.type));
       const result: Outline = {id,ref:{...parent.ref,nodeId:id,part:undefined},label,type:node.type,section,node,format,parent,band:parent.band,children:[]};
       if (node.type==='area') {
         result.children = Object.entries(draft.definition.areaFormats??{}).filter(([,f])=>f.ownerAreaId===node.props?.areaId).map(([formatId,f])=>{
@@ -257,7 +258,8 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
       }
     }else if(item.type==='text-block'){
       block.classList.add('definition-text');
-      block.append(choose(item,'ข้อความ','definition-marker'));
+      const spacer=props?.heightMode==='fixed'&&props.height&&!item.children.length;
+      block.append(choose(item,spacer?item.label:'ข้อความ','definition-marker'+(spacer?' fixed-spacer':'')));
       const style=draft.definition.styles[props?.textStyleId??''] as {fontSize?:Length;lineHeightPt?:number;fontWeight?:string;font?:{weight?:number}}|undefined;
       if(style?.fontSize)block.style.fontSize=length(style.fontSize);
       if(style?.lineHeightPt)block.style.lineHeight=unit(style.lineHeightPt);
@@ -554,8 +556,8 @@ function select(item: Outline, measure: boolean, spacing?:'before'|'after') {
   if(item.type==='section'&&!hasConflict) input.value=item.label;
   if(!hasConflict)status.textContent='';
   drawVariables(item);
-  showActions(item);
   showLayoutFacts(item,spacing);
+  showActions(item);
   if(measure)afterPaint('flowdoc:tree-selection',started,{type:item.type});
 }
 function reveal(item:Outline){
@@ -623,6 +625,8 @@ const dialog=q<HTMLDialogElement>('structure-dialog'), actionForm=q<HTMLFormElem
 type FormField={key:string;label:string;options?:[string,string][];value?:string;numeric?:boolean};
 type FormControls=Map<string,HTMLInputElement|HTMLSelectElement>;
 function ask(title:string, fields:FormField[], run:(values:Record<string,string>)=>void, note?:string, setup?:(controls:FormControls)=>void){
+  const prior=selection?.ref;
+  let submitted=false;
   const heading=element('h2',title);heading.id='structure-dialog-title';
   dialog.setAttribute('aria-labelledby',heading.id);actionForm.replaceChildren(heading);
   if(note)actionForm.append(element('p',note));
@@ -643,9 +647,15 @@ function ask(title:string, fields:FormField[], run:(values:Record<string,string>
   actionForm.append(error,submit,button('ยกเลิก',()=>dialog.close()));
   actionForm.onsubmit=event=>{
     event.preventDefault();
-    try{run(Object.fromEntries([...controls].map(([key,el])=>[key,el.value.trim()])));dialog.close();}
+    try{run(Object.fromEntries([...controls].map(([key,el])=>[key,el.value.trim()])));submitted=true;dialog.close();}
     catch(e){error.textContent=e instanceof Error?e.message:'แก้โครงไม่สำเร็จ';}
   };
+  if(setup&&prior)dialog.addEventListener('close',()=>{
+    const original=outlines.get(refKey(prior));
+    if(submitted||!original||selection===original)return;
+    select(original,false);
+    q('paper-actions').querySelector<HTMLButtonElement>('.paper-quick-action button')?.focus({preventScroll:true});
+  },{once:true});
   setup?.(controls);
   dialog.showModal();
 }
@@ -880,11 +890,13 @@ function showLayoutFacts(item:Outline,spacing?:'before'|'after'){
   const note=(label:string,value:string)=>{
     const block=element('div');block.className='layout-fact';
     block.append(element('strong',label),element('p',value));panel.append(block);
-    if(summary.hidden&&item.type!=='section'){summary.textContent=label+' · '+value;summary.hidden=false;}
+    if(summary.hidden){summary.textContent=label+' · '+value;summary.hidden=false;}
   };
   const navigate=(label:string,target:Outline)=>panel.append(button(label,()=>select(target,true)));
   const edit=(label:string,run:()=>void)=>{
-    const control=button(label,run);control.disabled=isSaving||hasConflict;actions.append(control);return control;
+    const control=button(label,run);control.disabled=isSaving||hasConflict||draft.readOnly===true;
+    if(!draft.readOnly)actions.append(control);
+    return control;
   };
   const lineage:Outline[]=[];
   for(let current:Outline|undefined=item;current;current=current.parent)lineage.push(current);
@@ -987,18 +999,38 @@ function showPaperLocation(item:Outline){
     jump.title=outlinePath(ancestor);
     path.append(jump,element('span','›'));
   }
-  path.hidden=!ancestors.length;path.scrollLeft=path.scrollWidth;
+  if(!ancestors.length)path.append(element('span','ระดับเอกสาร'));
+  path.scrollLeft=path.scrollWidth;
   const selected=q('paper-selection');
   const type=itemType(item);
-  selected.replaceChildren(element('span',type));
-  if(item.label!==type)selected.append(document.createTextNode(item.label));
+  const hasType=item.label===type||item.label.startsWith(type+' ');
+  selected.replaceChildren(element('span','เลือกอยู่ · '+(hasType?item.label:type)));
+  if(!hasType)selected.append(document.createTextNode(item.label));
   selected.title=outlinePath(item);
+  if(draft.readOnly){
+    order.append(element('p','ดูโครงต้นฉบับ · เปิดฉบับแก้ไขเพื่อเปลี่ยนโครง'));
+    return;
+  }
 
-  const ordered=item.inline&&item.parent?item.parent:item;
+  if(item.inline&&item.parent){
+    const parent=item.parent;
+    order.append(button('เลือก'+itemType(parent),()=>select(parent,true)),
+      element('span','เลือกทั้งกล่องเพื่อย้ายหรือลบ'));
+    return;
+  }
+  const ordered=item;
   const state=structureOrder(draft.definition,ordered.ref);
-  if(state?.ids.length===1&&state.up==='ถึงขอบเขตที่ย้ายได้แล้ว')return;
+  if(state?.ids.length===1&&state.up==='ถึงขอบเขตที่ย้ายได้แล้ว'){
+    order.append(element('p','มีรายการเดียวในตำแหน่งนี้'));
+    return;
+  }
+  if(item.type==='table-cell'&&item.parent){
+    const row=item.parent;
+    order.append(button('เลือก'+itemType(row),()=>select(row,true)),element('span','เซลล์อยู่กับแถว'));
+    return;
+  }
   if(!state){
-    if(item.type==='format')order.append(element('p','Format เป็นรูปแบบที่เลือกใช้ใน Area จัดลำดับองค์ประกอบภายใน Format ได้'));
+    if(item.type==='format')order.append(element('p','จัดลำดับได้จากองค์ประกอบภายใน Format'));
     return;
   }
   const peers=ordered.parent?.children??roots;
@@ -1007,8 +1039,7 @@ function showPaperLocation(item:Outline){
     return peer?(index+1)+'. '+peer.label:undefined;
   };
   const previous=label(state.index-1),next=label(state.index+1);
-  const position=(ordered===item?'ลำดับ':('ลำดับ'+itemType(ordered)))+' '+(state.index+1)+' จาก '+state.ids.length;
-  order.append(element('strong',position));
+  order.append(element('strong','ลำดับ '+(state.index+1)+' จาก '+state.ids.length));
   const neighbors=[previous&&'ก่อนหน้า '+previous,next&&'ถัดไป '+next].filter(Boolean).join(' · ');
   if(neighbors){
     const detail=element('span',neighbors);detail.title=neighbors;order.append(detail);
@@ -1029,16 +1060,26 @@ function showPaperLocation(item:Outline){
     control.disabled=Boolean(reason)||isSaving||hasConflict;
     controls.append(control);
   }
-  order.append(controls);
   if(state.up&&state.down){
-    const reason=state.ids.length===1&&state.up==='ถึงขอบเขตที่ย้ายได้แล้ว'?'มีรายการเดียวในตำแหน่งนี้':state.up;
-    order.append(element('p',reason));
+    order.append(element('span',state.up));
+    return;
   }
+  order.append(controls);
 }
 function showActions(item:Outline){
   const actions=q('actions'),paperActions=q('paper-actions');
   actions.replaceChildren();paperActions.replaceChildren();
   showPaperLocation(item);
+  if(draft.readOnly)return;
+  const quick=element('div');
+  quick.className='paper-quick-action';
+  paperActions.append(quick);
+  const directLabels=new Map([
+    ['แก้ข้อความ','แก้ข้อความ'],['เปลี่ยนตัวแปรที่ผูก','เปลี่ยนตัวแปร'],
+    ['แก้รูปแบบรายการนี้','แก้รูปแบบ'],['ขนาดกระดาษและระยะขอบ','ตั้งกระดาษ'],
+    ['จัดเนื้อหา ตัวแปร และการวนแถว','แก้ Format'],
+    ['จัดเนื้อหาและรูปแบบหัว–ท้าย','แก้รูปแบบ'],['+ เพิ่ม Format','+ เพิ่ม Format'],
+  ]);
   const groups={
     add:element('details'),edit:element('details'),more:element('details'),
   };
@@ -1065,8 +1106,31 @@ function showActions(item:Outline){
       const control=button(label,invoke);
       control.disabled=isSaving||hasConflict;target.append(control);
     }
+    const direct=directLabels.get(name);
+    const tableStructure=['table','table-row','table-cell'].includes(item.type);
+    if(direct&&!quick.childElementCount&&!(tableStructure&&name==='แก้รูปแบบรายการนี้')){
+      const control=button(direct,invoke);
+      control.title=name;
+      control.disabled=isSaving||hasConflict;quick.append(control);
+    }
   };
   function finish(){
+    const layoutControls=Array.from(q('paper-layout-actions').querySelectorAll<HTMLButtonElement>('button'));
+    if(!quick.childElementCount){
+      const wanted=item.type==='table-cell'?'ระยะขอบในเซลล์':item.type==='table'?'ความกว้างคอลัมน์':undefined;
+      const layoutAction=layoutControls.find(control=>!control.disabled&&(!wanted||control.textContent===wanted));
+      if(layoutAction){
+        const control=button(layoutAction.textContent??'',()=>layoutAction.click());
+        control.title=layoutAction.textContent??'';
+        quick.append(control);
+      }
+    }
+    for(const layout of layoutControls){
+      const control=button(layout.textContent??'',()=>{groups.edit.open=false;layout.click();});
+      control.disabled=layout.disabled||isSaving||hasConflict;
+      control.title=layout.title;
+      groups.edit.lastElementChild!.append(control);
+    }
     const empty={add:'เพิ่มรายการใหม่ในส่วนที่ครอบรายการนี้',edit:'เลือกรายการที่มีรายละเอียดให้แก้',more:''};
     for(const key of ['add','edit','more'] as const){
       const menu=groups[key],commands=menu.lastElementChild!;
@@ -1181,6 +1245,14 @@ function showActions(item:Outline){
     const remove=()=>ask(label+' · '+item.label,[],()=>stage({kind:'delete',at}),
       outlinePath(item)+(item.children.length?' · รายการย่อยจะถูกลบด้วย':'')+' · ย้อนกลับได้ก่อนบันทึก');
     const locked=item.type==='section'&&roots.length===1;
+    if(!locked){
+      const direct=button('ลบ',remove);
+      direct.className='paper-remove';
+      direct.setAttribute('aria-label',label);
+      direct.title=label;
+      direct.disabled=isSaving||hasConflict;
+      paperActions.append(direct);
+    }
     for(const target of [groups.more.lastElementChild!,actions]){
       const control=button(target===actions?'ลบรายการนี้':label,()=>{groups.more.open=false;remove();});
       control.className='paper-remove';

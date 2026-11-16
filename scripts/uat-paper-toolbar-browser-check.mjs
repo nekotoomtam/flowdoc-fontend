@@ -28,7 +28,7 @@ async function handles(label){
 }
 async function command(group,label){
   await menu(group).click();
-  await tools.getByRole('button',{name:label,exact:true}).click();
+  await tools.locator('details[open]').getByRole('button',{name:label,exact:true}).click();
 }
 try{
   await page.goto(base+'/phase1-editor.html?id='+encodeURIComponent(id));
@@ -47,7 +47,7 @@ try{
   assert.equal(await startForm.getByRole('spinbutton').inputValue(),'155');
   await startForm.getByRole('button',{name:'ยกเลิก',exact:true}).click();
   await paper.getByRole('button',{name:'เลือกตาราง 1',exact:true}).click();
-  assert.ok(await page.locator('#paper-layout-actions').getByRole('button',{name:'ความกว้างคอลัมน์',exact:true}).isVisible());
+  assert.ok(await tools.locator('.paper-quick-action').getByRole('button',{name:'ความกว้างคอลัมน์',exact:true}).isVisible());
   const areaToggle=tree.getByRole('button',{name:'ขยายหรือยุบ parts',exact:true});
   if(await areaToggle.getAttribute('aria-expanded')==='false')await areaToggle.click();
   await tree.locator('[data-kind=section]').first().click();
@@ -137,7 +137,7 @@ try{
   const dynamic=paper.locator('.definition-format');
   await dynamic.locator('button[data-kind=table-row]').first().click();
   assert.match(await orderTools.textContent(),/ตารางที่วนซ้ำหรือผสาน/);
-  assert.ok(await orderTools.getByRole('button',{name:'เลื่อนลง',exact:true}).isDisabled());
+  assert.equal(await orderTools.getByRole('button',{name:'เลื่อนลง',exact:true}).count(),0);
   await handles('ซ่อนจุดเลือก');
   await page.locator('#variable-panel > summary').click();
   await tree.locator('[data-kind=format]').getByText('cover',{exact:true}).click();
@@ -169,8 +169,11 @@ try{
   await page.getByRole('button',{name:'เส้นช่วยดูโครง',exact:true}).click();
 
   const table=paper.locator('.definition-table').filter({has:page.getByRole('button',{name:'{{title}}',exact:true})});
-  const tableActions=page.locator('#paper-layout-actions');
-  const openTable=()=>table.getByRole('button',{name:'เลือกตาราง 1',exact:true}).click();
+  const tableActions=tools.locator('details').filter({has:page.locator('summary').getByText('แก้ไข',{exact:true})});
+  const openTable=async()=>{
+    await table.getByRole('button',{name:'เลือกตาราง 1',exact:true}).click();
+    await tableActions.locator('summary').click();
+  };
   await openTable();
   for(const label of ['การแบ่งหน้าแถว','ความกว้างคอลัมน์','ระยะขอบในเซลล์'])
     assert.ok(await tableActions.getByRole('button',{name:label,exact:true}).isVisible());

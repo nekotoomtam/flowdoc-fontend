@@ -7,6 +7,7 @@ type InputContract={globalSchema:Schema;sections:InputSection[];areaFormats?:Rec
 export type PublishedContract=InputContract&{docKey:string;version:number;assembly?:{input:string}};
 export const postmanImage='flowdoc-sample.png';
 export const postmanDocumentUrl='{{FLOWDOC_BASE_URL}}/documents';
+export const wordMediaType='application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 export const imagePart=(path:Path)=>'/'+[...path,'image'].map(value=>String(value).replaceAll('~','~0').replaceAll('/','~1')).join('/');
 export const shellLiteral=(value:string)=>"'"+value.replaceAll("'","'\"'\"'")+"'";
 
@@ -72,8 +73,8 @@ export function postmanCurl(contract:PublishedContract,example:ApiExample,baseUr
     'curl --request POST '+shellLiteral(url),
     '  --header '+shellLiteral('Authorization: Bearer {{FLOWDOC_TOKEN}}'),
     '  --header '+shellLiteral('Doc-Key: '+contract.docKey),
-    '  --header '+shellLiteral('Output-Format: pdf'),
-    '  --header '+shellLiteral('Accept: multipart/mixed'),
+    '  --header '+shellLiteral('Output-Format: docx'),
+    '  --header '+shellLiteral('Accept: '+wordMediaType),
     '  --form '+shellLiteral('payload='+body+';type=application/json'),
     ...example.images.map(image=>'  --form '+shellLiteral(imagePart(image.path)+'=@'+postmanImage+';type=image/png')),
   ].join(' \\\n');
@@ -82,13 +83,10 @@ export function postmanCurl(contract:PublishedContract,example:ApiExample,baseUr
 export function postmanCollection(contract:PublishedContract,example:ApiExample,baseUrl=''){
   const auth={type:'bearer',bearer:[{key:'token',value:'{{FLOWDOC_TOKEN}}',type:'string'}]};
   const tests=[
-    "pm.test('FlowDoc returned a multipart document response', () => {",
+    "pm.test('FlowDoc returned a Word download', () => {",
     "  pm.response.to.have.status(200);",
-    "  pm.expect(pm.response.headers.get('Content-Type')).to.include('multipart/mixed');",
-    "  const body = pm.response.text();",
-    "  pm.expect(body).to.match(/\x22type\x22\\s*:\\s*\x22artifact\x22/);",
-    "  pm.expect(body).to.match(/\x22completeness\x22\\s*:\\s*\x22complete\x22/);",
-    "  pm.expect(body).to.include('Content-Type: application/pdf');",
+    "  pm.expect(pm.response.headers.get('Content-Type')).to.eql('"+wordMediaType+"');",
+    "  pm.expect(pm.response.headers.get('Content-Disposition')).to.include('.docx');",
     '});',
   ];
   return {
@@ -100,9 +98,9 @@ export function postmanCollection(contract:PublishedContract,example:ApiExample,
       {key:'DOC_KEY',value:contract.docKey,type:'string'},
     ],
     item:[
-      {name:'ออก PDF',event:[{listen:'test',script:{type:'text/javascript',exec:tests}}],
+      {name:'ดาวน์โหลด Word',event:[{listen:'test',script:{type:'text/javascript',exec:tests}}],
         request:{method:'POST',auth,url:postmanDocumentUrl,
-          header:[{key:'Doc-Key',value:'{{DOC_KEY}}'},{key:'Output-Format',value:'pdf'},{key:'Accept',value:'multipart/mixed'}],
+          header:[{key:'Doc-Key',value:'{{DOC_KEY}}'},{key:'Output-Format',value:'docx'},{key:'Accept',value:wordMediaType}],
           body:{mode:'formdata',formdata:[
             {key:'payload',type:'text',contentType:'application/json',value:JSON.stringify(example.payload,null,2)},
             ...example.images.map(image=>({key:imagePart(image.path),type:'file',src:postmanImage,contentType:'image/png'})),

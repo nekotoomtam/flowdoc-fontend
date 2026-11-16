@@ -1,5 +1,5 @@
 import type {Definition, Schema} from './editor-structure';
-import {draftInputContract,fullApiExample,imagePart,postmanCollection,postmanCurl,postmanDocumentUrl,postmanImage,shellLiteral} from './editor-postman';
+import {draftInputContract,fullApiExample,imagePart,postmanCollection,postmanCurl,postmanDocumentUrl,postmanImage,shellLiteral,wordMediaType} from './editor-postman';
 import type {ApiExample as Example,PublishedContract} from './editor-postman';
 
 type Publication={version:number;fingerprint:string;contract:PublishedContract;
@@ -32,14 +32,14 @@ function generateCommand(docKey:string,images:Example['images']){
     'curl --request POST "${FLOWDOC_BASE_URL}/documents"',
     '  --header "Authorization: Bearer ${FLOWDOC_TOKEN}"',
     '  --header '+shellLiteral('Doc-Key: '+docKey),
-    '  --header "Output-Format: pdf"',
-    '  --header "Accept: multipart/mixed"',
-    '  --form "payload=@payload.json;type=application/json"',
+    '  --header "Output-Format: docx"',
+    '  --header '+shellLiteral('Accept: '+wordMediaType),
+    '  --form "payload=<payload.json;type=application/json"',
     ...images.map((image,i)=>{
       const name=imageName(i,image.file),media=name.endsWith('.jpg')?'image/jpeg':'image/png';
       return '  --form '+shellLiteral(imagePart(image.path)+'=@'+name+';type='+media);
     }),
-    '  --output response.multipart',
+    '  --fail --output document.docx',
   ];
 }
 export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
@@ -129,7 +129,7 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
     status.textContent='เผยแพร่แล้ว · เวอร์ชัน '+value.version+(matches?' · ตรงกับฉบับที่บันทึก':' · คนละฉบับกับโครงที่บันทึก');
     if(value.contract.assembly?.input==='array-by-section-key'){
       const full=fullApiExample(value.contract);
-      const request=element('section');request.className='api-request';request.setAttribute('aria-label','คำขอออก PDF');
+      const request=element('section');request.className='api-request';request.setAttribute('aria-label','คำขอดาวน์โหลด Word');
       const baseUrl=value.target?.status==='verified'?value.target.baseUrl:'';
       const collection=json(postmanCollection(value.contract,full,baseUrl));
       const curl=postmanCurl(value.contract,full,baseUrl);
@@ -153,7 +153,8 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
       bodyHeading.append(element('h3','Body · form-data'),button('คัดลอก Body JSON',()=>void copy(payload,'คัดลอก JSON แล้ว · วางในค่า payload ของ form-data')));
       const curlPreview=element('pre',curl);
       curlPreview.tabIndex=0;
-      request.append(actions,element('p',baseUrl?'วางใน Postman → Import แล้วตั้งค่า FLOWDOC_TOKEN':'วางใน Postman → Import แล้วตั้งค่า FLOWDOC_BASE_URL และ FLOWDOC_TOKEN'),
+      const settings=baseUrl?'FLOWDOC_TOKEN':'FLOWDOC_BASE_URL และ FLOWDOC_TOKEN';
+      request.append(actions,element('p','วางใน Postman → Import ตั้งค่า '+settings+' แล้วเลือก Download response จากเมนูข้าง Send เพื่อบันทึกไฟล์ Word (.docx)'),
         details('ดูคำขอ cURL',curlPreview),
         bodyHeading,element('p','payload · Text · application/json'),raw);
       if(full.images.length){
@@ -172,7 +173,7 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
         download(filename,new Blob([collection],{type:'application/json'}));
       });
       const headers=element('pre','Authorization: Bearer {{FLOWDOC_TOKEN}}\nDoc-Key: '+value.contract.docKey+
-        '\nOutput-Format: pdf\nAccept: multipart/mixed');
+        '\nOutput-Format: docx\nAccept: '+wordMediaType);
       request.append(details('Headers',headers));
       publishedPane.append(request);
       const secondary=element('div');secondary.append(handoff,fallback,body);

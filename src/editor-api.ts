@@ -1,8 +1,10 @@
 import type {Definition, Schema} from './editor-structure';
 import {draftInputContract,fullApiExample,imagePart,postmanCollection,postmanDocumentUrl,postmanImage} from './editor-postman';
 import type {ApiExample as Example,PublishedContract} from './editor-postman';
+import {tableSamplePaths} from '../scripts/api-table-samples.mjs';
 
 type Publication={version:number;fingerprint:string;contract:PublishedContract;
+  tableSamplePaths?:string[];
   target?:{status:'unconfigured'|'unavailable'}|{status:'verified';baseUrl:string}};
 type ApiContext={docKey:string;revision:number;fingerprint:string;definition:Definition;dirty:boolean;
   publicationUrl:string;trial?:()=>Example};
@@ -88,7 +90,8 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
   const examplePane=element('section');examplePane.className='api-example';
   const sampleLabel=element('p'),assets=element('div'),pre=element('pre');
   const controls=element('div');controls.className='api-buttons';
-  let example=fullApiExample(draftInputContract(ctx.definition));
+  const draftTablePaths=tableSamplePaths(ctx.definition);
+  let example=fullApiExample(draftInputContract(ctx.definition),draftTablePaths);
   let updateCommand=()=>{};
   function fill(value:Example,label:string){
     example=value;sampleLabel.textContent=label;pre.textContent=json(example.payload);
@@ -129,7 +132,7 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
     const matches=value.fingerprint===ctx.fingerprint;
     status.textContent='เผยแพร่แล้ว · เวอร์ชัน '+value.version+(matches?' · ตรงกับฉบับที่บันทึก':' · คนละฉบับกับโครงที่บันทึก');
     if(value.contract.assembly?.input==='array-by-section-key'){
-      const full=fullApiExample(value.contract);
+      const full=fullApiExample(value.contract,value.tableSamplePaths??(matches?draftTablePaths:[]));
       const request=element('section');request.className='api-request';request.setAttribute('aria-label','คำขอออก PDF');
       const baseUrl=value.target?.status==='verified'?value.target.baseUrl:'';
       const collection=json(postmanCollection(value.contract,full,baseUrl));

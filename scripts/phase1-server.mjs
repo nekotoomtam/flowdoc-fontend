@@ -9,6 +9,7 @@ import {markBlankRuns,previewInput,trialBindings} from './trial-preview-bindings
 import {randomBytes, randomUUID, createHash} from 'node:crypto';
 import {readFile, mkdtemp} from 'node:fs/promises';
 import {createInterface} from 'node:readline';
+import {tableSamplePaths} from './api-table-samples.mjs';
 import {createPool} from '/candidate/dist/db/connection.js';
 import {createServer} from '/candidate/dist/http/server.js';
 import {createAuthoring} from '/candidate/dist/authoring/service.js';
@@ -326,12 +327,13 @@ try {
     }
     if(packet.action==='publication'){
       const {rows:[published]}=await pool.query(
-        'SELECT t.doc_key AS "docKey",v.version,v.fingerprint FROM templates t JOIN template_versions v ON v.template_id=t.id '+
+        'SELECT t.doc_key AS "docKey",v.version,v.fingerprint,v.definition_json AS definition FROM templates t JOIN template_versions v ON v.template_id=t.id '+
         'WHERE t.id=$1 ORDER BY v.version DESC LIMIT 1',[packet.templateId]);
       if(!published)return {status:200,body:{value:null}};
       const contract=await app.inject({method:'GET',url:'/templates/'+encodeURIComponent(published.docKey)+'/contract?version='+published.version});
       if(contract.statusCode!==200)return {status:contract.statusCode,body:contract.json()};
-      return {status:200,body:{value:{...published,contract:take(contract.json())}}};
+      const {definition,...identity}=published;
+      return {status:200,body:{value:{...identity,contract:take(contract.json()),tableSamplePaths:tableSamplePaths(definition)}}};
     }
     if (packet.action === 'get') {
       const result = await service('GET',selectedRoute);

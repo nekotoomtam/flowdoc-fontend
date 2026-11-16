@@ -14,8 +14,16 @@ export function draftInputContract(definition:Definition):InputContract{
     sectionKey:section.sectionKey,inputSchema:section.inputSchema,header:section.header?.inputSchema,footer:section.footer?.inputSchema,
   }))};
 }
-export function fullApiExample(contract:InputContract):ApiExample{
+const textExamples:Record<string,string>={
+  projectName:'โครงการตัวอย่าง FlowDoc',documentVersion:'1.0',updatedDate:'16/11/2026',date:'16/11/2026',
+  author:'ทีมเอกสาร',name:'ผู้ทดสอบ',position:'วิศวกรระบบ',organization:'FlowDoc Lab',
+  address:'กรุงเทพมหานคร',telephone:'02-000-0000',fax:'02-000-0001',code:'REQ',
+  text:'ข้อความสำหรับทดสอบการออกเอกสาร',detail:'ระบบสามารถตรวจข้อมูลและสร้างเอกสารได้',
+  summary:'ทดสอบการสร้างเอกสารและตรวจผลที่ได้',remark:'ผ่านการตรวจสอบ',time:'09:00',
+};
+export function fullApiExample(contract:InputContract,tablePaths:readonly string[]):ApiExample{
   const images:ApiExample['images']=[];
+  const tableLists=new Set(tablePaths);
   const byArea=new Map<string,NonNullable<InputContract['areaFormats']>[string][]>();
   for(const format of Object.values(contract.areaFormats??{})){
     const entries=byArea.get(format.ownerAreaId)??[];
@@ -23,29 +31,36 @@ export function fullApiExample(contract:InputContract):ApiExample{
     byArea.set(format.ownerAreaId,entries);
   }
   let anchors=0;
-  function values(schema:Schema,path:Path):object{
+  function values(schema:Schema,path:Path,schemaPath:string[],rows:number[]=[]):object{
     return Object.fromEntries(Object.entries(schema.fields).map(([key,field])=>{
       const at=[...path,key];
+      const fieldPath=[...schemaPath,key];
       if(field.type==='image'){
         images.push({path:at});
         return [key,{image:{upload:true}}];
       }
       if(field.type==='link')return [key,{type:'url',value:'https://example.com'}];
-      if(field.type==='array')return [key,field.items?[values(field.items,[...at,0])]:[]];
+      if(field.type==='array'){
+        const items=field.items;
+        const count=tableLists.has(JSON.stringify(fieldPath))?3:1;
+        return [key,items?Array.from({length:count},(_,i)=>values(items,[...at,i],fieldPath,[...rows,i+1])):[]];
+      }
       if(field.type==='area'){
         const formats=byArea.get(field.areaId??'')??[];
-        return [key,formats.map((format,i)=>({format:format.key,data:values(format.inputSchema,[...at,i,'data'])}))];
+        return [key,formats.map((format,i)=>({format:format.key,data:values(format.inputSchema,[...at,i,'data'],
+          ['format',format.ownerAreaId,format.key])}))];
       }
       if(key==='anchor')return [key,'sample-heading-'+(++anchors)];
-      if(key==='projectName')return [key,'โครงการตัวอย่าง FlowDoc'];
-      return [key,typeof field.default==='string'&&field.default?field.default:'ตัวอย่าง '+key];
+      if(typeof field.default==='string'&&field.default.trim())return [key,field.default];
+      const sample=Object.hasOwn(textExamples,key)?textExamples[key]:'ตัวอย่าง '+(field.label||key);
+      return [key,rows.length&&!['date','time'].includes(key)?sample+' '+rows.join('.') : sample];
     }));
   }
-  const data=values(contract.globalSchema,['data']);
+  const data=values(contract.globalSchema,['data'],['data']);
   const sections=contract.sections.map((section,i)=>({
-    sectionKey:section.sectionKey,instanceKey:'example-'+(i+1),data:values(section.inputSchema,['sections',i,'data']),
-    ...(section.header?{header:values(section.header,['sections',i,'header'])}:{}),
-    ...(section.footer?{footer:values(section.footer,['sections',i,'footer'])}:{}),
+    sectionKey:section.sectionKey,instanceKey:'example-'+(i+1),data:values(section.inputSchema,['sections',i,'data'],['section',section.sectionKey,'data']),
+    ...(section.header?{header:values(section.header,['sections',i,'header'],['section',section.sectionKey,'header'])}:{}),
+    ...(section.footer?{footer:values(section.footer,['sections',i,'footer'],['section',section.sectionKey,'footer'])}:{}),
   }));
   return {payload:{data,sections},images};
 }

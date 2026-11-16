@@ -5,6 +5,7 @@ const outputTypes={
   pdf:{mediaType:'application/pdf',signature:'255044462d'},
 };
 const ttl=5*60_000;
+const maxUses=10;
 const grantLimit=32;
 const maxPayloadBytes=256*1024;
 const maxImageFields=24;
@@ -32,7 +33,7 @@ function mockImageFields(payload){
 export function createLabSampleWord({fixture,image,serviceUrl,serviceToken,clock=Date.now}){
   const {docKey,templateId,version,payload,fields}=fixture;
   const expectedFields=payload?mockImageFields(payload):[];
-  if(!templateId||!docKey||(!Number.isSafeInteger(version)||version<2)||expectedFields.length!==4||!Array.isArray(fields)||
+  if(!templateId||!docKey||(!Number.isSafeInteger(version)||version<1)||expectedFields.length!==4||!Array.isArray(fields)||
     JSON.stringify([...expectedFields].sort())!==JSON.stringify([...fields].sort())||
     !image?.length||!serviceToken)throw Error('Invalid SRS sample Word configuration');
   const capability='/api/editor-phase1/drafts/'+templateId+'/sample-documents';
@@ -52,7 +53,7 @@ export function createLabSampleWord({fixture,image,serviceUrl,serviceToken,clock
   };
 
   async function respond(request,response,pathname){
-    if(request.method==='GET'&&pathname===capability)return json(response,200,{available:true,version});
+    if(request.method==='GET'&&pathname===capability)return json(response,200,{available:true,version,maxUses,ttlSeconds:ttl/1000});
     if(request.method!=='POST')return reject(response,405,'method_not_allowed');
     const now=clock();
     for(const [grant,{expires}] of grants)if(expires<=now)grants.delete(grant);
@@ -66,7 +67,7 @@ export function createLabSampleWord({fixture,image,serviceUrl,serviceToken,clock
         return reject(response,403,'sample_issue_requires_lab_editor');
       if(grants.size>=grantLimit)return reject(response,429,'sample_grant_limit');
       const grant=randomBytes(24).toString('base64url');
-      grants.set(grant,{expires:now+ttl,format});
+      grants.set(grant,{expires:now+ttl,format,remaining:maxUses});
       const command=[
         "curl --request POST '"+origin+route+"'",
         "  --header 'Authorization: Bearer "+grant+"'",
@@ -82,6 +83,7 @@ export function createLabSampleWord({fixture,image,serviceUrl,serviceToken,clock
     const grant=/^Bearer ([A-Za-z0-9_-]{32})$/.exec(request.headers.authorization??'')?.[1];
     const permission=grant&&grants.get(grant);
     if(!permission)return reject(response,401,'sample_grant_expired_or_used');
+    if(permission.remaining===0)return reject(response,429,'sample_grant_limit_reached');
     const {format}=permission;
     const {mediaType,signature}=outputTypes[format];
     if(request.headers['doc-key']!==docKey||request.headers['output-format']!==format||
@@ -117,8 +119,9 @@ export function createLabSampleWord({fixture,image,serviceUrl,serviceToken,clock
       }catch{
         return reject(response,422,'invalid_sample_json_or_images');
       }
-      if((grants.get(grant)?.expires??0)<=clock())return reject(response,401,'sample_grant_expired_or_used');
-      grants.delete(grant);
+      if(permission.expires<=clock())return reject(response,401,'sample_grant_expired_or_used');
+      if(permission.remaining===0)return reject(response,429,'sample_grant_limit_reached');
+      permission.remaining--;
       const signal=AbortSignal.timeout(90_000);
       const contract=await fetch(serviceUrl+'/templates/'+encodeURIComponent(docKey)+'/contract',{signal,redirect:'error'});
       if(!contract.ok||(await contract.json()).value?.version!==version)

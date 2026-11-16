@@ -210,7 +210,8 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
           copySample.className='primary';commandBox.hidden=true;
           const sampleActions=element('div');sampleActions.className='api-buttons';sampleActions.append(formatLabel,copySample);
           sample.append(sampleActions,element('p','หลัง Import ให้แก้ JSON ใน Body → raw แล้วเลือก Download response'),
-            element('p','สิทธิ์ใช้ได้ครั้งเดียวภายใน 5 นาที · ใส่รูปตัวอย่างให้อัตโนมัติ'),commandBox);
+            element('p',`ใช้คำขอเดิมได้สูงสุด ${capability.maxUses} ครั้งภายใน ${capability.ttlSeconds/60} นาที · ครบแล้วให้กดคัดลอกใหม่`),
+            element('p','ใส่รูปตัวอย่างให้อัตโนมัติ'),commandBox);
           request.prepend(sample);
           transfer.classList.remove('primary');
           transfer.textContent='คัดลอกคำขอ Word ที่ใช้ Token';

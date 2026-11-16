@@ -283,6 +283,7 @@ main{padding:0 14px 24px}
 .api-panel pre{background:#eef4ef;border-radius:6px;padding:10px;overflow:auto;max-height:24rem;font-size:13px}
 .api-panel code{overflow-wrap:anywhere}
 .api-buttons{display:flex;gap:6px;flex-wrap:wrap}
+.api-image-download{align-self:center;padding:4px 8px}
 .api-published{margin-top:15px}
 .api-notice:empty{display:none}
 @media(max-width:680px){.api-body{grid-template-columns:minmax(0,1fr)}}

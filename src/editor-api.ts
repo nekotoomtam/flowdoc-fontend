@@ -1,8 +1,8 @@
 import type {Definition, Schema} from './editor-structure';
+import {draftInputContract,fullApiExample,imagePart,postmanCollection,postmanImage} from './editor-postman';
+import type {ApiExample as Example,PublishedContract} from './editor-postman';
 
-type Path=(string|number)[];
-type Example={payload:object;images:{path:Path;file?:File}[]};
-type Publication={version:number;fingerprint:string;contract:{examples?:unknown[]}};
+type Publication={version:number;fingerprint:string;contract:PublishedContract};
 type ApiContext={docKey:string;revision:number;fingerprint:string;definition:Definition;dirty:boolean;
   publicationUrl:string;trial?:()=>Example};
 
@@ -16,9 +16,7 @@ function button(label:string,run:()=>void){
   control.type='button';control.onclick=run;return control;
 }
 const json=(value:unknown)=>JSON.stringify(value,null,2)+'\n';
-const pointer=(path:Path)=>'/'+path.map(value=>String(value).replaceAll('~','~0').replaceAll('/','~1')).join('/');
 const imageName=(index:number,file?:File)=>'image-'+(index+1)+(/\.jpe?g$/i.test(file?.name??'')?'.jpg':'.png');
-const imagePart=(path:Path)=>pointer([...path,'image']);
 function download(name:string,value:Blob){
   const url=URL.createObjectURL(value),a=element('a');
   a.href=url;a.download=name;a.click();
@@ -44,33 +42,6 @@ function generateCommand(docKey:string,images:Example['images']){
     '  --output response.multipart',
   ];
 }
-function schemaExample(definition:Definition):Example{
-  const images:Example['images']=[];
-  function values(schema:Schema,path:Path):object{
-    return Object.fromEntries(Object.entries(schema.fields).flatMap<[string,unknown]>(([key,field])=>{
-      const at=[...path,key];
-      if(field.type==='image'){
-        if(!field.required)return [];
-        images.push({path:at});return [[key,{image:{upload:true}}]];
-      }
-      if(field.type==='link')return [[key,{type:'url',value:'https://example.com'}]];
-      if(field.type==='array')return [[key,field.items?[values(field.items,[...at,0])]:[]]];
-      if(field.type==='area'){
-        const format=Object.values(definition.areaFormats??{}).find(format=>format.ownerAreaId===field.areaId);
-        return [[key,format?[{format:format.key,data:values(format.inputSchema,[...at,0,'data'])}]:[]]];
-      }
-      return [[key,typeof field.default==='string'?field.default:'ตัวอย่าง '+key]];
-    }));
-  }
-  const data=values(definition.globalSchema,['data']);
-  const sections=definition.sections.map((section,i)=>({
-    sectionKey:section.sectionKey,instanceKey:'example-'+(i+1),data:values(section.inputSchema,['sections',i,'data']),
-    ...(section.header?{header:values(section.header.inputSchema,['sections',i,'header'])}:{}),
-    ...(section.footer?{footer:values(section.footer.inputSchema,['sections',i,'footer'])}:{}),
-  }));
-  return {payload:{data,sections},images};
-}
-
 export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
   const status=element('p','กำลังตรวจสถานะการเผยแพร่…');
   status.setAttribute('role','status');
@@ -79,9 +50,10 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
     .then(()=>{notice.textContent=message;})
     .catch(()=>{notice.textContent='คัดลอกอัตโนมัติไม่ได้ เลือกข้อความหรือดาวน์โหลดไฟล์ได้ครับ';});
   const head=element('div');head.className='api-heading';
+  const handoff=element('div');handoff.className='api-buttons';
   const identity=element('p');identity.append(element('code',ctx.docKey),element('span','ฉบับที่บันทึก · Revision '+ctx.revision));
-  head.append(element('h2','นำโครงไปใช้ผ่าน API'),identity,status,
-    button('คัดลอก docKey',()=>copy(ctx.docKey,'คัดลอก docKey แล้ว')));
+  handoff.append(button('คัดลอก docKey',()=>copy(ctx.docKey,'คัดลอก docKey แล้ว')));
+  head.append(element('h2','นำโครงไปใช้ผ่าน API'),identity,status,handoff);
   if(ctx.dirty)head.append(element('p','ตัวอย่างอ้างอิงฉบับที่บันทึกล่าสุด'));
 
   const spec=element('div');spec.className='api-scopes';
@@ -110,7 +82,7 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
   const examplePane=element('section');examplePane.className='api-example';
   const sampleLabel=element('p'),assets=element('div'),pre=element('pre');
   const controls=element('div');controls.className='api-buttons';
-  let example=schemaExample(ctx.definition);
+  let example=fullApiExample(draftInputContract(ctx.definition));
   let updateCommand=()=>{};
   function fill(value:Example,label:string){
     example=value;sampleLabel.textContent=label;pre.textContent=json(example.payload);
@@ -130,7 +102,7 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
     }
     assets.append(files);
   }
-  fill(example,'ตัวอย่างจากนิยามโครง · แทนค่าตัวอย่างก่อนส่ง');
+  fill(example,'ตัวอย่างครบทุกตัวแปรจากฉบับที่บันทึก');
   if(ctx.trial)controls.append(button('ใช้ข้อมูลจาก Preview',()=>{
     try{fill(ctx.trial!(),'ข้อมูลที่กรอกใน Preview · Revision '+ctx.revision);notice.textContent='โหลดข้อมูลจาก Preview แล้ว';}
     catch(cause){notice.textContent=cause instanceof Error?cause.message:'อ่านข้อมูลจาก Preview ไม่สำเร็จ';}
@@ -150,6 +122,22 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
     if(!value){status.textContent='ยังไม่เผยแพร่ · ใช้ข้อมูลด้านล่างเตรียมการเชื่อมระบบได้';return;}
     const matches=value.fingerprint===ctx.fingerprint;
     status.textContent='เผยแพร่แล้ว · เวอร์ชัน '+value.version+(matches?' · ตรงกับฉบับที่บันทึก':' · คนละฉบับกับโครงที่บันทึก');
+    if(value.contract.assembly?.input==='array-by-section-key'){
+      const full=fullApiExample(value.contract);
+      const collection=button('ดาวน์โหลด Postman',()=>{
+        const filename=value.contract.docKey+'.v'+value.version+'.postman_collection.json';
+        download(filename,new Blob([json(postmanCollection(value.contract,full))],{type:'application/json'}));
+      });
+      collection.className='primary';
+      handoff.prepend(collection);
+      if(full.images.length){
+        const image=element('a','ดาวน์โหลดรูปตัวอย่าง');
+        image.href='/'+postmanImage;image.download=postmanImage;image.className='api-image-download';
+        handoff.append(image);
+      }
+      head.append(element('p','Postman มีข้อมูลครบทุกตัวแปรของเวอร์ชัน '+value.version+' · ตั้ง URL และ Token ของ Service'+
+        (full.images.length?' แล้วใส่รูปตัวอย่างในช่องแนบ':'')+' ก่อนกด Send'));
+    }
     const preview=element('pre');
     const command=()=>generateCommand(ctx.docKey,matches?example.images:[]);
     updateCommand=()=>{preview.textContent=command().join(' \\\n');};

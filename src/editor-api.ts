@@ -2,7 +2,8 @@ import type {Definition, Schema} from './editor-structure';
 import {draftInputContract,fullApiExample,imagePart,postmanCollection,postmanDocumentUrl,postmanImage} from './editor-postman';
 import type {ApiExample as Example,PublishedContract} from './editor-postman';
 
-type Publication={version:number;fingerprint:string;contract:PublishedContract};
+type Publication={version:number;fingerprint:string;contract:PublishedContract;
+  target?:{status:'unconfigured'|'unavailable'}|{status:'verified';baseUrl:string}};
 type ApiContext={docKey:string;revision:number;fingerprint:string;definition:Definition;dirty:boolean;
   publicationUrl:string;trial?:()=>Example};
 
@@ -25,13 +26,6 @@ function download(name:string,value:Blob){
 function details(label:string,content:HTMLElement){
   const panel=element('details');
   panel.append(element('summary',label),content);return panel;
-}
-function serviceBaseUrl(value:string){
-  try{
-    const url=new URL(value.trim());
-    if(!['http:','https:'].includes(url.protocol)||url.username||url.password||url.search||url.hash)return '';
-    return url.origin+url.pathname.replace(/\/+$/,'');
-  }catch{return '';}
 }
 const shellLiteral=(value:string)=>"'"+value.replaceAll("'","'\\''")+"'";
 function generateCommand(docKey:string,images:Example['images']){
@@ -137,28 +131,19 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
     if(value.contract.assembly?.input==='array-by-section-key'){
       const full=fullApiExample(value.contract);
       const request=element('section');request.className='api-request';
-      const base=element('input');
-      base.type='url';base.placeholder='https://…';base.autocomplete='off';
-      const baseLabel=element('label','Base URL ของ FlowDoc Service');baseLabel.className='api-base-url';baseLabel.append(base);
-      const baseHelp=element('small','ใส่ Base URL เพื่อคัดลอกลิงก์เต็มไปใช้ใน New Request');
-      baseHelp.id='flowdoc-service-url-help';base.setAttribute('aria-describedby',baseHelp.id);
-      const collection=()=>json(postmanCollection(value.contract,full,serviceBaseUrl(base.value)));
+      const baseUrl=value.target?.status==='verified'?value.target.baseUrl:'';
+      const collection=json(postmanCollection(value.contract,full,baseUrl));
       const address=element('div');address.className='api-request-address';
-      const url=element('code',postmanDocumentUrl);
+      const url=element('code',baseUrl?baseUrl+'/documents':postmanDocumentUrl);
       const copyUrl=button('คัดลอก URL',()=>void copy(url.textContent??'','คัดลอก URL แล้ว · วางในช่อง URL ของ New Request'));
-      copyUrl.disabled=true;
-      base.addEventListener('input',()=>{
-        const configured=serviceBaseUrl(base.value);
-        url.textContent=configured?configured+'/documents':postmanDocumentUrl;
-        copyUrl.disabled=!configured;
-        const invalid=Boolean(base.value.trim()&&!configured);
-        base.setAttribute('aria-invalid',String(invalid));
-        baseHelp.textContent=invalid?'ใส่ Base URL ที่ขึ้นต้นด้วย http:// หรือ https:// โดยไม่ใส่ query หรือข้อมูลล็อกอิน':
-          'ใส่ Base URL เพื่อคัดลอกลิงก์เต็มไปใช้ใน New Request';
-      });
+      copyUrl.disabled=!baseUrl;
       address.append(element('strong','POST'),url,copyUrl);
+      request.append(address);
+      if(!baseUrl)request.append(element('p',value.target?.status==='unavailable'
+        ?'ตรวจสอบ Service ปลายทางสำหรับโครงนี้ไม่สำเร็จ'
+        :'ยังไม่มี Service สำหรับออกเอกสารที่ผูกกับโครงนี้'));
       const actions=element('div');actions.className='api-buttons';
-      const transfer=button('คัดลอกชุดสำหรับ Import',()=>void copy(collection(),'คัดลอกแล้ว · เปิด Import ใน Postman แล้ววางข้อความ'));
+      const transfer=button('คัดลอกชุดสำหรับ Import',()=>void copy(collection,'คัดลอกแล้ว · เปิด Import ใน Postman แล้ววางข้อความ'));
       transfer.className='primary';
       actions.append(transfer,notice);
       const payload=json(full.payload);
@@ -166,7 +151,7 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
       raw.className='api-request-json';raw.tabIndex=0;raw.setAttribute('aria-label','JSON ของช่อง payload');
       const bodyHeading=element('div');bodyHeading.className='api-body-heading';
       bodyHeading.append(element('h3','Body · form-data'),button('คัดลอก Body JSON',()=>void copy(payload,'คัดลอก JSON แล้ว · วางในค่า payload ของ form-data')));
-      request.append(baseLabel,baseHelp,address,actions,element('p','ใช้ Import เพื่อวางทั้งชุด หรือเลือก POST ใน New Request แล้ววาง URL และ Body แยกช่อง'),
+      request.append(actions,element('p',baseUrl?'นำเข้าใน Postman หรือเลือก POST แล้ววาง URL และ Body ตามช่อง':'เตรียมคำขอและ Body ใน Postman ได้ · ส่งได้เมื่อมี Service ปลายทาง'),
         bodyHeading,element('p','payload · Text · application/json'),raw);
       if(full.images.length){
         const attachments=element('ul');attachments.className='api-attachments';
@@ -181,7 +166,7 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
       }
       const fallback=button('ดาวน์โหลด Postman',()=>{
         const filename=value.contract.docKey+'.v'+value.version+'.postman_collection.json';
-        download(filename,new Blob([collection()],{type:'application/json'}));
+        download(filename,new Blob([collection],{type:'application/json'}));
       });
       const headers=element('pre','Authorization: Bearer {{FLOWDOC_TOKEN}}\nDoc-Key: '+value.contract.docKey+
         '\nOutput-Format: pdf\nAccept: multipart/mixed');

@@ -1,5 +1,6 @@
 import {spawn} from 'node:child_process';
 import {createInterface} from 'node:readline';
+import {isDeepStrictEqual} from 'node:util';
 
 const root='/home/ubuntu/flowdoc-editor-phase1-20261108';
 const stage='/home/ubuntu/flowdoc-library-model20-staging-20261108';
@@ -13,7 +14,33 @@ const resumeMounts=process.env.FLOWDOC_RESUMABLE_PREVIEW==='1'
 const labCommand=`sudo docker run --rm -i --network none --memory 1g --cpus 2 --user 0:0 -v ${root}:/phase1:ro -v ${stage}/socket:/socket -v ${stage}/staged-fonts:/fonts:ro -v ${candidate}:/candidate:ro -v ${reference}/converted:/reference:ro -v ${reference}/candidate/lab-full/assets:/reference-assets:ro -e FONT_STORAGE_DIR=/fonts${resumeMounts} --entrypoint node ${nodeImage} /phase1/phase1-server.mjs`;
 const uuid=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
 
-export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1'}={}) {
+export async function documentsTarget(configured,publication){
+  if(!configured?.trim())return {status:'unconfigured'};
+  try{
+    const url=new URL(configured.trim());
+    if(!['http:','https:'].includes(url.protocol)||url.username||url.password||url.search||url.hash)
+      return {status:'unavailable'};
+    const baseUrl=url.origin+url.pathname.replace(/\/+$/,'');
+    const options={signal:AbortSignal.timeout(4000),redirect:'error'};
+    const [contractReply,lookup]=await Promise.all([
+      fetch(baseUrl+'/templates/'+encodeURIComponent(publication.docKey)+'/contract',options),
+      // An unauthenticated lookup checks the task route without starting a generation.
+      fetch(baseUrl+'/documents',{...options,method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({taskId:'00000000-0000-4000-8000-000000000001'})}),
+    ]);
+    await lookup.body?.cancel();
+    if(!contractReply.ok||lookup.status!==401){
+      await contractReply.body?.cancel();
+      return {status:'unavailable'};
+    }
+    const contract=(await contractReply.json()).value;
+    if(isDeepStrictEqual(contract,publication.contract))return {status:'verified',baseUrl};
+  }catch{}
+  return {status:'unavailable'};
+}
+
+export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1',
+  documentsBaseUrl=process.env.FLOWDOC_DOCUMENTS_BASE_URL}={}) {
   let child, sequence=0;
   const pending=new Map();
   function stop(proc) {
@@ -101,7 +128,10 @@ export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1'}={
       }
       try{
         const reply=await ask({action,templateId,body});
-        if(['preview-asset','trial-asset'].includes(action)&&reply.status===200&&['image/png','image/jpeg'].includes(reply.mediaType)){
+        if(action==='publication'&&reply.status===200&&reply.body?.value){
+          const value=reply.body.value,target=await documentsTarget(documentsBaseUrl,value);
+          send(200,{...reply.body,value:{...value,target}});
+        }else if(['preview-asset','trial-asset'].includes(action)&&reply.status===200&&['image/png','image/jpeg'].includes(reply.mediaType)){
           res.writeHead(200,{'Content-Type':reply.mediaType,'Cache-Control':action==='trial-asset'?'no-store':'private, max-age=3600','X-Content-Type-Options':'nosniff'});
           res.end(Buffer.from(reply.bytes,'base64'));
         }else send(reply.status,reply.body);

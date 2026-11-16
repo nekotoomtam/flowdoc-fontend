@@ -42,8 +42,13 @@ export async function documentsTarget(configured,publication){
   return {status:'unavailable'};
 }
 
+function startRemoteWorker(){
+  return spawn('ssh.exe',['-T','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes',
+    '-o','ConnectTimeout=8','-i','C:/test/keyflow.key','ubuntu@129.221.205.23',labCommand],{windowsHide:true});
+}
+
 export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1',
-  documentsBaseUrl=process.env.FLOWDOC_DOCUMENTS_BASE_URL}={}) {
+  documentsBaseUrl=process.env.FLOWDOC_DOCUMENTS_BASE_URL,startWorker=startRemoteWorker}={}) {
   let child, sequence=0;
   const pending=new Map();
   function stop(proc) {
@@ -56,8 +61,7 @@ export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1',
   }
   function start() {
     if (child) return child;
-    const proc=spawn('ssh.exe',['-T','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes',
-      '-o','ConnectTimeout=8','-i','C:/test/keyflow.key','ubuntu@129.221.205.23',labCommand],{windowsHide:true});
+    const proc=startWorker();
     child=proc;
     proc.stdin.on('error',()=>stop(proc));
     proc.on('error',()=>stop(proc));proc.on('exit',()=>stop(proc));

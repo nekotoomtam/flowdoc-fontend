@@ -21,7 +21,7 @@ type Group = {id:string;tableId:string;rowTemplateIds:string[];source:{scope:str
 type CellRepeat = {id?:string;cellId:string;childTemplateIds:string[];source?:{scope:string;key:string}};
 export type Host = {fragment?:Fragment;repeats?:Repeat[];rowGroups?:Group[];cellRepeats?:CellRepeat[]};
 export type Format = Host & {key:string;label?:string;ownerAreaId:string;inputSchema:Schema;fragment:Fragment};
-export type Band = Host & {baseTextStyleId?:string;inputSchema:Schema;fragment:Fragment;placement?:{mode:string;left:Length;right:Length;offset:Length};sizing?:{height?:Length};gap?:Length};
+export type Band = Host & {baseTextStyleId?:string;inputSchema:Schema;fragment:Fragment;placement?:{mode:string;left:Length;right:Length;offset:Length};sizing?:{mode?:'content'|'fixed';height?:Length;minHeight?:Length;maxHeight?:Length};gap?:Length};
 type BandMode = 'all'|'first'|'continuation'|'none';
 export type Section = {id:string;label:string;nameBase?:string;sectionKey:string;pageLayoutId?:string;
   role?:'body'|'cover';headerMode?:BandMode;footerMode?:BandMode;

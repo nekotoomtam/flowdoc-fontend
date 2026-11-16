@@ -192,12 +192,14 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
   const unit=(n:number)=>'calc('+n+' * var(--sheet-pt))';
   const length=(value?:Length)=>value?unit(points(value)):'';
   const hex=(value?:string)=>value&&/^[0-9a-f]{6}$/i.test(value)?'#'+value:'';
+  let registerControl=true;
   const choose=(item:Outline,label=item.label,className='definition-control')=>{
-    const control=button(label,()=>select(item,false));control.className=className;
+    const control=button(label,()=>{if(item.ref.band)paperNodes.set(item,control);select(item,false);});control.className=className;
     control.dataset.paperRef=refKey(item.ref);
     control.dataset.kind=item.type;
     if(item.inline?.type==='text')control.addEventListener('dblclick',()=>openInlineEditor(item));
-    paperNodes.set(item,control);return control;
+    if(registerControl)paperNodes.set(item,control);
+    return control;
   };
   function contents(item: Outline): HTMLElement {
     const block=element('div');block.className='definition-block';block.dataset.kind=item.type;
@@ -343,23 +345,37 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
   }
   const margin=layout?.margin??{};
   let top=margin.top,bottom=margin.bottom;
+  const bands:Outline[]=[];
+  function bandSlot(item:Outline){
+    const band=item.band!,placement=band.placement,header=item.ref.band==='header';
+    const edge=header?'top':'bottom';
+    const offset=placement?.offset??margin[edge];
+    const view=element('div');view.className='definition-band';view.dataset.band=item.ref.band;
+    view.style.marginInlineStart=length(placement?.left??margin.left);
+    view.style.marginInlineEnd=length(placement?.right??margin.right);
+    const style=draft.definition.styles[band.baseTextStyleId??''] as {lineHeightPt?:number}|undefined;
+    const lineHeight=style?.lineHeightPt;
+    const height=band.sizing?.height?points(band.sizing.height):Math.max(lineHeight??12,points(band.sizing?.minHeight));
+    view.style.minHeight=unit(height);
+    const handle=choose(item,'','definition-band-hit');
+    handle.setAttribute('aria-label','เลือก'+item.label);
+    handle.title='เลือกพื้นที่'+item.label;
+    handle.append(element('span',item.label));
+    const content=element('div');content.className='definition-band-content';
+    content.append(...item.children.map(contents));
+    view.append(handle,content);
+    const slot=element('div');slot.className='definition-band-slot definition-band-'+item.ref.band;
+    slot.style.minHeight=length(margin[edge]);
+    slot.style.paddingTop=length(header?offset:band.gap);
+    slot.style.paddingBottom=length(header?band.gap:offset);
+    if(points(offset)>=20)view.dataset.roomForLabel='true';
+    slot.append(view);
+    return slot;
+  }
   for(const item of root.children){
     if(item.ref.band&&item.band){
-      const band=item.band, layout=band.placement, header=item.ref.band==='header';
-      const edge=header?'top':'bottom';
-      const offset=layout?.offset??margin[edge];
-      const view=contents(item);view.classList.add('definition-band');
-      view.style.marginInlineStart=length(layout?.left??margin.left);
-      view.style.marginInlineEnd=length(layout?.right??margin.right);
-      if(band.sizing?.height)view.style.minHeight=length(band.sizing.height);
-      // Keep each band in the sheet's layout so content-sized bands reserve their drawn height.
-      const slot=element('div');
-      slot.className='definition-band-slot definition-band-'+(header?'header':'footer');
-      slot.style.minHeight=length(margin[edge]);
-      slot.style.paddingTop=length(header?offset:band.gap);
-      slot.style.paddingBottom=length(header?band.gap:offset);
-      slot.append(view);sheet.append(slot);
-      if(header)top=undefined;else bottom=undefined;
+      bands.push(item);
+      if(item.ref.band==='header')top=undefined;else bottom=undefined;
     }else body.append(contents(item));
   }
   body.style.padding=[top,margin.right,bottom,margin.left].map(value=>unit(points(value))).join(' ');
@@ -390,20 +406,13 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
     return pages;
   }
   const authored=partition([...body.children] as HTMLElement[]);
-  const bands=[...sheet.querySelectorAll(':scope > .definition-band-slot')];
   for(const [index,blocks] of authored.entries()){
     const page=index===0?sheet:sheet.cloneNode(false) as HTMLElement;
     const content=index===0?body:body.cloneNode(false) as HTMLElement;
     content.replaceChildren(...blocks);
-    if(index>0){
-      page.append(content);
-      for(const band of bands){
-        const copy=band.cloneNode(true) as HTMLElement;
-        copy.inert=true;
-        for(const control of copy.querySelectorAll('[data-paper-ref]'))control.removeAttribute('data-paper-ref');
-        page.append(copy);
-      }
-    }
+    if(index>0)page.append(content);
+    registerControl=index===0;
+    page.append(...bands.map(bandSlot));
     page.dataset.authoringPage=String(index+1);
     page.setAttribute('aria-label',root.label+' · หน้า '+(index+1));
     page.addEventListener('click',event=>{if(event.target===page||event.target===content)select(root,false);});
@@ -537,7 +546,10 @@ function select(item: Outline, measure: boolean, spacing?:'before'|'after') {
   }
   if(selection) {
     treeNodes.get(selection)?.removeAttribute('aria-current');
-    paperNodes.get(selection)?.removeAttribute('aria-current');
+    if(selection.ref.band){
+      const key=CSS.escape(refKey(selection.ref));
+      for(const control of paper.querySelectorAll('[data-paper-ref="'+key+'"]'))control.removeAttribute('aria-current');
+    }else paperNodes.get(selection)?.removeAttribute('aria-current');
   }
   if(inlineTarget&&inlineTarget!==item)closeInlineEditor();
   selection=item;
@@ -562,7 +574,10 @@ function select(item: Outline, measure: boolean, spacing?:'before'|'after') {
   const treeTarget=treeNodes.get(item);
   treeTarget?.setAttribute('aria-current','true');
   if(!measure&&treeTarget)scrollWithin(tree,treeTarget);
-  paperNodes.get(item)?.setAttribute('aria-current','true');
+  if(item.ref.band){
+    const key=CSS.escape(refKey(item.ref));
+    for(const control of paper.querySelectorAll('[data-paper-ref="'+key+'"]'))control.setAttribute('aria-current','true');
+  }else paperNodes.get(item)?.setAttribute('aria-current','true');
   q('selection').textContent=item.label;
   q('selection-detail').textContent=item.detail??(item.inline?.type==='text'?'แก้ข้อความนี้ได้บนกระดาษ':kinds[item.type]??item.type);
   const target=paperNodes.get(item);
@@ -757,14 +772,24 @@ function paperSettings(item:Outline){
 function bandSettings(item:Outline){
   const at=item.ref,band=item.band!;
   const get=(length?:Length)=>String(length?length.value*(length.unit==='mm'?72/25.4:1):0);
-  ask('ตำแหน่งหัว–ท้ายกระดาษ',[{key:'left',label:'จากซ้าย (pt)',value:get(band.placement?.left)},
-    {key:'right',label:'จากขวา (pt)',value:get(band.placement?.right)},{key:'offset',label:'จากขอบกระดาษ (pt)',value:get(band.placement?.offset)},
-    {key:'height',label:'ความสูง (pt)',value:band.sizing?.height?get(band.sizing.height):'40'},{key:'gap',label:'ระยะถึงเนื้อหา (pt)',value:get(band.gap)}],
+  const margin=draft.definition.pageLayouts?.[item.section.pageLayoutId??draft.definition.book.defaultPageLayoutId]?.page.margin;
+  const footer=at.band==='footer',edge=footer?'bottom':'top',sizing=band.sizing;
+  ask('ขนาดและระยะ · '+item.label,[{key:'left',label:'จากขอบซ้าย (pt)',numeric:true,value:get(band.placement?.left??margin?.left)},
+    {key:'right',label:'จากขอบขวา (pt)',numeric:true,value:get(band.placement?.right??margin?.right)},
+    {key:'offset',label:'จากขอบ'+(footer?'ล่าง':'บน')+' (pt)',numeric:true,value:get(band.placement?.offset??margin?.[edge])},
+    {key:'mode',label:'ความสูงของแถบ',value:sizing?.height?'fixed':'content',options:[['content','ตามเนื้อหา'],['fixed','กำหนดความสูง']]},
+    {key:'height',label:'ความสูง (pt)',numeric:true,value:sizing?.height?get(sizing.height):'40'},
+    {key:'gap',label:'ระยะถึงเนื้อหา (pt)',numeric:true,value:get(band.gap)}],
     values=>{
       const pt=(key:string)=>{const value=Number(values[key]);if(!Number.isFinite(value)||value<0||value>420)throw Error('ตรวจระยะ 0–420 pt');return {value,unit:'pt'};};
+      const nextSizing=values.mode==='fixed'?{mode:'fixed',height:pt('height')}:sizing?.height?{mode:'content'}:sizing;
       stageDefinition(applyPart(draft.definition,at,'band',{...band,
         placement:{mode:'page',left:pt('left'),right:pt('right'),offset:pt('offset')},
-        sizing:{mode:'fixed',height:pt('height')},gap:pt('gap')}),at,'band-settings');
+        ...(nextSizing?{sizing:nextSizing}:{}),gap:pt('gap')}),at,'band-settings');
+    },undefined,controls=>{
+      const mode=controls.get('mode')!,height=controls.get('height')!;
+      const update=()=>{height.disabled=mode.value!=='fixed';height.closest('label')!.hidden=height.disabled;};
+      mode.addEventListener('change',update);update();
     });
 }
 function nodeOptions(item:Outline):[string,string][]{
@@ -1098,6 +1123,7 @@ function showActions(item:Outline){
     ['แก้ข้อความ','แก้ข้อความ'],['เปลี่ยนตัวแปรที่ผูก','เปลี่ยนตัวแปร'],
     ['แก้รูปแบบรายการนี้','แก้รูปแบบ'],['ขนาดกระดาษและระยะขอบ','ตั้งกระดาษ'],
     ['จัดเนื้อหา ตัวแปร และการวนแถว','แก้ Format'],
+    ['ขนาดและระยะของแถบ','ขนาดและระยะ'],
     ['จัดเนื้อหาและรูปแบบหัว–ท้าย','แก้รูปแบบ'],['+ เพิ่ม Format','+ เพิ่ม Format'],
   ]);
   const groups={
@@ -1208,7 +1234,7 @@ function showActions(item:Outline){
     }
   }
   if(item.type==='header'||item.type==='footer'){
-    add('ตำแหน่งและระยะ',()=>bandSettings(item));
+    add('ขนาดและระยะของแถบ',()=>bandSettings(item));
     add('+ เพิ่มเลขหน้า',()=>ask('เพิ่มเลขหน้า',[{key:'field',label:'ชนิด',options:[['current','เลขหน้าปัจจุบัน'],['total','จำนวนหน้าทั้งหมด']]}],
       v=>stage({kind:'node',at,type:'page-field',pageField:v.field as 'current'|'total'})),'add');
   }

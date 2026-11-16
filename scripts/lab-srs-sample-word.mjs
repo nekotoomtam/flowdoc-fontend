@@ -32,7 +32,7 @@ function mockImageFields(payload){
 export function createLabSampleWord({fixture,image,serviceUrl,serviceToken,clock=Date.now}){
   const {docKey,templateId,version,payload,fields}=fixture;
   const expectedFields=payload?mockImageFields(payload):[];
-  if(!templateId||!docKey||version!==2||expectedFields.length!==4||!Array.isArray(fields)||
+  if(!templateId||!docKey||(!Number.isSafeInteger(version)||version<2)||expectedFields.length!==4||!Array.isArray(fields)||
     JSON.stringify([...expectedFields].sort())!==JSON.stringify([...fields].sort())||
     !image?.length||!serviceToken)throw Error('Invalid SRS sample Word configuration');
   const capability='/api/editor-phase1/drafts/'+templateId+'/sample-documents';
@@ -52,7 +52,7 @@ export function createLabSampleWord({fixture,image,serviceUrl,serviceToken,clock
   };
 
   async function respond(request,response,pathname){
-    if(request.method==='GET'&&pathname===capability)return json(response,200,{available:true});
+    if(request.method==='GET'&&pathname===capability)return json(response,200,{available:true,version});
     if(request.method!=='POST')return reject(response,405,'method_not_allowed');
     const now=clock();
     for(const [grant,{expires}] of grants)if(expires<=now)grants.delete(grant);
@@ -132,7 +132,7 @@ export function createLabSampleWord({fixture,image,serviceUrl,serviceToken,clock
       const size=Number(output.headers.get('content-length'));
       if(output.status===400||output.status===422){
         await output.body?.cancel();
-        return reject(response,422,'sample_data_does_not_match_srs_v2');
+        return reject(response,422,'sample_data_does_not_match_srs');
       }
       if(!output.ok||output.headers.get('content-type')!==mediaType||!Number.isSafeInteger(size)||size<5||size>maxOutputBytes){
         await output.body?.cancel();
@@ -142,7 +142,7 @@ export function createLabSampleWord({fixture,image,serviceUrl,serviceToken,clock
       if(bytes.length!==size||bytes.subarray(0,signature.length/2).toString('hex')!==signature)
         return reject(response,502,'sample_output_unavailable');
       response.writeHead(200,{'Content-Type':mediaType,'Content-Length':bytes.length,
-        'Content-Disposition':'attachment; filename="SRS-v2-sample.'+format+'"','Cache-Control':'no-store',
+        'Content-Disposition':'attachment; filename="SRS-v'+version+'-sample.'+format+'"','Cache-Control':'no-store',
         'X-Content-Type-Options':'nosniff'}).end(bytes);
     }catch{
       reject(response,502,'sample_output_unavailable');

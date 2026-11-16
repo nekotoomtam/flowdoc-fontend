@@ -175,10 +175,12 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
       const headers=element('pre','Authorization: Bearer {{FLOWDOC_TOKEN}}\nDoc-Key: '+value.contract.docKey+
         '\nOutput-Format: docx\nAccept: '+wordMediaType);
       request.append(details('Headers',headers));
-      if(value.version===2&&baseUrl){
+      if(baseUrl){
         const sampleUrl=ctx.publicationUrl.replace(/\/publication$/,'/sample-documents');
         void fetch(sampleUrl,{signal}).then(async result=>{
-          if(!result.ok||!(await result.json()).available||signal.aborted)return;
+          if(!result.ok)return;
+          const capability=await result.json();
+          if(!capability.available||capability.version!==value.version||signal.aborted)return;
           const commandBox=element('textarea');commandBox.readOnly=true;commandBox.rows=8;
           commandBox.setAttribute('aria-label','คำขอทดลองสำหรับ Postman');
           const sample=element('section');

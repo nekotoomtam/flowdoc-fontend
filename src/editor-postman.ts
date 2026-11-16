@@ -1,4 +1,4 @@
-import type {Definition, Format, Schema} from './editor-structure';
+import type {Definition, Field, Format, Schema} from './editor-structure';
 
 type Path=(string|number)[];
 export type ApiExample={payload:object;images:{path:Path;file?:File}[]};
@@ -23,6 +23,11 @@ const textExamples:Record<string,string>={
   text:'ข้อความสำหรับทดสอบการออกเอกสาร',detail:'ระบบสามารถตรวจข้อมูลและสร้างเอกสารได้',
   summary:'ทดสอบการสร้างเอกสารและตรวจผลที่ได้',remark:'ผ่านการตรวจสอบ',time:'09:00',
 };
+export function sampleTextValue(key:string,field:Field,sectionLabel='',headingLevel?:string){
+  if(typeof field.default==='string'&&field.default.trim())return field.default;
+  if(key==='text'&&headingLevel)return 'หัวข้อระดับ '+headingLevel+' · '+sectionLabel;
+  return Object.hasOwn(textExamples,key)?textExamples[key]:'ตัวอย่าง '+(field.label||key);
+}
 export function fullApiExample(contract:InputContract):ApiExample{
   const images:ApiExample['images']=[];
   const byArea=new Map<string,NonNullable<InputContract['areaFormats']>[string][]>();
@@ -47,10 +52,7 @@ export function fullApiExample(contract:InputContract):ApiExample{
           sectionLabel,/^heading([1-6])$/i.exec(format.key)?.[1])}))];
       }
       if(key==='anchor')return [key,'sample-heading-'+(++anchors)];
-      if(typeof field.default==='string'&&field.default.trim())return [key,field.default];
-      if(key==='text'&&headingLevel)return [key,'หัวข้อระดับ '+headingLevel+' · '+sectionLabel];
-      const sample=Object.hasOwn(textExamples,key)?textExamples[key]:'ตัวอย่าง '+(field.label||key);
-      return [key,sample];
+      return [key,sampleTextValue(key,field,sectionLabel,headingLevel)];
     }));
   }
   const data=values(contract.globalSchema,['data']);

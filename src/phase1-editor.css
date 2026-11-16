@@ -222,6 +222,8 @@ main{padding:0 14px 24px}
 #trial-form label{display:grid;gap:3px;margin:5px 0;overflow-wrap:anywhere}
 #trial-form input,#trial-form select,#trial-form textarea{width:100%;min-width:0;padding:5px;border:1px solid #a5b9af;border-radius:5px;font:inherit}
 #trial-form textarea{resize:vertical}
+.trial-sample-controls{display:grid;justify-items:start;gap:5px;margin:8px 0}
+.trial-sample-status{margin:0;color:#124c3d;font-size:.86rem}
 .trial-fields{display:grid;gap:4px;margin:5px 0}
 .trial-list-controls{display:flex;flex-wrap:wrap;gap:5px}
 .trial-list-controls button,#trial-form fieldset button{font-size:12px;padding:4px 7px}

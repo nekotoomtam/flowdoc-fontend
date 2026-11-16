@@ -1,10 +1,14 @@
 import type {Definition,Field,Schema} from './editor-structure';
+import {postmanImage,sampleTextValue} from './editor-postman';
 
 type SampleData=Record<string,unknown>;
 type Upload={id:string;bytes:string};
 type Path=(string|number)[];
 type ReadContext={files:Map<string,File>;fields:Map<string,HTMLTextAreaElement>;blanks:Path[];apiImages?:{path:Path;file?:File}[];requireImages?:boolean};
 type Read=(context:ReadContext,path:Path)=>unknown;
+type SampleFill={image:File;nextAnchor:()=>string;record:()=>void};
+type Fill=(sample:SampleFill)=>void;
+type Control={element:HTMLElement;read:Read;fill:Fill;fixedLabel?:string};
 export type TrialFocus={key:string;occurrence:string;offset:number;pageIndex:number};
 export type Trial={data:SampleData;sections:SampleData[];images:Upload[];blanks:Path[];pageIndex?:number;focus?:TrialFocus};
 const maxImageBytes=1024*1024;
@@ -35,6 +39,8 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
   let keys:WeakMap<HTMLTextAreaElement,string>|undefined;
   let timer:number|undefined,queued:(()=>TrialFocus|undefined)|undefined,disposed=false;
   const encoded=new WeakMap<File,Promise<string>>();
+  const sampleImageId=crypto.randomUUID();
+  let sampleFile:File|undefined;
   const invalidate=(structural=false,composing=false,key?:string)=>{
     editVersion++;error.textContent='';
     if(structural){structureVersion++;bindings.clear();keys=undefined;}
@@ -42,9 +48,9 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
     if(composing){queued=undefined;window.clearTimeout(timer);timer=undefined;}
     else{queued=()=>undefined;schedule();}
   };
-  function collection(parent:HTMLElement,addLabel:string,make:(seed?:string)=>{element:HTMLElement;read:Read;fixedLabel?:string},seeds:readonly string[],canAdd=true,max=200){
+  function collection(parent:HTMLElement,addLabel:string,make:(seed?:string)=>Control,seeds:readonly string[],canAdd:boolean,fillEmpty:boolean,max=200){
     const rows=node('div');rows.className='trial-rows';
-    const entries=new Map<HTMLElement,Read>();
+    const entries=new Map<Element,Control>();
     const add=button(addLabel,()=>addRow(true));
     function addRow(user:boolean,seed?:string){
       if(rows.childElementCount>=max)return;
@@ -61,7 +67,7 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
       panel.append(node('summary'),entry.element);
       if(!entry.fixedLabel)panel.append(controls);
       panel.addEventListener('change',renumber);
-      entries.set(panel,entry.read);rows.append(panel);renumber();
+      entries.set(panel,entry);rows.append(panel);renumber();
       if(user){invalidate(true);panel.querySelector('summary')?.focus();}
     }
     function renumber(){
@@ -76,37 +82,46 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
     parent.append(rows);
     if(canAdd)parent.append(add);
     for(const seed of seeds)addRow(false,seed);
-    return (context:ReadContext,path:Path)=>[...rows.children].map((panel,index)=>entries.get(panel as HTMLElement)!(context,[...path,index]));
+    return {
+      read:(context:ReadContext,path:Path)=>[...rows.children].map((panel,index)=>entries.get(panel)!.read(context,[...path,index])),
+      fill(sample:SampleFill){
+        if(fillEmpty&&canAdd&&!rows.childElementCount){addRow(false);sample.record();}
+        for(const panel of rows.children)entries.get(panel)!.fill(sample);
+      },
+    };
   }
-  function fields(schema:Schema){
+  function fields(schema:Schema,sectionLabel='',headingLevel?:string){
     const element=node('div');element.className='trial-fields';
-    const reads=new Map<string,Read>();
+    const controls=new Map<string,Control>();
     for(const [key,field] of Object.entries(schema.fields)){
-      const result=fieldControl(key,field);
-      element.append(result.element);reads.set(key,result.read);
+      const result=fieldControl(key,field,sectionLabel,headingLevel);
+      element.append(result.element);controls.set(key,result);
     }
-    if(!reads.size)element.append(node('p','ส่วนนี้ไม่มีตัวแปร'));
-    return {element,read(context:ReadContext,path:Path){
+    if(!controls.size)element.append(node('p','ส่วนนี้ไม่มีตัวแปร'));
+    return {element,fill(sample:SampleFill){
+      for(const control of controls.values())control.fill(sample);
+    },read(context:ReadContext,path:Path){
       const data:SampleData=Object.create(null);
-      for(const [key,read] of reads){const value=read(context,[...path,key]);if(value!==undefined)data[key]=value;}
+      for(const [key,control] of controls){const value=control.read(context,[...path,key]);if(value!==undefined)data[key]=value;}
       return data;
     }};
   }
-  function fieldControl(key:string,field:Field):{element:HTMLElement;read:Read}{
+  function fieldControl(key:string,field:Field,sectionLabel:string,headingLevel?:string):Control{
     const label=(field.label||key)+(field.required?' (ต้องระบุ)':'');
     if(field.type==='array'||field.type==='area'){
       const panel=node('fieldset');panel.append(node('legend',(field.type==='area'?'พื้นที่ ': '')+label));
       const formats=field.type==='area'?Object.values(definition.areaFormats??{}).filter(format=>format.ownerAreaId===field.areaId):[];
       const derived=formats.filter(format=>Object.values(format.fragment.nodes).some(node=>node.type==='table-of-contents'));
       const manual=formats.filter(format=>!derived.includes(format));
-      const read=collection(panel,field.type==='area'?'+ เพิ่ม Format ในพื้นที่':'+ เพิ่มรายการ',seed=>{
-        if(field.type==='array')return fields(field.items??{fields:{}});
+      const list=collection(panel,field.type==='area'?'+ เพิ่ม Format ในพื้นที่':'+ เพิ่มรายการ',seed=>{
+        if(field.type==='array')return fields(field.items??{fields:{}},sectionLabel);
         const automatic=derived.find(format=>format.key===seed);
         if(automatic){
-          const input=fields(automatic.inputSchema),body=node('div');
+          const input=fields(automatic.inputSchema,sectionLabel),body=node('div');
           body.append(node('p','Engine สร้างจากหัวข้อที่ตั้งให้แสดงในสารบัญ และเติมเลขหน้าตามผลจัดหน้า'));
           if(Object.keys(automatic.inputSchema.fields).length)body.append(input.element);
           return {element:body,fixedLabel:'สารบัญอัตโนมัติ · '+(automatic.label??automatic.key),
+            fill:input.fill,
             read:(context,path)=>({format:automatic.key,data:input.read(context,[...path,'data'])})};
         }
         const body=node('div'),select=node('select'),slot=node('div');
@@ -117,27 +132,37 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
         let active:ReturnType<typeof fields>|undefined;
         function show(){
           const format=formats.find(option=>option.key===select.value);
-          active=format?fields(format.inputSchema):undefined;
+          active=format?fields(format.inputSchema,sectionLabel,/^heading([1-6])$/i.exec(format.key)?.[1]):undefined;
           slot.replaceChildren(active?.element??node('p','พื้นที่นี้ยังไม่มี Format'));
         }
         const preferred=seed||(field.areaId&&starter.get(field.areaId));
         if(preferred&&manual.some(format=>format.key===preferred))select.value=preferred;
         select.addEventListener('change',show);show();
         body.append(labeled('Format',select),slot);
-        return {element:body,read(context,path){
+        return {element:body,fill:sample=>active?.fill(sample),read(context,path){
           if(!active)throw Error('เลือก Format สำหรับ '+key);
           return {format:select.value,data:active.read(context,[...path,'data'])};
         }};
-      },field.type==='array'?['']:formats.map(format=>format.key),field.type==='array'||manual.length>0);
-      return {element:panel,read(context,path){
-        const entries=read(context,path);
+      },field.type==='array'?['']:formats.map(format=>format.key),field.type==='array'||manual.length>0,
+        field.type==='array'||field.required===true);
+      return {element:panel,fill:list.fill,read(context,path){
+        const entries=list.read(context,path);
         return entries.length||field.required?entries:undefined;
       }};
     }
     if(field.type==='image'){
       const input=node('input');input.type='file';input.accept='image/png,image/jpeg';
       const id=crypto.randomUUID();
-      return {element:labeled(label+' · PNG หรือ JPEG',input),read(context,path){
+      let isSample=false;
+      input.addEventListener('change',()=>{isSample=false;});
+      return {element:labeled(label+' · PNG หรือ JPEG',input),fill(sample){
+        if(input.files?.length)return;
+        const transfer=new DataTransfer();
+        transfer.items.add(sample.image);
+        input.files=transfer.files;
+        isSample=true;
+        sample.record();
+      },read(context,path){
         const file=input.files?.[0];
         if(context.apiImages){
           if(!file&&!field.required)return undefined;
@@ -147,7 +172,8 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
         if(!file&&field.required&&context.requireImages)throw Error('เลือกไฟล์รูปสำหรับ '+label+' ก่อนดาวน์โหลด');
         if(!file)return field.required?id:undefined;
         if(file.size>maxImageBytes)throw Error('รูป '+key+' ต้องมีขนาดไม่เกิน 1 MB');
-        context.files.set(id,file);return id;
+        const assetId=isSample?sampleImageId:id;
+        context.files.set(assetId,isSample?sampleFile!:file);return assetId;
       }};
     }
     if(field.type==='link'){
@@ -160,7 +186,11 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
       type.onchange=()=>{text.hidden=type.value==='url';};
       text.hidden=true;
       panel.append(node('legend',label),labeled('ชนิดลิงก์',type),destination,text);
-      return {element:panel,read(){
+      return {element:panel,fill(sample){
+        if(type.value==='reference')return;
+        if(!value.value.trim()){value.value='https://example.com';sample.record();}
+        if(type.value==='link'&&!caption.value.trim()){caption.value='ลิงก์ตัวอย่าง';sample.record();}
+      },read(){
         const target=value.value.trim();
         if(!target&&!field.required)return undefined;
         if(!target||type.value!=='url'&&!caption.value.trim())throw Error('กรอกลิงก์ให้ครบสำหรับ '+key);
@@ -169,7 +199,12 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
       }};
     }
     const input=node('textarea');input.rows=2;
-    return {element:labeled(label,input),read(context,path){
+    if(key==='anchor')input.dataset.trialAnchor='';
+    return {element:labeled(label,input),fill(sample){
+      if(input.value.trim())return;
+      input.value=key==='anchor'?sample.nextAnchor():sampleTextValue(key,field,sectionLabel,headingLevel);
+      sample.record();
+    },read(context,path){
       context.fields.set(JSON.stringify(path),input);
       if(!input.value)context.blanks.push(path);
       return input.value;
@@ -177,12 +212,15 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
   }
   const global=fields(definition.globalSchema);
   const sections=definition.sections.map((section,index)=>{
-    const data=fields(section.inputSchema),header=section.header&&fields(section.header.inputSchema),
-      footer=section.footer&&fields(section.footer.inputSchema);
+    const label=section.label||section.sectionKey;
+    const data=fields(section.inputSchema,label),header=section.header&&fields(section.header.inputSchema,label),
+      footer=section.footer&&fields(section.footer.inputSchema,label);
     const wrapper=node('div');wrapper.append(data.element);
     if(header&&Object.keys(section.header!.inputSchema.fields).length)wrapper.append(details('ตัวแปรหัวกระดาษ',header.element));
     if(footer&&Object.keys(section.footer!.inputSchema.fields).length)wrapper.append(details('ตัวแปรท้ายกระดาษ',footer.element));
-    return {element:details('Section '+(index+1)+' · '+section.label,wrapper,true),read(context:ReadContext,path:Path){
+    return {element:details('Section '+(index+1)+' · '+section.label,wrapper,true),fill(sample:SampleFill){
+      data.fill(sample);header?.fill(sample);footer?.fill(sample);
+    },read(context:ReadContext,path:Path){
       return {sectionKey:section.sectionKey,instanceKey:'preview-'+(index+1),data:data.read(context,[...path,'data']),
         ...(header?{header:header.read(context,[...path,'header'])}:{}),...(footer?{footer:footer.read(context,[...path,'footer'])}:{})};
     }};
@@ -191,6 +229,35 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
     return {data:global.read(context,['data']),sections:sections.map((section,i)=>section.read(context,['sections',i]))};
   }
   const fieldsPanel=node('div');fieldsPanel.className='trial-input-scroll';
+  const sampleStatus=node('p','เติมเฉพาะช่องว่าง');
+  sampleStatus.className='trial-sample-status';
+  sampleStatus.setAttribute('role','status');
+  const sampleButton=button('เติมข้อมูลตัวอย่าง',()=>void fillSample());
+  async function fillSample(){
+    sampleButton.disabled=true;
+    sampleStatus.textContent='กำลังเตรียมข้อมูลตัวอย่าง…';
+    try{
+      if(!sampleFile){
+        const response=await fetch('/'+postmanImage);
+        if(!response.ok)throw Error('เปิดรูปตัวอย่างไม่สำเร็จ ลองใหม่อีกครั้ง');
+        sampleFile=new File([await response.blob()],postmanImage,{type:'image/png'});
+      }
+      if(disposed)return;
+      const used=new Set([...form.querySelectorAll<HTMLTextAreaElement>('[data-trial-anchor]')].map(input=>input.value.trim()));
+      let serial=0,filled=0;
+      const sample:SampleFill={image:sampleFile,record:()=>{filled++;},nextAnchor(){
+        let anchor;
+        do{anchor='sample-heading-'+(++serial);}while(used.has(anchor));
+        used.add(anchor);
+        return anchor;
+      }};
+      global.fill(sample);
+      for(const section of sections)section.fill(sample);
+      if(filled)invalidate(true);
+      sampleStatus.textContent=filled?'เติมข้อมูลตัวอย่างแล้ว':'ช่องที่เติมตัวอย่างได้มีข้อมูลครบแล้ว';
+    }catch(cause){sampleStatus.textContent=cause instanceof Error?cause.message:'เติมข้อมูลตัวอย่างไม่สำเร็จ';}
+    finally{sampleButton.disabled=false;}
+  }
   async function snapshot(requireImages=false){
     const context:ReadContext={files:new Map(),fields:new Map(),blanks:[],requireImages};
     const values=readValues(context);
@@ -205,7 +272,10 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
     return {trial:{...values,images,blanks:context.blanks},fields:context.fields};
   }
   fieldsPanel.append(details('ตัวแปรทั้งเอกสาร',global.element,true),...sections.map(section=>section.element));
-  form.replaceChildren(fieldsPanel,error);
+  const sampleControls=node('div');
+  sampleControls.className='trial-sample-controls';
+  sampleControls.append(sampleButton,sampleStatus);
+  form.replaceChildren(sampleControls,fieldsPanel,error);
   const finishComposition=(event:CompositionEvent)=>{
     if(event.target instanceof HTMLTextAreaElement)invalidate(false,false,keys?.get(event.target));
   };

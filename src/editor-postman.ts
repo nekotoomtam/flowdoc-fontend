@@ -2,16 +2,17 @@ import type {Definition, Format, Schema} from './editor-structure';
 
 type Path=(string|number)[];
 export type ApiExample={payload:object;images:{path:Path;file?:File}[]};
-type InputSection={sectionKey:string;inputSchema:Schema;header?:Schema;footer?:Schema};
+type InputSection={sectionKey:string;label?:string;inputSchema:Schema;header?:Schema;footer?:Schema};
 type InputContract={globalSchema:Schema;sections:InputSection[];areaFormats?:Record<string,Pick<Format,'ownerAreaId'|'key'|'inputSchema'>>};
 export type PublishedContract=InputContract&{docKey:string;version:number;assembly?:{input:string}};
 export const postmanImage='flowdoc-sample.png';
 export const postmanDocumentUrl='{{FLOWDOC_BASE_URL}}/documents';
 export const imagePart=(path:Path)=>'/'+[...path,'image'].map(value=>String(value).replaceAll('~','~0').replaceAll('/','~1')).join('/');
+export const shellLiteral=(value:string)=>"'"+value.replaceAll("'","'\"'\"'")+"'";
 
 export function draftInputContract(definition:Definition):InputContract{
   return {globalSchema:definition.globalSchema,areaFormats:definition.areaFormats,sections:definition.sections.map(section=>({
-    sectionKey:section.sectionKey,inputSchema:section.inputSchema,header:section.header?.inputSchema,footer:section.footer?.inputSchema,
+    sectionKey:section.sectionKey,label:section.label,inputSchema:section.inputSchema,header:section.header?.inputSchema,footer:section.footer?.inputSchema,
   }))};
 }
 const textExamples:Record<string,string>={
@@ -21,9 +22,8 @@ const textExamples:Record<string,string>={
   text:'ข้อความสำหรับทดสอบการออกเอกสาร',detail:'ระบบสามารถตรวจข้อมูลและสร้างเอกสารได้',
   summary:'ทดสอบการสร้างเอกสารและตรวจผลที่ได้',remark:'ผ่านการตรวจสอบ',time:'09:00',
 };
-export function fullApiExample(contract:InputContract,tablePaths:readonly string[]):ApiExample{
+export function fullApiExample(contract:InputContract):ApiExample{
   const images:ApiExample['images']=[];
-  const tableLists=new Set(tablePaths);
   const byArea=new Map<string,NonNullable<InputContract['areaFormats']>[string][]>();
   for(const format of Object.values(contract.areaFormats??{})){
     const entries=byArea.get(format.ownerAreaId)??[];
@@ -31,38 +31,52 @@ export function fullApiExample(contract:InputContract,tablePaths:readonly string
     byArea.set(format.ownerAreaId,entries);
   }
   let anchors=0;
-  function values(schema:Schema,path:Path,schemaPath:string[],rows:number[]=[]):object{
+  function values(schema:Schema,path:Path,sectionLabel='',headingLevel?:string):object{
     return Object.fromEntries(Object.entries(schema.fields).map(([key,field])=>{
       const at=[...path,key];
-      const fieldPath=[...schemaPath,key];
       if(field.type==='image'){
         images.push({path:at});
         return [key,{image:{upload:true}}];
       }
       if(field.type==='link')return [key,{type:'url',value:'https://example.com'}];
-      if(field.type==='array'){
-        const items=field.items;
-        const count=tableLists.has(JSON.stringify(fieldPath))?3:1;
-        return [key,items?Array.from({length:count},(_,i)=>values(items,[...at,i],fieldPath,[...rows,i+1])):[]];
-      }
+      if(field.type==='array')return [key,field.items?[values(field.items,[...at,0],sectionLabel)]:[]];
       if(field.type==='area'){
         const formats=byArea.get(field.areaId??'')??[];
         return [key,formats.map((format,i)=>({format:format.key,data:values(format.inputSchema,[...at,i,'data'],
-          ['format',format.ownerAreaId,format.key])}))];
+          sectionLabel,/^heading([1-6])$/i.exec(format.key)?.[1])}))];
       }
       if(key==='anchor')return [key,'sample-heading-'+(++anchors)];
       if(typeof field.default==='string'&&field.default.trim())return [key,field.default];
+      if(key==='text'&&headingLevel)return [key,'หัวข้อระดับ '+headingLevel+' · '+sectionLabel];
       const sample=Object.hasOwn(textExamples,key)?textExamples[key]:'ตัวอย่าง '+(field.label||key);
-      return [key,rows.length&&!['date','time'].includes(key)?sample+' '+rows.join('.') : sample];
+      return [key,sample];
     }));
   }
-  const data=values(contract.globalSchema,['data'],['data']);
-  const sections=contract.sections.map((section,i)=>({
-    sectionKey:section.sectionKey,instanceKey:'example-'+(i+1),data:values(section.inputSchema,['sections',i,'data'],['section',section.sectionKey,'data']),
-    ...(section.header?{header:values(section.header,['sections',i,'header'],['section',section.sectionKey,'header'])}:{}),
-    ...(section.footer?{footer:values(section.footer,['sections',i,'footer'],['section',section.sectionKey,'footer'])}:{}),
-  }));
+  const data=values(contract.globalSchema,['data']);
+  const sections=contract.sections.map((section,i)=>{
+    const label=section.label||section.sectionKey;
+    return {
+      sectionKey:section.sectionKey,instanceKey:'example-'+(i+1),data:values(section.inputSchema,['sections',i,'data'],label),
+      ...(section.header?{header:values(section.header,['sections',i,'header'],label)}:{}),
+      ...(section.footer?{footer:values(section.footer,['sections',i,'footer'],label)}:{}),
+    };
+  });
   return {payload:{data,sections},images};
+}
+
+export function postmanCurl(contract:PublishedContract,example:ApiExample,baseUrl:string){
+  const url=baseUrl?baseUrl+'/documents':postmanDocumentUrl;
+  // Keep shell quotes and cURL's form option separator out of the JSON text.
+  const body=JSON.stringify(example.payload,null,2).replace(/[;']/g,char=>char===';'?'\\u003b':'\\u0027');
+  return [
+    'curl --request POST '+shellLiteral(url),
+    '  --header '+shellLiteral('Authorization: Bearer {{FLOWDOC_TOKEN}}'),
+    '  --header '+shellLiteral('Doc-Key: '+contract.docKey),
+    '  --header '+shellLiteral('Output-Format: pdf'),
+    '  --header '+shellLiteral('Accept: multipart/mixed'),
+    '  --form '+shellLiteral('payload='+body+';type=application/json'),
+    ...example.images.map(image=>'  --form '+shellLiteral(imagePart(image.path)+'=@'+postmanImage+';type=image/png')),
+  ].join(' \\\n');
 }
 
 export function postmanCollection(contract:PublishedContract,example:ApiExample,baseUrl=''){

@@ -1,10 +1,8 @@
 import type {Definition, Schema} from './editor-structure';
-import {draftInputContract,fullApiExample,imagePart,postmanCollection,postmanDocumentUrl,postmanImage} from './editor-postman';
+import {draftInputContract,fullApiExample,imagePart,postmanCollection,postmanCurl,postmanDocumentUrl,postmanImage,shellLiteral} from './editor-postman';
 import type {ApiExample as Example,PublishedContract} from './editor-postman';
-import {tableSamplePaths} from '../scripts/api-table-samples.mjs';
 
 type Publication={version:number;fingerprint:string;contract:PublishedContract;
-  tableSamplePaths?:string[];
   target?:{status:'unconfigured'|'unavailable'}|{status:'verified';baseUrl:string}};
 type ApiContext={docKey:string;revision:number;fingerprint:string;definition:Definition;dirty:boolean;
   publicationUrl:string;trial?:()=>Example};
@@ -29,7 +27,6 @@ function details(label:string,content:HTMLElement){
   const panel=element('details');
   panel.append(element('summary',label),content);return panel;
 }
-const shellLiteral=(value:string)=>"'"+value.replaceAll("'","'\\''")+"'";
 function generateCommand(docKey:string,images:Example['images']){
   return [
     'curl --request POST "${FLOWDOC_BASE_URL}/documents"',
@@ -90,8 +87,7 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
   const examplePane=element('section');examplePane.className='api-example';
   const sampleLabel=element('p'),assets=element('div'),pre=element('pre');
   const controls=element('div');controls.className='api-buttons';
-  const draftTablePaths=tableSamplePaths(ctx.definition);
-  let example=fullApiExample(draftInputContract(ctx.definition),draftTablePaths);
+  let example=fullApiExample(draftInputContract(ctx.definition));
   let updateCommand=()=>{};
   function fill(value:Example,label:string){
     example=value;sampleLabel.textContent=label;pre.textContent=json(example.payload);
@@ -132,10 +128,11 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
     const matches=value.fingerprint===ctx.fingerprint;
     status.textContent='เผยแพร่แล้ว · เวอร์ชัน '+value.version+(matches?' · ตรงกับฉบับที่บันทึก':' · คนละฉบับกับโครงที่บันทึก');
     if(value.contract.assembly?.input==='array-by-section-key'){
-      const full=fullApiExample(value.contract,value.tableSamplePaths??(matches?draftTablePaths:[]));
+      const full=fullApiExample(value.contract);
       const request=element('section');request.className='api-request';request.setAttribute('aria-label','คำขอออก PDF');
       const baseUrl=value.target?.status==='verified'?value.target.baseUrl:'';
       const collection=json(postmanCollection(value.contract,full,baseUrl));
+      const curl=postmanCurl(value.contract,full,baseUrl);
       const address=element('div');address.className='api-request-address';
       const url=element('code',baseUrl?baseUrl+'/documents':postmanDocumentUrl);
       const copyUrl=button('คัดลอก URL',()=>void copy(url.textContent??'','คัดลอก URL แล้ว · วางในช่อง URL ของ New Request'));
@@ -146,7 +143,7 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
         ?'ตรวจสอบ Service ปลายทางสำหรับโครงนี้ไม่สำเร็จ'
         :'ยังไม่มี Service สำหรับออกเอกสารที่ผูกกับโครงนี้'));
       const actions=element('div');actions.className='api-buttons';
-      const transfer=button('คัดลอกคำขอออก PDF สำหรับ Import',()=>void copy(collection,'คัดลอกแล้ว · เปิด Import ใน Postman แล้ววางข้อความ'));
+      const transfer=button('คัดลอกคำขอสำหรับ Postman',()=>void copy(curl,'คัดลอก cURL แล้ว · เปิด Import ใน Postman แล้ววางข้อความ'));
       transfer.className='primary';
       actions.append(transfer,notice);
       const payload=json(full.payload);
@@ -154,7 +151,10 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
       raw.className='api-request-json';raw.tabIndex=0;raw.setAttribute('aria-label','JSON ของช่อง payload');
       const bodyHeading=element('div');bodyHeading.className='api-body-heading';
       bodyHeading.append(element('h3','Body · form-data'),button('คัดลอก Body JSON',()=>void copy(payload,'คัดลอก JSON แล้ว · วางในค่า payload ของ form-data')));
-      request.append(actions,element('p',baseUrl?'นำเข้าใน Postman เพื่อใช้คำขอออก PDF ที่เตรียมไว้':'นำเข้าคำขอออก PDF ใน Postman ได้ · ส่งได้เมื่อมี Service ปลายทาง'),
+      const curlPreview=element('pre',curl);
+      curlPreview.tabIndex=0;
+      request.append(actions,element('p',baseUrl?'วางใน Postman → Import แล้วตั้งค่า FLOWDOC_TOKEN':'วางใน Postman → Import แล้วตั้งค่า FLOWDOC_BASE_URL และ FLOWDOC_TOKEN'),
+        details('ดูคำขอ cURL',curlPreview),
         bodyHeading,element('p','payload · Text · application/json'),raw);
       if(full.images.length){
         const attachments=element('ul');attachments.className='api-attachments';

@@ -179,7 +179,7 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
         const sampleUrl=ctx.publicationUrl.replace(/\/publication$/,'/sample-word');
         void fetch(sampleUrl,{signal}).then(async result=>{
           if(!result.ok||!(await result.json()).available||signal.aborted)return;
-          const commandBox=element('textarea');commandBox.readOnly=true;commandBox.rows=4;
+          const commandBox=element('textarea');commandBox.readOnly=true;commandBox.rows=8;
           commandBox.setAttribute('aria-label','คำขอทดลองสำหรับ Postman');
           const sample=element('section');
           const copySample=button('คัดลอกคำขอทดลองสำหรับ Postman',()=>{
@@ -199,7 +199,8 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
               .finally(()=>{copySample.disabled=false;});
           });
           copySample.className='primary';commandBox.hidden=true;
-          sample.append(copySample,element('p','สิทธิ์ใช้ได้ครั้งเดียวภายใน 5 นาที · ใส่รูปตัวอย่างให้อัตโนมัติ'),commandBox);
+          sample.append(copySample,element('p','หลัง Import ให้แก้ JSON ใน Body → raw แล้วเลือก Download response'),
+            element('p','สิทธิ์ใช้ได้ครั้งเดียวภายใน 5 นาที · ใส่รูปตัวอย่างให้อัตโนมัติ'),commandBox);
           request.prepend(sample);
           transfer.classList.remove('primary');
         }).catch(()=>{});

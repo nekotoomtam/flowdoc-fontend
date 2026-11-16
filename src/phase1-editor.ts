@@ -202,20 +202,27 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
       block.classList.add('definition-area');
       const areaControl=choose(item,'Area '+item.label,'definition-area-control');
       areaControl.title='เลือกพื้นที่ '+item.label;
-      const group=element('details');group.className='format-picker';
+      const tools=element('div');tools.className='definition-area-tools';
+      tools.append(areaControl);
+      block.append(tools);
       const areaKey=refKey(item.ref);
       const active=item.children.find(child=>child.format===preferred)
         ??item.children.find(child=>child.format===activeFormats.get(areaKey))??item.children[0];
-      group.append(element('summary',item.label+' › '+(active?.label??'เลือก Format')));
-      const options=element('div');options.className='format-choices';
       if(active?.format)activeFormats.set(areaKey,active.format);
-      for(const format of item.children){
-        if(format===active)continue;
-        options.append(choose(format,format.label,'definition-format-choice'));
+      if(active&&item.children.length===1){
+        const current=button('Format '+active.label,()=>select(active,false));
+        current.className='definition-current-format';
+        tools.append(current);
+      }else if(active){
+        const group=element('details');group.className='format-picker';
+        const options=element('div');options.className='format-choices';
+        for(const format of item.children){
+          if(format===active)continue;
+          options.append(choose(format,format.label,'definition-format-choice'));
+        }
+        group.append(element('summary','Format '+active.label),options);
+        tools.append(group);
       }
-      group.append(options);
-      const tools=element('div');tools.className='definition-area-tools';
-      tools.append(areaControl,group);switcher.append(tools);
       if(active)block.append(contents(active));
     }else if(item.type==='format'){
       block.classList.add('definition-format');

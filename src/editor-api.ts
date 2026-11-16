@@ -175,6 +175,35 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
       const headers=element('pre','Authorization: Bearer {{FLOWDOC_TOKEN}}\nDoc-Key: '+value.contract.docKey+
         '\nOutput-Format: docx\nAccept: '+wordMediaType);
       request.append(details('Headers',headers));
+      if(value.version===2&&baseUrl){
+        const sampleUrl=ctx.publicationUrl.replace(/\/publication$/,'/sample-word');
+        void fetch(sampleUrl,{signal}).then(async result=>{
+          if(!result.ok||!(await result.json()).available||signal.aborted)return;
+          const commandBox=element('textarea');commandBox.readOnly=true;commandBox.rows=4;
+          commandBox.setAttribute('aria-label','คำขอทดลองสำหรับ Postman');
+          const sample=element('section');
+          const copySample=button('คัดลอกคำขอทดลองสำหรับ Postman',()=>{
+            copySample.disabled=true;
+            const issued=fetch(sampleUrl+'/issue',{method:'POST',signal}).then(async response=>{
+              if(!response.ok)throw Error('Sample grant unavailable');
+              return await response.json() as {command:string;expiresAt:string};
+            });
+            const clipboard=typeof ClipboardItem==='function'&&navigator.clipboard?.write
+              ?navigator.clipboard.write([new ClipboardItem({'text/plain':issued.then(value=>new Blob([value.command],{type:'text/plain'}))})]).catch(()=>false)
+              :Promise.resolve(false);
+            void issued.then(async value=>{
+              commandBox.value=value.command;commandBox.hidden=false;
+              if(await clipboard===false)await copy(value.command,'คัดลอกแล้ว · เปิด Import ใน Postman');
+              else notice.textContent='คัดลอกแล้ว · เปิด Import ใน Postman';
+            }).catch(()=>{if(!signal.aborted)notice.textContent='ออกสิทธิ์ทดลองไม่ได้ กรุณาลองอีกครั้ง';})
+              .finally(()=>{copySample.disabled=false;});
+          });
+          copySample.className='primary';commandBox.hidden=true;
+          sample.append(copySample,element('p','สิทธิ์ใช้ได้ครั้งเดียวภายใน 5 นาที · ใส่รูปตัวอย่างให้อัตโนมัติ'),commandBox);
+          request.prepend(sample);
+          transfer.classList.remove('primary');
+        }).catch(()=>{});
+      }
       publishedPane.append(request);
       const secondary=element('div');secondary.append(handoff,fallback,body);
       panel.append(details('ดาวน์โหลดไฟล์และดูข้อมูลจาก Preview',secondary));

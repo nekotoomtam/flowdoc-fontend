@@ -31,11 +31,12 @@ function mockImageFields(payload){
 }
 
 export function createLabSampleWord({fixture,image,serviceUrl,serviceToken,clock=Date.now}){
-  const {docKey,templateId,version,payload,fields}=fixture;
+  const {docKey,templateId,version,payload,fields,fileName='SRS'}=fixture;
   const expectedFields=payload?mockImageFields(payload):[];
-  if(!templateId||!docKey||(!Number.isSafeInteger(version)||version<1)||expectedFields.length!==4||!Array.isArray(fields)||
+  if(!templateId||!docKey||!payload||!Number.isSafeInteger(version)||version<1||!Array.isArray(fields)||
     JSON.stringify([...expectedFields].sort())!==JSON.stringify([...fields].sort())||
-    !image?.length||!serviceToken)throw Error('Invalid SRS sample Word configuration');
+    typeof fileName!=='string'||!/^[A-Za-z0-9_-]{1,80}$/.test(fileName)||
+    !image?.length||!serviceToken)throw Error('Invalid document sample configuration');
   const capability='/api/editor-phase1/drafts/'+templateId+'/sample-documents';
   const route='/documents';
   const exampleBody=JSON.stringify(payload,null,2).replaceAll("'","\\u0027");
@@ -145,7 +146,7 @@ export function createLabSampleWord({fixture,image,serviceUrl,serviceToken,clock
       if(bytes.length!==size||bytes.subarray(0,signature.length/2).toString('hex')!==signature)
         return reject(response,502,'sample_output_unavailable');
       response.writeHead(200,{'Content-Type':mediaType,'Content-Length':bytes.length,
-        'Content-Disposition':'attachment; filename="SRS-v'+version+'-sample.'+format+'"','Cache-Control':'no-store',
+        'Content-Disposition':'attachment; filename="'+fileName+'-v'+version+'-sample.'+format+'"','Cache-Control':'no-store',
         'X-Content-Type-Options':'nosniff'}).end(bytes);
     }catch{
       reject(response,502,'sample_output_unavailable');

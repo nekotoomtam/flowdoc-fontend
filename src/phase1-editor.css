@@ -269,5 +269,22 @@ main{padding:0 14px 24px}
 #preview-paper .preview-canvas-surface svg{position:relative;background:transparent}
 .preview-page-retry{justify-self:center;margin:12px}
 .definition-section>.definition-sheet+.definition-sheet{margin-top:12px}
+.api-panel{max-width:1200px;margin-inline:auto}
+.api-heading h2,.api-body h3,.api-published h3{margin:0 0 8px}
+.api-heading p{margin:6px 0}
+.api-heading p code{margin-inline-end:10px;overflow-wrap:anywhere}
+.api-heading p span,.api-example>p{color:#52685c}
+.api-body{display:grid;grid-template-columns:minmax(230px,1fr) minmax(0,1.4fr);gap:18px;margin-top:20px}
+.api-body>section,.api-published{min-width:0;border:1px solid var(--line);border-radius:8px;padding:12px}
+.api-scopes details{padding:6px 0;border-block-end:1px solid var(--line)}
+.api-scopes ul,.api-example ul{padding-inline-start:1.3rem}
+.api-scopes li span,.api-example li span{margin-inline-start:7px;color:#52685c}
+.api-panel summary{cursor:pointer;color:#205442}
+.api-panel pre{background:#eef4ef;border-radius:6px;padding:10px;overflow:auto;max-height:24rem;font-size:13px}
+.api-panel code{overflow-wrap:anywhere}
+.api-buttons{display:flex;gap:6px;flex-wrap:wrap}
+.api-published{margin-top:15px}
+.api-notice:empty{display:none}
+@media(max-width:680px){.api-body{grid-template-columns:minmax(0,1fr)}}
 #paper .definition-block[data-kind=page-break]{border-top:1px dashed #95a99f;margin-top:6px}
 @media(min-width:761px){#trial-input{position:sticky;top:calc(var(--editor-title-height,80px) + 8px)}}

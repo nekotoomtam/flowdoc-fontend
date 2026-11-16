@@ -322,7 +322,16 @@ try {
     const selectedRoute='/'+packet.templateId;
     if(packet.templateId!==identity){
       const owned=await pool.query('SELECT 1 FROM authoring_templates a JOIN templates t ON t.id=a.template_id WHERE a.principal=$1 AND t.id=$2 AND t.doc_key LIKE $3',[principal,packet.templateId,'editor-draft-%']);
-      if(!owned.rowCount||!['get','rename','structure','preview','trial-page','trial-asset'].includes(packet.action))return {status:404,body:{error:'not_found'}};
+      if(!owned.rowCount||!['get','publication','rename','structure','preview','trial-page','trial-asset'].includes(packet.action))return {status:404,body:{error:'not_found'}};
+    }
+    if(packet.action==='publication'){
+      const {rows:[published]}=await pool.query(
+        'SELECT t.doc_key AS "docKey",v.version,v.fingerprint FROM templates t JOIN template_versions v ON v.template_id=t.id '+
+        'WHERE t.id=$1 ORDER BY v.version DESC LIMIT 1',[packet.templateId]);
+      if(!published)return {status:200,body:{value:null}};
+      const contract=await app.inject({method:'GET',url:'/templates/'+encodeURIComponent(published.docKey)+'/contract?version='+published.version});
+      if(contract.statusCode!==200)return {status:contract.statusCode,body:contract.json()};
+      return {status:200,body:{value:{...published,contract:take(contract.json())}}};
     }
     if (packet.action === 'get') {
       const result = await service('GET',selectedRoute);

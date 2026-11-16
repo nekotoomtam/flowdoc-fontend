@@ -3,6 +3,7 @@ import {addBand,addVariable,applyPart,canEditSectionContent,changePage,newDefini
 import type {Part} from './editor-creation';
 import {openVisualAuthoring} from './editor-visual-authoring';
 import {mountTrial} from './editor-trial';
+import {showApi} from './editor-api';
 import {trialValueChanges} from '../scripts/trial-value-delta.mjs';
 import type {Trial} from './editor-trial';
 
@@ -27,6 +28,7 @@ const q = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 const title = q('title'), status = q('status'), editor = q('editor'), tree = q('tree'), paper = q('paper'), variables = q('variables');
 const form = q<HTMLFormElement>('rename'), input = q<HTMLInputElement>('section-name'), save = q<HTMLButtonElement>('save');
 const defineTab = q<HTMLButtonElement>('define-tab'), previewTab = q<HTMLButtonElement>('preview-tab');
+const apiTab=q<HTMLButtonElement>('api-tab'),apiPanel=q('api-panel');
 const conflict = q('conflict'), previewPanel = q('preview'), previewStatus = q('preview-status'), previewPaper = q('preview-paper');
 const previous = q<HTMLButtonElement>('previous-page'), next = q<HTMLButtonElement>('next-page'), refreshPreview = q<HTMLButtonElement>('refresh-preview');
 const jump=q<HTMLInputElement>('jump-page');
@@ -54,6 +56,7 @@ let roots:Outline[] = [], outlines=new Map<string,Outline>();
 const expanded=new Map<string,boolean>();
 const history:{definition:Definition;selection:Ref}[]=[];
 let isSaving = false, isLoading = false, hasConflict = false, showingPreview = false;
+let showingApi=false,apiRequest:AbortController|undefined;
 let trialBase:{previewId:string;trial:Trial;structure:number}|undefined;
 let preview: Preview | undefined, pendingPreview: AbortController | undefined, pageIndex = 0;
 
@@ -589,6 +592,7 @@ function refreshButtons(){
   q<HTMLButtonElement>('discard-structure').disabled=isSaving||hasConflict||!savedDefinition;
   q<HTMLButtonElement>('add-section').disabled=isSaving||hasConflict;
   previewTab.disabled=dirty||!templateId||isSaving||hasConflict;
+  apiTab.hidden=!templateId||!savedDefinition||draft.revision<1;
   previewTab.title=previewTab.disabled?'บันทึกโครงก่อนลองข้อมูล':'ลองค่าตัวแปรบนกระดาษเสมือน';
   save.disabled=dirty||isSaving||hasConflict||!templateId;
   input.readOnly=dirty||isSaving;
@@ -632,7 +636,8 @@ function showDraft(data: Draft, keep?: Ref) {
   drawDefinitionVariables();
   select(selected,false);
   refreshButtons();
-  editor.hidden=showingPreview;
+  editor.hidden=showingPreview||showingApi;
+  if(showingApi)openApi();
   document.body.dataset.revision=String(data.revision);
 }
 const dialog=q<HTMLDialogElement>('structure-dialog'), actionForm=q<HTMLFormElement>('structure-form');
@@ -1974,9 +1979,21 @@ function openPreview(){
     return loadPreview({...trial,pageIndex},current,usable,structure,fields);
   });
 }
-function changeMode(toPreview: boolean) {
-  showingPreview=toPreview;previewPanel.hidden=!toPreview;editor.hidden=toPreview;
-  defineTab.setAttribute('aria-pressed',String(!toPreview));previewTab.setAttribute('aria-pressed',String(toPreview));
+function openApi(){
+  if(!savedDefinition||!draft.docKey)return;
+  apiRequest?.abort();
+  apiRequest=new AbortController();
+  const trial=trialVersion===templateId+'/'+draft.revision+'/'+draft.fingerprint?trialForm?.apiExample:undefined;
+  showApi(apiPanel,{docKey:draft.docKey,revision:draft.revision,fingerprint:draft.fingerprint,definition:savedDefinition,
+    dirty:isDirty(),publicationUrl:endpoint+'/publication',trial},apiRequest.signal);
+}
+function changeMode(mode:'define'|'preview'|'api') {
+  const toPreview=mode==='preview';
+  showingApi=mode==='api';
+  showingPreview=toPreview;previewPanel.hidden=!toPreview;apiPanel.hidden=!showingApi;editor.hidden=mode!=='define';
+  defineTab.setAttribute('aria-pressed',String(mode==='define'));previewTab.setAttribute('aria-pressed',String(toPreview));
+  apiTab.setAttribute('aria-pressed',String(showingApi));
+  if(showingApi)openApi();else apiRequest?.abort();
   if(toPreview){openPreview();positionPaperEditor();pumpPages();}
   if(!toPreview)closePaperEdit();
   if(!toPreview&&pendingPreview){
@@ -2014,8 +2031,9 @@ form.addEventListener('submit',async event=>{
   }
 });
 q('reload').addEventListener('click',()=>void load());
-previewTab.addEventListener('click',()=>changeMode(true));
-defineTab.addEventListener('click',()=>changeMode(false));
+previewTab.addEventListener('click',()=>changeMode('preview'));
+defineTab.addEventListener('click',()=>changeMode('define'));
+apiTab.addEventListener('click',()=>changeMode('api'));
 previous.addEventListener('click',()=>void goPage(pageIndex-1));
 next.addEventListener('click',()=>void goPage(pageIndex+1));
 jump.addEventListener('change',()=>{if(jump.checkValidity()&&jump.value)void goPage(Number(jump.value)-1);});

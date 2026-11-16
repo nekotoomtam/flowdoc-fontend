@@ -5,7 +5,7 @@
 <header class="topbar"><a class="brand" href="/library.html?phase1=1">FlowDoc</a><span class="badge">UAT · ฉบับทดสอบ · จัดโครง</span></header>
 <main>
   <div class="title editor-title"><div><a href="/library.html?phase1=1">‹ กลับคลังโครงทดสอบ</a><h1 id="title">กำลังเปิดโครงเอกสาร</h1><p id="revision"></p></div>
-  <div class="editor-toolbar"><nav aria-label="โหมดเอกสาร"><button id="define-tab" aria-pressed="true">แก้โครง</button><button id="preview-tab" aria-pressed="false" disabled>ลองข้อมูล / Preview</button></nav><button id="save-structure" class="primary" type="button" disabled>บันทึกโครง</button></div></div>
+  <div class="editor-toolbar"><nav aria-label="โหมดเอกสาร"><button id="define-tab" aria-pressed="true">แก้โครง</button><button id="preview-tab" aria-pressed="false" disabled>ลองข้อมูล / Preview</button><button id="api-tab" type="button" aria-pressed="false" aria-controls="api-panel" hidden>API</button></nav><button id="save-structure" class="primary" type="button" disabled>บันทึกโครง</button></div></div>
   <div id="structure-pending" class="structure-tools" hidden><strong>ฉบับร่างยังไม่ได้บันทึก</strong><button id="undo-structure" type="button">ย้อนขั้นล่าสุด</button><button id="discard-structure" type="button">ทิ้งการแก้โครง</button></div>
   <p id="status" role="status"></p>
 <section id="new-document" class="panel new-document" hidden>
@@ -75,6 +75,7 @@
       </div>
     </div>
   </section>
+  <section id="api-panel" class="panel api-panel" aria-label="นำโครงไปใช้ผ่าน API" hidden></section>
 </main>
 <textarea id="trial-paper-value" hidden rows="1" aria-label="พิมพ์บนกระดาษ"></textarea>
 <div id="trial-paper-draft" hidden aria-hidden="true"></div>

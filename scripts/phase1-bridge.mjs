@@ -63,7 +63,7 @@ export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1'}={
         (req.headers['sec-fetch-site']&&!['same-origin','none'].includes(req.headers['sec-fetch-site'])))
         return send(403,{error:'forbidden'});
       if(!enabled)return send(503,{error:'phase1_disabled'});
-      const match=/^\/drafts\/([^/]+)(\/(?:preview|structure))?$/.exec(req.url??'');
+      const match=/^\/drafts\/([^/]+)(\/(?:preview|structure|publication))?$/.exec(req.url??'');
       const pageRoute=/^\/drafts\/([^/]+)\/preview-pages\/(\d+)\/(\d+)$/.exec(req.url??'');
       const assetRoute=/^\/drafts\/([^/]+)\/preview-assets\/([a-f0-9-]+)$/.exec(req.url??'');
       const trialRoute=/^\/drafts\/([^/]+)\/preview-runs\/([^/]+)\/(pages|assets)\/([^/]+)$/.exec(req.url??'');
@@ -74,6 +74,7 @@ export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1'}={
       else if(match&&uuid.test(match[1])){
         templateId=match[1];
         if(req.method==='GET'&&!match[2])action='get';
+        if(req.method==='GET'&&match[2]==='/publication')action='publication';
         if(req.method==='PUT'&&!match[2])action='rename';
         if(req.method==='POST'&&match[2]==='/preview')action='preview';
         if(req.method==='PUT'&&match[2]==='/structure')action='structure';

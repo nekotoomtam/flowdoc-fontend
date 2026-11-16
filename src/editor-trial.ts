@@ -3,7 +3,7 @@ import type {Definition,Field,Schema} from './editor-structure';
 type SampleData=Record<string,unknown>;
 type Upload={id:string;bytes:string};
 type Path=(string|number)[];
-type ReadContext={files:Map<string,File>;fields:Map<string,HTMLTextAreaElement>;blanks:Path[]};
+type ReadContext={files:Map<string,File>;fields:Map<string,HTMLTextAreaElement>;blanks:Path[];apiImages?:{path:Path;file?:File}[]};
 type Read=(context:ReadContext,path:Path)=>unknown;
 export type TrialFocus={key:string;occurrence:string;offset:number;pageIndex:number};
 export type Trial={data:SampleData;sections:SampleData[];images:Upload[];blanks:Path[];pageIndex?:number;focus?:TrialFocus};
@@ -137,8 +137,13 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
     if(field.type==='image'){
       const input=node('input');input.type='file';input.accept='image/png,image/jpeg';
       const id=crypto.randomUUID();
-      return {element:labeled(label+' · PNG หรือ JPEG',input),read(context){
+      return {element:labeled(label+' · PNG หรือ JPEG',input),read(context,path){
         const file=input.files?.[0];
+        if(context.apiImages){
+          if(!file&&!field.required)return undefined;
+          context.apiImages.push({path,file});
+          return {image:{upload:true}};
+        }
         if(!file)return field.required?id:undefined;
         if(file.size>maxImageBytes)throw Error('รูป '+key+' ต้องมีขนาดไม่เกิน 1 MB');
         context.files.set(id,file);return id;
@@ -181,6 +186,9 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
         ...(header?{header:header.read(context,[...path,'header'])}:{}),...(footer?{footer:footer.read(context,[...path,'footer'])}:{})};
     }};
   });
+  function readValues(context:ReadContext){
+    return {data:global.read(context,['data']),sections:sections.map((section,i)=>section.read(context,['sections',i]))};
+  }
   const fieldsPanel=node('div');fieldsPanel.className='trial-input-scroll';
   fieldsPanel.append(details('ตัวแปรทั้งเอกสาร',global.element,true),...sections.map(section=>section.element));
   form.replaceChildren(fieldsPanel,error);
@@ -213,7 +221,7 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
     const usable=()=>!disposed&&structure===structureVersion;
     try{
       const context:ReadContext={files:new Map(),fields:new Map(),blanks:[]};
-      const data=global.read(context,['data']),values=sections.map((section,i)=>section.read(context,['sections',i]));
+      const values=readValues(context);
       const files=[...context.files];
       if(files.reduce((total,[,file])=>total+file.size,0)>maxImagesBytes)
         throw Error('รูปทั้งหมดต้องมีขนาดรวมไม่เกิน 2 MB');
@@ -228,7 +236,7 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
           keys=new WeakMap();
           for(const [key,input] of bindings)keys.set(input,key);
         }
-        await render({data,sections:values,images,blanks:context.blanks,focus},current,usable,structure,context.fields);
+        await render({...values,images,blanks:context.blanks,focus},current,usable,structure,context.fields);
       }
     }catch(cause){
       if(current())error.textContent=cause instanceof Error?cause.message:'จัดหน้าทดลองไม่สำเร็จ';
@@ -239,6 +247,11 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
   queueMicrotask(()=>{if(!running&&!disposed)void send();});
   return {
     refresh,
+    apiExample(){
+      const apiImages:NonNullable<ReadContext['apiImages']>=[];
+      const payload=readValues({files:new Map(),fields:new Map(),blanks:[],apiImages});
+      return {payload,images:apiImages};
+    },
     read(key:string){return bindings.get(key)?.value;},
     reveal(key:string){
       const field=bindings.get(key);

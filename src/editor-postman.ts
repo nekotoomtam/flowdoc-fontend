@@ -50,7 +50,7 @@ export function fullApiExample(contract:InputContract):ApiExample{
   return {payload:{data,sections},images};
 }
 
-export function postmanCollection(contract:PublishedContract,example:ApiExample){
+export function postmanCollection(contract:PublishedContract,example:ApiExample,baseUrl=''){
   const auth={type:'bearer',bearer:[{key:'token',value:'{{FLOWDOC_TOKEN}}',type:'string'}]};
   const tests=[
     "pm.test('FlowDoc returned a multipart document response', () => {",
@@ -67,7 +67,7 @@ export function postmanCollection(contract:PublishedContract,example:ApiExample)
       schema:'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
       description:'ตั้ง FLOWDOC_BASE_URL และ FLOWDOC_TOKEN จาก Service ที่เผยแพร่โครงนี้ หากมีรูป ให้เลือก '+postmanImage+' ในช่องรูปของ Body → form-data'},
     variable:[
-      {key:'FLOWDOC_BASE_URL',value:'',type:'string'},{key:'FLOWDOC_TOKEN',value:'',type:'string'},
+      {key:'FLOWDOC_BASE_URL',value:baseUrl,type:'string'},{key:'FLOWDOC_TOKEN',value:'',type:'string'},
       {key:'DOC_KEY',value:contract.docKey,type:'string'},{key:'VERSION',value:String(contract.version),type:'string'},
     ],
     item:[

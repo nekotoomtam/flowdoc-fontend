@@ -288,6 +288,12 @@ main{padding:0 14px 24px}
 .api-request-address{display:flex;align-items:center;gap:10px;border:1px solid #b9ccc0;border-radius:7px;padding:8px 10px;margin-bottom:10px;background:#f7faf7}
 .api-request-address strong{background:#deefe3;color:#104d3d;border-radius:4px;padding:4px 7px;font-size:12px;letter-spacing:.04em}
 .api-request-address code{min-width:0;overflow-wrap:anywhere}
+.api-request-address button{flex:none;margin-inline-start:auto}
+.api-base-url{display:grid;gap:4px;max-width:42rem;font-size:13px}
+.api-base-url input{width:100%;box-sizing:border-box}
+.api-request>small{display:block;margin:4px 0 10px;color:#52685c}
+.api-body-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-top:16px}
+.api-body-heading h3{margin:0}
 .api-request>p{margin:7px 0 12px;color:#52685c}
 .api-request h3{margin-top:16px}
 .api-request h4{margin:12px 0 4px}

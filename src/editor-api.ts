@@ -26,6 +26,13 @@ function details(label:string,content:HTMLElement){
   const panel=element('details');
   panel.append(element('summary',label),content);return panel;
 }
+function serviceBaseUrl(value:string){
+  try{
+    const url=new URL(value.trim());
+    if(!['http:','https:'].includes(url.protocol)||url.username||url.password||url.search||url.hash)return '';
+    return url.origin+url.pathname.replace(/\/+$/,'');
+  }catch{return '';}
+}
 const shellLiteral=(value:string)=>"'"+value.replaceAll("'","'\\''")+"'";
 function generateCommand(docKey:string,images:Example['images']){
   return [
@@ -129,18 +136,38 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
     status.textContent='เผยแพร่แล้ว · เวอร์ชัน '+value.version+(matches?' · ตรงกับฉบับที่บันทึก':' · คนละฉบับกับโครงที่บันทึก');
     if(value.contract.assembly?.input==='array-by-section-key'){
       const full=fullApiExample(value.contract);
-      const collection=json(postmanCollection(value.contract,full));
       const request=element('section');request.className='api-request';
+      const base=element('input');
+      base.type='url';base.placeholder='https://…';base.autocomplete='off';
+      const baseLabel=element('label','Base URL ของ FlowDoc Service');baseLabel.className='api-base-url';baseLabel.append(base);
+      const baseHelp=element('small','ใส่ Base URL เพื่อคัดลอกลิงก์เต็มไปใช้ใน New Request');
+      baseHelp.id='flowdoc-service-url-help';base.setAttribute('aria-describedby',baseHelp.id);
+      const collection=()=>json(postmanCollection(value.contract,full,serviceBaseUrl(base.value)));
       const address=element('div');address.className='api-request-address';
-      address.append(element('strong','POST'),element('code',postmanDocumentUrl));
+      const url=element('code',postmanDocumentUrl);
+      const copyUrl=button('คัดลอก URL',()=>void copy(url.textContent??'','คัดลอก URL แล้ว · วางในช่อง URL ของ New Request'));
+      copyUrl.disabled=true;
+      base.addEventListener('input',()=>{
+        const configured=serviceBaseUrl(base.value);
+        url.textContent=configured?configured+'/documents':postmanDocumentUrl;
+        copyUrl.disabled=!configured;
+        const invalid=Boolean(base.value.trim()&&!configured);
+        base.setAttribute('aria-invalid',String(invalid));
+        baseHelp.textContent=invalid?'ใส่ Base URL ที่ขึ้นต้นด้วย http:// หรือ https:// โดยไม่ใส่ query หรือข้อมูลล็อกอิน':
+          'ใส่ Base URL เพื่อคัดลอกลิงก์เต็มไปใช้ใน New Request';
+      });
+      address.append(element('strong','POST'),url,copyUrl);
       const actions=element('div');actions.className='api-buttons';
-      const transfer=button('คัดลอกไป Postman',()=>void copy(collection,'คัดลอกคำขอทั้งหมดแล้ว'));
+      const transfer=button('คัดลอกชุดสำหรับ Import',()=>void copy(collection(),'คัดลอกแล้ว · เปิด Import ใน Postman แล้ววางข้อความ'));
       transfer.className='primary';
       actions.append(transfer,notice);
-      const raw=element('pre',json(full.payload));
+      const payload=json(full.payload);
+      const raw=element('pre',payload);
       raw.className='api-request-json';raw.tabIndex=0;raw.setAttribute('aria-label','JSON ของช่อง payload');
-      request.append(address,actions,element('p','วางข้อความที่คัดลอกใน Import ของ Postman แล้วตั้ง URL และ Token ของ Service'),
-        element('h3','Body · form-data'),element('p','payload · application/json'),raw);
+      const bodyHeading=element('div');bodyHeading.className='api-body-heading';
+      bodyHeading.append(element('h3','Body · form-data'),button('คัดลอก Body JSON',()=>void copy(payload,'คัดลอก JSON แล้ว · วางในค่า payload ของ form-data')));
+      request.append(baseLabel,baseHelp,address,actions,element('p','ใช้ Import เพื่อวางทั้งชุด หรือเลือก POST ใน New Request แล้ววาง URL และ Body แยกช่อง'),
+        bodyHeading,element('p','payload · Text · application/json'),raw);
       if(full.images.length){
         const attachments=element('ul');attachments.className='api-attachments';
         for(const image of full.images){
@@ -154,7 +181,7 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
       }
       const fallback=button('ดาวน์โหลด Postman',()=>{
         const filename=value.contract.docKey+'.v'+value.version+'.postman_collection.json';
-        download(filename,new Blob([collection],{type:'application/json'}));
+        download(filename,new Blob([collection()],{type:'application/json'}));
       });
       const headers=element('pre','Authorization: Bearer {{FLOWDOC_TOKEN}}\nDoc-Key: '+value.contract.docKey+
         '\nOutput-Format: pdf\nAccept: multipart/mixed');

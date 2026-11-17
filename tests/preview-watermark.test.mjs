@@ -7,7 +7,7 @@ import {PDFDocument} from 'pdf-lib';
 import JSZip from 'jszip';
 import {stampPreviewPdf,stampPreviewDocx} from '../scripts/preview-watermark.mjs';
 
-const artwork=await readFile(new URL('../public/preview-watermark.png',import.meta.url));
+const artwork=await readFile(new URL('../scripts/preview-watermark.png',import.meta.url));
 const w='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const r='http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 

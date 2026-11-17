@@ -1,4 +1,4 @@
-import encodedArtwork from '../public/preview-watermark.png';
+import encodedArtwork from './preview-watermark.png';
 import {stampPreviewDocx,stampPreviewPdf} from './preview-watermark.mjs';
 
 const artwork=Buffer.from(encodedArtwork,'base64');

@@ -327,3 +327,8 @@ main{padding:0 14px 24px}
 @media(max-width:680px){.api-body{grid-template-columns:minmax(0,1fr)}}
 #paper .definition-block[data-kind=page-break]{border-top:1px dashed #95a99f;margin-top:6px}
 @media(min-width:761px){#trial-input{position:sticky;top:calc(var(--editor-title-height,80px) + 8px)}}
+
+.section-background-dialog { width: min(28rem, calc(100% - 2rem)); }
+.section-background-dialog input[type=file] { display: block; margin: .5rem 0 1rem; max-width: 100%; }
+.section-background-dialog [role=status] { overflow-wrap: anywhere; }
+.section-background-dialog button + button { margin-inline-start: .5rem; }

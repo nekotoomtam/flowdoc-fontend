@@ -232,7 +232,8 @@ try {
       const layout=resume?await resumePreview.layout(resolved,resources,dimensions,[templateId,draft.revision,draft.fingerprint]):
         await layoutPreview(resolved,resources,dimensions);
       if(!layout.ok)return {status:422,body:layout};
-      const draw=layout.value;
+      const sectionDefinitions=new Map(resolved.sections.map(section=>[section.sectionId,section.definitionId]));
+      const draw={...layout.value,pages:layout.value.pages.map(page=>({...page,sectionDefinitionId:sectionDefinitions.get(page.sectionId)}))};
       const engineMs=performance.now()-engineStarted;
       const sections=new Map(resolved.sections.map(section=>[section.sectionId,section.sectionKey]));
       const labels=new Map(draft.definition.sections.map(section=>[section.sectionKey,section.label]));

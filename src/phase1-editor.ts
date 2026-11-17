@@ -15,7 +15,7 @@ import type {Band, Change, Definition, DocNode, Format, Fragment, Host, Inline, 
 type Draft = {readOnly?:boolean;canSharePreview?:boolean;templateId:string;docKey?:string;name:string;revision:number;fingerprint:string;definition:Definition};
 type Outline = {id:string;ref:Ref;label:string;type:string;section:Section;format?:Format;children:Outline[];parent?:Outline;node?:DocNode;band?:Band;inline?:Inline;detail?:string};
 type DrawPage = {
-  widthPt: number; heightPt: number; backgroundColor: string;
+  widthPt: number; heightPt: number; backgroundColor: string; sectionDefinitionId?:string;
   sampleImages?: {xPt:number; yPt:number; widthPt:number; heightPt:number; color?:string; resourceId?:string}[];
   glyphs?:Record<string,string>;
   fills?: {xPt: number; yPt: number; widthPt: number; heightPt: number; color: string}[];
@@ -67,6 +67,58 @@ let isSaving = false, isLoading = false, hasConflict = false, showingPreview = f
 let showingApi=false,apiRequest:AbortController|undefined;
 let trialBase:{previewId:string;trial:Trial;structure:number}|undefined;
 let preview: Preview | undefined, pendingPreview: AbortController | undefined, pageIndex = 0;
+
+type SectionBackground={sha256:string;name:string;format:'png'|'jpeg'};
+let sectionBackgrounds:Record<string,SectionBackground>={};
+let sectionBackgroundEnabled=false;
+const sectionBackgroundUrl=(key='')=>endpoint+'/section-backgrounds'+(key?'/'+encodeURIComponent(key):'');
+function sectionBackgroundImage(id:string|undefined){
+  const setting=id&&sectionBackgrounds[id];
+  return setting?sectionBackgroundUrl(setting.sha256):undefined;
+}
+async function readSectionBackgrounds(){
+  if(sharedPreview||!templateId)return;
+  const response=await fetch(sectionBackgroundUrl());
+  sectionBackgroundEnabled=response.ok;
+  sectionBackgrounds=response.ok?(await response.json()).value:{};
+}
+async function editSectionBackground(item:Outline){
+  const dialog=document.createElement('dialog');
+  dialog.className='section-background-dialog';
+  const title=document.createElement('h2');title.textContent='พื้นหลัง · '+item.label;
+  const label=document.createElement('label');label.textContent='เลือกภาพ PNG หรือ JPEG';
+  const file=document.createElement('input');file.type='file';file.accept='image/png,image/jpeg';label.append(file);
+  const detail=document.createElement('p');detail.textContent=sectionBackgrounds[item.section.id]?.name??'ยังไม่มีภาพ';
+  detail.setAttribute('role','status');
+  const saveButton=button('บันทึกภาพ',()=>void submit('PUT'));saveButton.disabled=true;
+  const remove=button('ลบภาพพื้นหลัง',()=>void submit('DELETE'));remove.disabled=!sectionBackgrounds[item.section.id];
+  const close=button('ปิด',()=>dialog.close());
+  file.onchange=()=>{saveButton.disabled=!file.files?.length;};
+  dialog.append(title,detail,label,saveButton,remove,close);
+  document.body.append(dialog);dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.showModal();
+  async function submit(method:'PUT'|'DELETE'){
+    saveButton.disabled=remove.disabled=true;
+    const picture=file.files?.[0];
+    try{
+      if(method==='PUT'&&picture){const url=URL.createObjectURL(picture);try{const image=new Image();image.src=url;await image.decode();}finally{URL.revokeObjectURL(url);}}
+      const response=await fetch(sectionBackgroundUrl(item.section.id),{method,headers:{
+        'If-Match':sectionBackgrounds[item.section.id]?.sha256??'none',
+        'X-Image-Name':encodeURIComponent(picture?.name??'')
+      },body:method==='PUT'?picture:undefined});
+      if(!response.ok)throw Error(response.status===409?'ภาพถูกแก้จากอีกหน้าต่าง กรุณาเปิดโครงใหม่':response.status===413?'ภาพใหญ่เกิน 8 MiB':'บันทึกภาพไม่สำเร็จ');
+      sectionBackgrounds=(await response.json()).value;
+      for(const [outline,sheet] of sectionSheets){
+        const background=sectionBackgroundImage(outline.section.id);
+        sheet.style.backgroundImage=background?'url("'+background+'")':'';
+        sheet.style.backgroundSize='100% 100%';
+      }
+      cancelPreview();
+      status.textContent=method==='PUT'?'บันทึกพื้นหลังแล้ว':'ลบพื้นหลังแล้ว';
+      dialog.close();
+    }catch(e){detail.textContent=e instanceof Error?e.message:'บันทึกภาพไม่สำเร็จ';}
+    finally{saveButton.disabled=!file.files?.length;remove.disabled=!sectionBackgrounds[item.section.id];}
+  }
+}
 
 const element = <K extends keyof HTMLElementTagNameMap>(tag: K, label?: string) => {
   const item = document.createElement(tag);
@@ -191,6 +243,8 @@ function drawBranch(items: Outline[], depth = 0) {
 const paperSizes:Record<string,[number,number]>={A4:[595.276,841.89],A3:[841.89,1190.551],Letter:[612,792],Legal:[612,1008]};
 function drawSectionPaper(root: Outline, preferred?: Format) {
   const sheet=element('div');sheet.className='definition-sheet';sheet.dataset.sectionId=root.id;
+  const background=sectionBackgroundImage(root.section.id);
+  if(background){sheet.style.backgroundImage='url("'+background+'")';sheet.style.backgroundSize='100% 100%';}
   const switcher=element('div');switcher.className='definition-section-tools structure-tools';
   const layout=draft.definition.pageLayouts?.[root.section.pageLayoutId??draft.definition.book.defaultPageLayoutId]?.page;
   const [short,long]=paperSizes[layout?.size??'A4']??paperSizes.A4;
@@ -1281,6 +1335,7 @@ function showActions(item:Outline){
         v=>stage({kind:'move',at,to:outlines.get(v.target)!.ref}));
     },'more');
   }
+  if(item.type==='section'&&sectionBackgroundEnabled)add('พื้นหลังกระดาษ',()=>void editSectionBackground(item));
   if(creationMode()){
     const part=(key:Part,label:string)=>add(label,()=>editPart(at,key,label));
     if(item.type==='section'){part('globalSchema','ตัวแปรทั้งเอกสาร');part('section-schema','ตัวแปรของ Section');part('styles','สไตล์เอกสาร');part('section-settings','กฎของ Section');}
@@ -1416,7 +1471,9 @@ q('save-structure').addEventListener('click',async()=>{
       templateId=result.value.templateId;endpoint=editorApi+'/'+encodeURIComponent(templateId);
       historyReplaceDraft(templateId);
     }
-    history.length=0;savedDefinition=result.value.definition;cancelPreview();showDraft(result.value,keep);
+    history.length=0;savedDefinition=result.value.definition;cancelPreview();
+    await readSectionBackgrounds().catch(()=>{sectionBackgroundEnabled=false;sectionBackgrounds={};});
+    showDraft(result.value,keep);
     status.textContent='ตรวจและบันทึกโครงแล้ว · Revision '+draft.revision;
     afterPaint('flowdoc:structure-save',started,{revision:draft.revision});
   }catch{status.textContent='ยังยืนยันผลบันทึกไม่ได้ · การแก้ยังอยู่';}
@@ -1457,6 +1514,7 @@ async function load() {
       templateId=data.templateId;draft=data;title.textContent=data.name;
       changeMode('preview');return;
     }
+    await readSectionBackgrounds().catch(()=>{sectionBackgroundEnabled=false;sectionBackgrounds={};});
     showDraft(data);
     const fromCard=Number(sessionStorage.getItem('flowdoc:open:'+templateId));
     sessionStorage.removeItem('flowdoc:open:'+templateId);
@@ -1706,12 +1764,14 @@ window.addEventListener('scroll',positionPaperEditor,true);
 function showPage(page:DrawPage,index:number) {
   if(!preview)return;
   const sheet=svg('svg',{viewBox:'0 0 '+page.widthPt+' '+page.heightPt,role:preview.previewId?'group':'img','aria-label':'กระดาษ Engine หน้า '+(index+1)});
-  const surface=canvasPreview&&preview.previewId?canvasSurface(page,pageSlots[index].clientWidth||previewPaper.clientWidth,sheet):undefined;
+  const background=sectionBackgroundImage(page.sectionDefinitionId);
+  const surface=!background&&canvasPreview&&preview.previewId?canvasSurface(page,pageSlots[index].clientWidth||previewPaper.clientWidth,sheet):undefined;
   if(surface){
     for(const line of page.lines)sheet.append(svg('g',{role:'img','aria-label':line.text}));
     canvasInk.get(surface)?.();
   }else{
     sheet.append(svg('rect',{width:page.widthPt,height:page.heightPt,fill:color(page.backgroundColor)}));
+    if(background)sheet.append(svg('image',{href:background,width:page.widthPt,height:page.heightPt,preserveAspectRatio:'none','data-section-background':page.sectionDefinitionId!}));
     for(const f of page.fills??[])sheet.append(svg('rect',{x:f.xPt,y:f.yPt,width:f.widthPt,height:f.heightPt,fill:color(f.color)}));
     paintBorders(sheet,page);
     for(const line of page.lines){

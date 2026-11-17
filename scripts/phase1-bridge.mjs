@@ -3,6 +3,7 @@ import {createInterface} from 'node:readline';
 import {isDeepStrictEqual} from 'node:util';
 import {Readable} from 'node:stream';
 import {pipeline} from 'node:stream/promises';
+import {sectionBackgrounds} from './section-backgrounds.mjs';
 import {previewSharePacket} from './preview-shares.mjs';
 
 const root=process.env.FLOWDOC_EDITOR_LAB_ROOT??'/home/ubuntu/flowdoc-editor-phase1-20261108';
@@ -50,7 +51,8 @@ function startRemoteWorker(){
 
 export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1',
   documentsBaseUrl=process.env.FLOWDOC_DOCUMENTS_BASE_URL,documentsBaseUrlFor,
-  previewShares,previewShareOrigin,startWorker=startRemoteWorker}={}) {
+  previewShares,previewShareOrigin,sectionBackgroundDirectory=process.env.FLOWDOC_SECTION_BACKGROUND_DIR,startWorker=startRemoteWorker}={}) {
+  const backgrounds=sectionBackgroundDirectory?sectionBackgrounds(sectionBackgroundDirectory):undefined;
   let child, sequence=0;
   const pending=new Map();
   function stop(proc) {
@@ -102,6 +104,35 @@ export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1',
         (req.headers['sec-fetch-site']&&!['same-origin','none'].includes(req.headers['sec-fetch-site'])))
         return send(403,{error:'forbidden'});
       if(!enabled)return send(503,{error:'phase1_disabled'});
+      const backdrop=!guest&&/^\/drafts\/([a-f0-9-]{36})\/section-backgrounds(?:\/([a-f0-9-]{36}|[a-f0-9]{64}))?$/.exec(req.url??'');
+      if(backdrop&&uuid.test(backdrop[1])){
+        if(!backgrounds)return send(404,{error:'not_found'});
+        const [,id,key]=backdrop;
+        try{
+          const result=await ask({action:'get',templateId:id});
+          const draft=result.body?.value;
+          if(result.status!==200||!draft)return send(404,{error:'not_found'});
+          if(req.method==='GET'&&!key)return send(200,{value:await backgrounds.read(id)});
+          if(req.method==='GET'&&key?.length===64){
+            const asset=await backgrounds.image(id,key);
+            if(!asset)return send(404,{error:'not_found'});
+            res.writeHead(200,{'Content-Type':'image/'+asset.format,'Cache-Control':'private, max-age=31536000, immutable','X-Content-Type-Options':'nosniff'});
+            return res.end(asset.bytes);
+          }
+          if(!['PUT','DELETE'].includes(req.method)||!draft.definition.sections.some(section=>section.id===key))return send(404,{error:'not_found'});
+          if(draft.readOnly)return send(403,{error:'forbidden'});
+          const expected=req.headers['if-match'];
+          if(typeof expected!=='string'||!/^(none|[a-f0-9]{64})$/.test(expected))return send(400,{error:'revision_required'});
+          let bytes;
+          if(req.method==='PUT'){
+            let size=0;const chunks=[];
+            for await(const chunk of req){size+=chunk.length;if(size>8*1024*1024)return send(413,{error:'image_too_large'});chunks.push(chunk);}
+            bytes=Buffer.concat(chunks);
+          }
+          const resultSave=await backgrounds.save(id,key,{expected:expected==='none'?null:expected,bytes,name:decodeURIComponent(String(req.headers['x-image-name']??''))});
+          return send(resultSave.status,{value:resultSave.value,error:resultSave.error});
+        }catch{return send(500,{error:'background_storage_unavailable'});}
+      }
       const shareRoute=!guest&&/^\/drafts\/([^/]+)\/preview-shares(?:\/([a-f0-9]{64}))?$/.exec(req.url??'');
       const readBody=async max=>{
         if(!/^application\/json(?:;|$)/i.test(req.headers['content-type']??''))throw 415;

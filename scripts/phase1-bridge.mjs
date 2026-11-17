@@ -51,7 +51,7 @@ function startRemoteWorker(){
 
 export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1',
   documentsBaseUrl=process.env.FLOWDOC_DOCUMENTS_BASE_URL,documentsBaseUrlFor,
-  previewShares,previewShareOrigin,sectionBackgroundDirectory=process.env.FLOWDOC_SECTION_BACKGROUND_DIR,startWorker=startRemoteWorker}={}) {
+  previewShares,previewShareOrigin,sectionPublication,sectionBackgroundDirectory=process.env.FLOWDOC_SECTION_BACKGROUND_DIR,startWorker=startRemoteWorker}={}) {
   const backgrounds=sectionBackgroundDirectory?sectionBackgrounds(sectionBackgroundDirectory):undefined;
   let child, sequence=0;
   const pending=new Map();
@@ -104,6 +104,22 @@ export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1',
         (req.headers['sec-fetch-site']&&!['same-origin','none'].includes(req.headers['sec-fetch-site'])))
         return send(403,{error:'forbidden'});
       if(!enabled)return send(503,{error:'phase1_disabled'});
+      const publishRoute=!guest&&/^\/drafts\/([a-f0-9-]{36})\/section-publication$/.exec(req.url??'');
+      if(publishRoute&&sectionPublication?.accepts(publishRoute[1])&&backgrounds){
+        if(req.method==='GET')return send(200,{enabled:true});
+        if(req.method!=='POST'||req.headers.origin!==expectedOrigin)return send(403,{error:'forbidden'});
+        try{
+          let length=0;const parts=[];
+          for await(const chunk of req){length+=chunk.length;if(length>8192)return send(413,{error:'body_too_large'});parts.push(chunk);}
+          const value=JSON.parse(Buffer.concat(parts).toString('utf8'));
+          const response=await ask({action:'get',templateId:publishRoute[1]});
+          const draft=response.body?.value;
+          if(response.status!==200||draft?.readOnly)return send(404,{error:'not_found'});
+          if(draft.revision!==value.revision||draft.fingerprint!==value.fingerprint)return send(409,{error:'STALE_CURRENT'});
+          const result=await sectionPublication.publish(draft,await backgrounds.read(draft.templateId),value.backgrounds,backgrounds);
+          return send(result.status,{value:result.value,error:result.error});
+        }catch{return send(502,{error:'publication_failed'});}
+      }
       const backdrop=!guest&&/^\/drafts\/([a-f0-9-]{36})\/section-backgrounds(?:\/([a-f0-9-]{36}|[a-f0-9]{64}))?$/.exec(req.url??'');
       if(backdrop&&uuid.test(backdrop[1])){
         if(!backgrounds)return send(404,{error:'not_found'});

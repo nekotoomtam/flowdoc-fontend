@@ -70,7 +70,7 @@ let preview: Preview | undefined, pendingPreview: AbortController | undefined, p
 
 type SectionBackground={sha256:string;name:string;format:'png'|'jpeg'};
 let sectionBackgrounds:Record<string,SectionBackground>={};
-let sectionBackgroundEnabled=false;
+let sectionBackgroundEnabled=false,sectionPublicationEnabled=false;
 const sectionBackgroundUrl=(key='')=>endpoint+'/section-backgrounds'+(key?'/'+encodeURIComponent(key):'');
 function sectionBackgroundImage(id:string|undefined){
   const setting=id&&sectionBackgrounds[id];
@@ -81,6 +81,19 @@ async function readSectionBackgrounds(){
   const response=await fetch(sectionBackgroundUrl());
   sectionBackgroundEnabled=response.ok;
   sectionBackgrounds=response.ok?(await response.json()).value:{};
+  sectionPublicationEnabled=(await fetch(endpoint+'/section-publication')).ok;
+}
+async function publishSectionBackground(){
+  if(isSaving||isDirty()){status.textContent='บันทึกโครงก่อนเผยแพร่';return;}
+  isSaving=true;refreshButtons();
+  try{
+    const backgrounds=Object.fromEntries(Object.entries(sectionBackgrounds).filter(([id])=>draft.definition.sections.some(section=>section.id===id)).sort().map(([id,item])=>[id,item.sha256]));
+    const response=await fetch(endpoint+'/section-publication',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:draft.revision,fingerprint:draft.fingerprint,backgrounds})});
+    const result=await response.json();
+    if(!response.ok)throw Error(result.error==='STALE_CURRENT'?'ร่างเปลี่ยนแล้ว กรุณาเปิดใหม่':result.error==='background_required'?'บันทึกภาพพื้นหลังก่อนเผยแพร่':'เผยแพร่ไม่สำเร็จ');
+    status.textContent='เผยแพร่เวอร์ชัน '+result.value.version+' แล้ว';
+  }catch(e){status.textContent=e instanceof Error?e.message:'เผยแพร่ไม่สำเร็จ';}
+  finally{isSaving=false;refreshButtons();}
 }
 async function editSectionBackground(item:Outline){
   const dialog=document.createElement('dialog');
@@ -1335,6 +1348,9 @@ function showActions(item:Outline){
         v=>stage({kind:'move',at,to:outlines.get(v.target)!.ref}));
     },'more');
   }
+  if(item.type==='section'&&sectionPublicationEnabled)add('เผยแพร่เวอร์ชันใหม่',()=>{
+    ask('เผยแพร่เวอร์ชันใหม่',[],()=>{void publishSectionBackground();});
+  });
   if(item.type==='section'&&sectionBackgroundEnabled)add('พื้นหลังกระดาษ',()=>void editSectionBackground(item));
   if(creationMode()){
     const part=(key:Part,label:string)=>add(label,()=>editPart(at,key,label));

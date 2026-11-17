@@ -5,6 +5,7 @@ import {stat} from 'node:fs/promises';
 import {extname,join,resolve,sep} from 'node:path';
 import {pipeline} from 'node:stream/promises';
 import {fileURLToPath} from 'node:url';
+import {openSectionPublication} from './section-publication.mjs';
 import {phase1Bridge} from './phase1-bridge.mjs';
 import {openPreviewShares,sharedPreviewApi} from './preview-shares.mjs';
 
@@ -73,7 +74,8 @@ async function dispatch(request,response){
   await pipeline(createReadStream(file),response);
 }
 
-phase1Bridge({enabled:true,previewShares,previewShareOrigin:shareOrigin,startWorker:()=>spawn(process.execPath,['/phase1/phase1-server.mjs'],{
+const sectionPublication=await openSectionPublication(process.env.FLOWDOC_SECTION_PUBLICATION_CONFIG);
+phase1Bridge({enabled:true,sectionPublication,previewShares,previewShareOrigin:shareOrigin,startWorker:()=>spawn(process.execPath,['/phase1/phase1-server.mjs'],{
   env:{...process.env,FLOWDOC_PREVIEW_WATERMARK_RUNTIME:watermarkRuntime}
 })})
   .configureServer({httpServer:server,middlewares:{use(path,handler){

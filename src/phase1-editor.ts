@@ -5,13 +5,14 @@ import {openVisualAuthoring} from './editor-visual-authoring';
 import {mountTrial} from './editor-trial';
 import {showApi} from './editor-api';
 import {installTrialExport} from './editor-trial-export';
+import {installPreviewShare} from './editor-preview-share';
 import {trialValueChanges} from '../scripts/trial-value-delta.mjs';
 import type {Trial} from './editor-trial';
 
 import {applyStructureChange, canAddPlainRows, defaultCellPadding, groupSources, lengthInPoints, paddingSides, refKey, structureOrder} from './editor-structure';
 import type {Band, Change, Definition, DocNode, Format, Fragment, Host, Inline, Length, Ref, Schema, Section} from './editor-structure';
 
-type Draft = {readOnly?:boolean;templateId:string;docKey?:string;name:string;revision:number;fingerprint:string;definition:Definition};
+type Draft = {readOnly?:boolean;canSharePreview?:boolean;templateId:string;docKey?:string;name:string;revision:number;fingerprint:string;definition:Definition};
 type Outline = {id:string;ref:Ref;label:string;type:string;section:Section;format?:Format;children:Outline[];parent?:Outline;node?:DocNode;band?:Band;inline?:Inline;detail?:string};
 type DrawPage = {
   widthPt: number; heightPt: number; backgroundColor: string;
@@ -24,7 +25,7 @@ type DrawPage = {
 type TrialTab = {occurrence:string;pageIndex:number};
 type PreviewEdit = {previous?:TrialTab;next?:TrialTab;key:string;occurrence:string;start:number;end:number;blank?:boolean;contentWidth?:number;align?:string;clusters:[number,number,number][]};
 type Preview = {trialPatchBase?:boolean;pageKeys?:(string|null)[];pageSizes?:[number,number,string][];pageIndex?:number;previewId?:string;revision: number; fingerprint: string; engineVersion: string; engineMs: number; renderMs: number; layoutHash: string; renderPath?:string; pageCount: number; pages: DrawPage[]; paged?:boolean; entryCount?:number; imagePlacements?:number};
-type ServiceReply = {ok: boolean; value?: Draft; issues?: {code: string; path?:string}[]};
+type ServiceReply = {ok: boolean; value?: Draft; expiresAt?:string; issues?: {code: string; path?:string}[]};
 const q = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id)! as T;
 const title = q('title'), status = q('status'), editor = q('editor'), tree = q('tree'), paper = q('paper'), variables = q('variables');
 const form = q<HTMLFormElement>('rename'), input = q<HTMLInputElement>('section-name'), save = q<HTMLButtonElement>('save');
@@ -33,16 +34,22 @@ const apiTab=q<HTMLButtonElement>('api-tab'),apiPanel=q('api-panel');
 const conflict = q('conflict'), previewPanel = q('preview'), previewStatus = q('preview-status'), previewPaper = q('preview-paper');
 const previous = q<HTMLButtonElement>('previous-page'), next = q<HTMLButtonElement>('next-page'), refreshPreview = q<HTMLButtonElement>('refresh-preview');
 const jump=q<HTMLInputElement>('jump-page');
-const benchmark=sessionStorage.getItem('flowdoc:benchmark-preview')==='1';
+const sharedPreview=location.pathname==='/shared-preview';
+const sharedPreviewHeaders:Record<string,string>=sharedPreview?{
+  'X-FlowDoc-Preview-Share':location.hash.slice(1),
+  'X-FlowDoc-Preview-Session':crypto.randomUUID()
+}:{};
+const shareUnavailable='ลิงก์หมดอายุหรือถูกยกเลิกแล้ว กรุณาขอลิงก์ใหม่';
+const benchmark=!sharedPreview&&sessionStorage.getItem('flowdoc:benchmark-preview')==='1';
 const canvasPreview=new URLSearchParams(location.search).get('previewRenderer')==='canvas';
-const resumablePreview=new URLSearchParams(location.search).get('previewEngine')==='resume';
+const resumablePreview=!sharedPreview&&new URLSearchParams(location.search).get('previewEngine')==='resume';
 const fullTrialTransport=new URLSearchParams(location.search).get('previewTransport')==='full'||
   sessionStorage.getItem('flowdoc:full-trial-transport')==='1';
 let pendingPage:AbortController|undefined;
 const editorApi='/api/editor-phase1/drafts';
-const newMode=new URLSearchParams(location.search).get('new')==='1';
+const newMode=!sharedPreview&&new URLSearchParams(location.search).get('new')==='1';
 let templateId = new URLSearchParams(location.search).get('id');
-let endpoint=editorApi+'/'+encodeURIComponent(templateId??'');
+let endpoint=sharedPreview?'/shared-preview/api':editorApi+'/'+encodeURIComponent(templateId??'');
 let createKey:string|undefined;
 const creationMode=()=>newMode||Boolean(draft?.docKey?.startsWith('editor-draft-'));
 const kinds: Record<string,string> = {section:'Section',area:'Area',format:'Format',table:'ตาราง','table-row':'แถว','table-cell':'เซลล์','text-block':'ข้อความ','page-break':'ขึ้นหน้าใหม่',image:'ภาพ',line:'เส้น','table-of-contents':'สารบัญ',header:'หัวกระดาษ',footer:'ท้ายกระดาษ',columns:'ชุดคอลัมน์',column:'คอลัมน์','field-ref':'ตัวแปร',text:'ข้อความคงที่','system-page-field':'เลขหน้า','row-group':'กลุ่มแถว',repeat:'วนซ้ำ'};
@@ -1416,10 +1423,15 @@ q('save-structure').addEventListener('click',async()=>{
   finally{isSaving=false;refreshButtons();}
 });
 async function readDraft() {
-  const response=await fetch(endpoint,{signal:AbortSignal.timeout(15000)});
+  const response=await fetch(endpoint,{headers:sharedPreviewHeaders,signal:AbortSignal.timeout(15000)});
+  if(sharedPreview&&response.status===410)throw Error(shareUnavailable);
   const reply=await response.json() as ServiceReply;
-  if(!response.ok||!reply.ok||!reply.value||reply.value.templateId!==templateId||
+  if(!response.ok||!reply.ok||!reply.value||(!sharedPreview&&reply.value.templateId!==templateId)||
     reply.value.definition.nodeModelVersion!==20||!reply.value.definition.sections.length)throw Error('Draft unavailable');
+  if(sharedPreview&&reply.expiresAt){
+    const time=new Intl.DateTimeFormat('th-TH',{dateStyle:'medium',timeStyle:'short'}).format(new Date(reply.expiresAt));
+    q('revision').textContent='Revision '+reply.value.revision+' · ลิงก์ใช้ได้ถึง '+time;
+  }
   return reply.value;
 }
 function cancelPreview() {
@@ -1441,6 +1453,10 @@ async function load() {
     const data=await readDraft();
     cancelPreview();
     hasConflict=false;history.length=0;savedDefinition=data.definition;conflict.hidden=true;
+    if(sharedPreview){
+      templateId=data.templateId;draft=data;title.textContent=data.name;
+      changeMode('preview');return;
+    }
     showDraft(data);
     const fromCard=Number(sessionStorage.getItem('flowdoc:open:'+templateId));
     sessionStorage.removeItem('flowdoc:open:'+templateId);
@@ -1448,8 +1464,11 @@ async function load() {
     const offset=fromCard-performance.timeOrigin;
     if(fromCard&&offset<=started&&started-offset<20000)afterPaint('flowdoc:open-from-library',offset<0?0:offset,{revision:data.revision,navigationMs:offset<0?-offset:0});
     if(showingPreview)openPreview();
-  }catch{
-    status.textContent='เปิดโครงทดสอบไม่ได้ กรุณาโหลดหน้าใหม่';
+  }catch(error){
+    if(sharedPreview){
+      title.textContent='เปิด Preview ไม่ได้';
+      status.textContent=error instanceof Error&&error.message===shareUnavailable?shareUnavailable:'โหลด Preview ไม่สำเร็จ กรุณาลองใหม่';
+    }else status.textContent='เปิดโครงทดสอบไม่ได้ กรุณาโหลดหน้าใหม่';
   }finally{
     isLoading=false;q<HTMLButtonElement>('reload').disabled=false;
   }
@@ -1461,7 +1480,26 @@ function svg(name: string, attrs: Record<string,string|number>) {
 }
 const color=(value:string)=>value.startsWith('#')?value:'#'+value;
 const assetUrl=(id:string,run?:string)=>endpoint+(run?'/preview-runs/'+encodeURIComponent(run)+'/assets/':'/preview-assets/')+encodeURIComponent(id);
+const guestImages=new Map<string,string>();
 async function readyImages(page:DrawPage,run?:string){
+  if(sharedPreview){
+    const ids=[...new Set((page.sampleImages??[]).flatMap(image=>image.resourceId?[image.resourceId]:[]))];
+    for(const id of ids){
+      if(guestImages.has(id))continue;
+      const response=await fetch(assetUrl(id,run),{headers:sharedPreviewHeaders,signal:AbortSignal.timeout(15000)});
+      if(!response.ok)throw Error('Preview asset unavailable');
+      const url=URL.createObjectURL(await response.blob());
+      const asset=new Image();asset.src=url;
+      try{await asset.decode();}catch(error){URL.revokeObjectURL(url);throw error;}
+      if(guestImages.has(id))URL.revokeObjectURL(url);
+      else guestImages.set(id,url);
+      if(guestImages.size>64){
+        const first=guestImages.keys().next().value!;
+        URL.revokeObjectURL(guestImages.get(first)!);guestImages.delete(first);
+      }
+    }
+    return;
+  }
   const urls=[...new Set((page.sampleImages??[]).flatMap(image=>image.resourceId?[assetUrl(image.resourceId,run)]:[]))];
   for(let i=0;i<urls.length;i+=4)await Promise.all(urls.slice(i,i+4).map(url=>{
     const asset=new Image();asset.src=url;return asset.decode();
@@ -1697,7 +1735,8 @@ function showPage(page:DrawPage,index:number) {
     }
     for(const image of page.sampleImages??[]){
       const bounds={x:image.xPt,y:image.yPt,width:image.widthPt,height:image.heightPt};
-      if(image.resourceId)sheet.append(svg('image',{...bounds,href:assetUrl(image.resourceId,preview.previewId),preserveAspectRatio:'none'}));
+      if(image.resourceId){const url=sharedPreview?guestImages.get(image.resourceId):assetUrl(image.resourceId,preview.previewId);
+        if(url)sheet.append(svg('image',{...bounds,href:url,preserveAspectRatio:'none'}));}
       else if(image.color)sheet.append(svg('rect',{...bounds,fill:color(image.color)}));
     }
   }
@@ -1804,12 +1843,15 @@ function ensurePage(index:number):Promise<boolean>{
   const ongoing=pageLoads.get(index);
   if(ongoing)return ongoing;
   const run=(async()=>{
+    let refreshSharedPage=false;
     try{
       let page=result.paged?(index===(result.pageIndex??0)?result.pages[0]:undefined):result.pages[index];
       if(!page){
         const route=result.previewId?'/preview-runs/'+encodeURIComponent(result.previewId)+'/pages/'+index:'/preview-pages/'+result.revision+'/'+index;
-        const response=await fetch(endpoint+route,{signal:AbortSignal.any([controller.signal,AbortSignal.timeout(15000)])});
+        const response=await fetch(endpoint+route,{headers:sharedPreviewHeaders,signal:AbortSignal.any([controller.signal,AbortSignal.timeout(15000)])});
+        if(response.status===410){previewStatus.textContent=shareUnavailable;return false;}
         const data=await response.json();
+        refreshSharedPage=sharedPreview&&response.status===404&&data.error==='PREVIEW_EXPIRED';
         if(!response.ok||data.revision!==result.revision||data.index!==index||!data.page)throw Error('Page unavailable');
         page=data.page as DrawPage;
       }
@@ -1820,7 +1862,11 @@ function ensurePage(index:number):Promise<boolean>{
     }catch{
       if(!controller.signal.aborted&&preview===result){
         nearbyPages.delete(index);
-        const retry=button('ลองเปิดหน้า '+(index+1)+' อีกครั้ง',()=>{slot.replaceChildren();void ensurePage(index);});
+        const retry=button('ลองเปิดหน้า '+(index+1)+' อีกครั้ง',()=>{
+          slot.replaceChildren();
+          if(refreshSharedPage){trialBase=undefined;reportPage(index);trialForm?.refresh();}
+          else void ensurePage(index);
+        });
         retry.className='preview-page-retry';slot.replaceChildren(retry);
       }
       return false;
@@ -1927,7 +1973,7 @@ async function loadPreview(trial?:Trial,current=()=>true,usable=current,structur
   previewStatus.textContent='กำลังจัดหน้า Revision '+revision+'…';
   try{
     const signal=AbortSignal.any([request.signal,AbortSignal.timeout(120000)]);
-    const post=(input:object)=>fetch(endpoint+'/preview',{method:'POST',headers:{'Content-Type':'application/json'},
+    const post=(input:object)=>fetch(endpoint+'/preview',{method:'POST',headers:{...sharedPreviewHeaders,'Content-Type':'application/json'},
       body:JSON.stringify({expectedRevision:revision,...(trial&&resumablePreview?{layoutMode:'resume'}:{}),...input}),signal});
     const full=trial?{trial}:benchmark?{sample:'benchmark'}:{};
     const base=trialBase;
@@ -1949,7 +1995,8 @@ async function loadPreview(trial?:Trial,current=()=>true,usable=current,structur
     if(response.status===409){previewStatus.textContent='ฉบับนี้มี revision ใหม่กว่าในระบบ กรุณาโหลดฉบับล่าสุด';return;}
     if(!response.ok){
       const detail=data.issues?.slice(0,4).map(issue=>(issue.path??'ข้อมูล')+' · '+issue.code).join(' / ');
-      if(pendingPreview===request&&current())previewStatus.textContent=response.status===429?'Engine กำลังจัดหน้าอีกชุด ลองใหม่เมื่อพร้อม':
+      if(pendingPreview===request&&current())previewStatus.textContent=response.status===410?shareUnavailable:
+        response.status===429?'Engine กำลังจัดหน้าอีกชุด ลองใหม่เมื่อพร้อม':
         data.error==='invalid_image'?'เปิดภาพไม่ได้ กรุณาเลือกไฟล์ PNG หรือ JPEG ที่ถูกต้อง':
         data.error==='resume_preview_disabled'?'แล็บนี้ยังไม่ได้เปิดการจัดหน้าต่อจากจุดพัก':
         data.error==='font_not_ready'?'ฟอนต์ของโครงยังใช้จัดหน้าไม่ได้':
@@ -1977,13 +2024,17 @@ async function loadPreview(trial?:Trial,current=()=>true,usable=current,structur
 }
 let trialVersion='';
 const trialExport=q<HTMLDetailsElement>('trial-export');
+installPreviewShare(()=>!sharedPreview&&showingPreview&&draft.canSharePreview&&!isDirty()
+  ?{endpoint,revision:draft.revision,fingerprint:draft.fingerprint}:undefined);
 installTrialExport(trialExport,q('trial-export-status'),()=>{
   if(!showingPreview||isDirty()||!trialForm||!draft.docKey||trialVersion!==templateId+'/'+draft.revision+'/'+draft.fingerprint)return;
-  return {url:endpoint+'/export',docKey:draft.docKey,revision:draft.revision,fingerprint:draft.fingerprint,snapshot:trialForm.exportSnapshot};
+  return {url:endpoint+'/export',docKey:draft.docKey,revision:draft.revision,fingerprint:draft.fingerprint,
+    headers:sharedPreviewHeaders,snapshot:trialForm.exportSnapshot};
 });
 function openPreview(){
   const custom=!benchmark;
   trialExport.hidden=!custom;
+  q('open-preview-share').hidden=sharedPreview||!draft.canSharePreview||draft.revision<1;
   q('trial-input').hidden=!custom;
   q('legacy-preview-description').hidden=custom;
   q('trial-edit-hint').hidden=!custom;
@@ -2072,7 +2123,14 @@ next.addEventListener('click',()=>void goPage(pageIndex+1));
 jump.addEventListener('change',()=>{if(jump.checkValidity()&&jump.value)void goPage(Number(jump.value)-1);});
 refreshPreview.addEventListener('click',()=>{cancelPreview();void loadPreview();});
 function historyReplaceDraft(id:string){window.history.replaceState(null,'','/phase1-editor.html?id='+encodeURIComponent(id));}
-if(newMode&&!templateId){
+if(sharedPreview){
+  q('editor-brand').removeAttribute('href');
+  q('editor-badge').textContent='Preview ที่แชร์';
+  q('editor-library-link').hidden=true;
+  document.querySelector<HTMLElement>('.editor-toolbar')!.hidden=true;
+  document.title='Preview ที่แชร์ · FlowDoc';
+  void load();
+}else if(newMode&&!templateId){
   q('title').textContent='สร้างโครงเอกสาร';q('new-document').hidden=false;
   q<HTMLFormElement>('new-document-form').addEventListener('submit',event=>{
     event.preventDefault();

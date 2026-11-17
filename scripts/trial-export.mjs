@@ -17,7 +17,7 @@ export function createTrialExports(root,readDraft,resourcesFor){
     await rm(entry.path,{force:true});
     if(active===entry)active=undefined;
   }
-  async function generate(templateId,body){
+  async function generate(templateId,body,sharedDraft){
     const {format,expectedRevision,fingerprint,trial}=body??{};
     if(!['pdf','docx'].includes(format)||!Number.isSafeInteger(expectedRevision)||typeof fingerprint!=='string'
       ||!trial?.data||!Array.isArray(trial.sections)||!Array.isArray(trial.images))return reject(422,'invalid_trial');
@@ -25,7 +25,7 @@ export function createTrialExports(root,readDraft,resourcesFor){
     const id=randomUUID(),entry={id,templateId,path:join(root,id+'.'+format),size:0};
     active=entry;
     try{
-      const result=await readDraft(templateId);
+      const result=sharedDraft?{ok:true,value:sharedDraft}:await readDraft(templateId);
       if(!result.ok)return reject(404,'not_found');
       const draft=result.value;
       if(draft.revision!==expectedRevision||draft.fingerprint!==fingerprint)return reject(409,'STALE_CURRENT');

@@ -167,7 +167,7 @@ try {
   }
   const trialExports=createTrialExports(tempRoot,async templateId=>(await service('GET','/'+templateId)).json(),renderResources);
   let previewBusy = false;
-  async function render(templateId,body) {
+  async function render(templateId,body,shared) {
     const {expectedRevision,sample:mode,trialPatch,layoutMode}=body??{};
     let trial=body?.trial;
     const custom=trial!==undefined||trialPatch!==undefined;
@@ -178,16 +178,19 @@ try {
     if (previewBusy) return {status:429,body:{error:'preview_busy'}};
     previewBusy = true;
     try {
-      const result=await service('GET','/'+templateId);
-      if(result.statusCode!==200)return {status:result.statusCode,body:result.json()};
-      const draft=take(result.json());
+      let draft=shared?.draft;
+      if(!draft){
+        const result=await service('GET','/'+templateId);
+        if(result.statusCode!==200)return {status:result.statusCode,body:result.json()};
+        draft=take(result.json());
+      }
       if (draft.revision !== expectedRevision) return {status:409,body:{error:'STALE_CURRENT'}};
       if(!custom&&mode!=='benchmark'&&originalPreview?.revision===draft.revision&&originalPreview.fingerprint===draft.fingerprint)
         return {status:200,body:originalPreview.header};
       const started = performance.now();
       if(trialPatch!==undefined){
         const base=trialPreviews.get(trialPatch?.basePreviewId);
-        if(!base?.trial||base.templateId!==templateId||base.revision!==draft.revision||base.fingerprint!==draft.fingerprint)
+        if(!base?.trial||base.templateId!==templateId||base.scope!==shared?.scope||base.revision!==draft.revision||base.fingerprint!==draft.fingerprint)
           return {status:409,body:{error:'trial_base_unavailable'}};
         try{
           trial=applyTrialValueChanges(base.trial,trialPatch);
@@ -258,7 +261,7 @@ try {
         if(custom){
           const id=randomUUID();
           cache.header.previewId=id;cache.header.trialPatchBase=true;
-          trialPreviews.set(id,{...cache,templateId,assets:assets.assets,trial});
+          trialPreviews.set(id,{...cache,templateId,scope:shared?.scope,assets:assets.assets,trial});
           setTimeout(()=>trialPreviews.delete(id),20*60*1000).unref();
           if(trialPreviews.size>2)trialPreviews.delete(trialPreviews.keys().next().value);
         }else originalPreview=cache;
@@ -359,13 +362,14 @@ try {
       const result = await service('PUT',selectedRoute,packet.body);
       return {status:result.statusCode,body:result.json()};
     }
-    if (packet.action === 'preview') return render(packet.templateId,packet.body);
-    if (packet.action === 'export') return trialExports.generate(packet.templateId,packet.body);
+    if (packet.action === 'preview') return render(packet.templateId,packet.body,packet.shared);
+    if (packet.action === 'export') return trialExports.generate(packet.templateId,packet.body,packet.shared?.draft);
     if (packet.action === 'export-chunk') return trialExports.chunk(packet.templateId,packet.body);
     if (packet.action === 'export-release') return trialExports.release(packet.templateId,packet.body);
     if(packet.action==='trial-page'||packet.action==='trial-asset'){
       const cache=trialPreviews.get(packet.body.run);
-      if(!cache||cache.templateId!==packet.templateId)return {status:404,body:{error:'PREVIEW_EXPIRED'}};
+      if(!cache||cache.templateId!==packet.templateId||cache.scope!==packet.shared?.scope)
+        return {status:404,body:{error:'PREVIEW_EXPIRED'}};
       if(packet.action==='trial-asset'){
         const asset=cache.assets.get(packet.body.key);
         return asset?{status:200,mediaType:asset.type,bytes:asset.bytes.toString('base64')}:{status:404,body:{error:'not_found'}};

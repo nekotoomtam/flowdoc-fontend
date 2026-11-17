@@ -3,6 +3,7 @@ import {createInterface} from 'node:readline';
 import {isDeepStrictEqual} from 'node:util';
 import {Readable} from 'node:stream';
 import {pipeline} from 'node:stream/promises';
+import {previewSharePacket} from './preview-shares.mjs';
 
 const root=process.env.FLOWDOC_EDITOR_LAB_ROOT??'/home/ubuntu/flowdoc-editor-phase1-20261108';
 if(!/^\/home\/ubuntu\/flowdoc-[a-z0-9-]+$/.test(root))throw Error('Invalid editor lab directory');
@@ -48,7 +49,8 @@ function startRemoteWorker(){
 }
 
 export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1',
-  documentsBaseUrl=process.env.FLOWDOC_DOCUMENTS_BASE_URL,startWorker=startRemoteWorker}={}) {
+  documentsBaseUrl=process.env.FLOWDOC_DOCUMENTS_BASE_URL,documentsBaseUrlFor,
+  previewShares,previewShareOrigin,startWorker=startRemoteWorker}={}) {
   let child, sequence=0;
   const pending=new Map();
   function stop(proc) {
@@ -92,11 +94,25 @@ export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1',
         res.end(JSON.stringify(body));
       };
       const host=req.headers.host??'';
-      if(!/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host)||
-        (req.headers.origin&&req.headers.origin!=='http://'+host)||
+      const guest=req.url==='/shared-preview'||req.url?.startsWith('/shared-preview/');
+      const local=/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host);
+      const publicOrigin=previewShareOrigin&&new URL(previewShareOrigin);
+      const expectedOrigin=guest&&publicOrigin?.host===host?publicOrigin.origin:local?'http://'+host:undefined;
+      if(!expectedOrigin||(req.headers.origin&&req.headers.origin!==expectedOrigin)||
         (req.headers['sec-fetch-site']&&!['same-origin','none'].includes(req.headers['sec-fetch-site'])))
         return send(403,{error:'forbidden'});
       if(!enabled)return send(503,{error:'phase1_disabled'});
+      const shareRoute=!guest&&/^\/drafts\/([^/]+)\/preview-shares(?:\/([a-f0-9]{64}))?$/.exec(req.url??'');
+      const readBody=async max=>{
+        if(!/^application\/json(?:;|$)/i.test(req.headers['content-type']??''))throw 415;
+        const chunks=[];let bytes=0;
+        for await(const chunk of req){
+          bytes+=chunk.length;
+          if(bytes>max)throw 413;
+          chunks.push(chunk);
+        }
+        try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw 400;}
+      };
       const match=/^\/drafts\/([^/]+)(\/(?:preview|export|structure|publication))?$/.exec(req.url??'');
       const pageRoute=/^\/drafts\/([^/]+)\/preview-pages\/(\d+)\/(\d+)$/.exec(req.url??'');
       const assetRoute=/^\/drafts\/([^/]+)\/preview-assets\/([a-f0-9-]+)$/.exec(req.url??'');
@@ -125,19 +141,52 @@ export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1',
         if(type==='pages'&&/^\d+$/.test(key)){action='trial-page';templateId=id;body={run,index:Number(key)};}
         if(type==='assets'&&uuid.test(key)){action='trial-asset';templateId=id;body={run,key};}
       }
-      if(!action)return send(404,{error:'not_found'});
-      if(req.method!=='GET'){
-        if(!/^application\/json(?:;|$)/i.test(req.headers['content-type']??''))return send(415,{error:'invalid_content_type'});
-        try{
-          const chunks=[];let bytes=0;
-          for await(const chunk of req){bytes+=chunk.length;if(bytes>(['preview','export'].includes(action)?4*1024*1024:['structure','create'].includes(action)?2*1024*1024:4096))return send(413,{error:'body_too_large'});chunks.push(chunk);}
-          body=JSON.parse(Buffer.concat(chunks).toString('utf8'));
-        }catch{return send(400,{error:'invalid_json'});}
-      }
       try{
-        const reply=await ask({action,templateId,body});
-        if(action==='publication'&&reply.status===200&&reply.body?.value){
-          const value=reply.body.value,target=await documentsTarget(documentsBaseUrl,value);
+        if(shareRoute){
+          if(!previewShares||!publicOrigin||!uuid.test(shareRoute[1]))return send(404,{error:'not_found'});
+          const [,templateId,id]=shareRoute;
+          if(req.method==='GET'&&!id)return send(200,{shares:await previewShares.list(templateId)});
+          if(req.method==='DELETE'&&id){
+            const removed=await previewShares.revoke(templateId,id);
+            return send(removed?200:404,{revoked:removed});
+          }
+          if(req.method!=='POST'||id)return send(405,{error:'method_not_allowed'});
+          const {expectedRevision,fingerprint}=await readBody(4096)??{};
+          const current=await ask({action:'get',templateId});
+          const draft=current.body?.value;
+          if(current.status!==200||!draft)return send(current.status,{error:'not_found'});
+          if(!Number.isSafeInteger(expectedRevision)||expectedRevision<1||draft.revision!==expectedRevision||draft.fingerprint!==fingerprint)
+            return send(409,{error:'STALE_CURRENT'});
+          const share=await previewShares.create(draft);
+          const link=new URL('/shared-preview',publicOrigin);
+          link.hash=share.token;
+          return send(201,{id:share.id,revision:share.revision,expiresAt:share.expiresAt,url:link.href});
+        }
+        let packet;
+        if(guest){
+          const path=req.url.slice('/shared-preview'.length);
+          const share=await previewShares?.get(req.headers['x-flowdoc-preview-share']);
+          if(!share)return send(410,{error:'preview_share_unavailable'});
+          if(req.method==='GET'&&!path){
+            const {templateId,docKey,name,revision,fingerprint,definition}=share.draft;
+            return send(200,{ok:true,value:{templateId,docKey,name,revision,fingerprint,readOnly:true,
+              definition:{...definition,examples:[]}},expiresAt:new Date(share.until).toISOString()});
+          }
+          if(req.method==='POST'&&['/preview','/export'].includes(path))body=await readBody(4*1024*1024);
+          packet=previewSharePacket(req.method,path,share,req.headers['x-flowdoc-preview-session'],body);
+          if(!packet)return send(404,{error:'not_found'});
+          ({action,templateId}=packet);
+        }else{
+          if(!action)return send(404,{error:'not_found'});
+          if(req.method!=='GET')body=await readBody(['preview','export'].includes(action)?4*1024*1024:
+            ['structure','create'].includes(action)?2*1024*1024:4096);
+          packet={action,templateId,body};
+        }
+        const reply=await ask(packet);
+        if(['get','create','rename','structure'].includes(action)&&reply.status<300&&reply.body?.value&&previewShares&&publicOrigin){
+          send(reply.status,{...reply.body,value:{...reply.body.value,canSharePreview:true}});
+        }else if(action==='publication'&&reply.status===200&&reply.body?.value){
+          const value=reply.body.value,target=await documentsTarget(documentsBaseUrlFor?.(value)??documentsBaseUrl,value);
           send(200,{...reply.body,value:{...value,target}});
         }else if(action==='export'&&reply.status===200){
           const {id,size,mediaType,disposition,warningCount}=reply.body;
@@ -169,7 +218,14 @@ export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1',
           res.end(Buffer.from(reply.bytes,'base64'));
         }else send(reply.status,reply.body);
       }
-      catch{if(res.headersSent||res.destroyed)res.destroy();else send(503,{error:'phase1_unavailable'});}
+      catch(error){
+        if(res.headersSent||res.destroyed)return res.destroy();
+        const inputErrors={400:'invalid_json',413:'body_too_large',415:'invalid_content_type'};
+        if(inputErrors[error])return send(error,{error:inputErrors[error]});
+        if(error?.message==='SHARE_LIMIT')return send(429,{error:'preview_share_limit'});
+        if(error?.message==='SHARE_TOO_LARGE')return send(413,{error:'preview_share_too_large'});
+        send(503,{error:'phase1_unavailable'});
+      }
     });
   }};
 }

@@ -152,9 +152,9 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
     }
     if(field.type==='image'){
       const input=node('input');input.type='file';input.accept='image/png,image/jpeg';
-      const id=crypto.randomUUID();
+      let id=crypto.randomUUID();
       let isSample=false;
-      input.addEventListener('change',()=>{isSample=false;});
+      input.addEventListener('change',()=>{isSample=false;id=crypto.randomUUID();});
       return {element:labeled(label+' · PNG หรือ JPEG',input),fill(sample){
         if(input.files?.length)return;
         const transfer=new DataTransfer();

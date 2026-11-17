@@ -6,10 +6,18 @@ import {extname,join,resolve,sep} from 'node:path';
 import {pipeline} from 'node:stream/promises';
 import {fileURLToPath} from 'node:url';
 import {phase1Bridge} from './phase1-bridge.mjs';
+import {openPreviewShares,sharedPreviewApi} from './preview-shares.mjs';
 
 const site=fileURLToPath(new URL('../dist/',import.meta.url));
 const watermarkRuntime=join(site,'preview-watermark-runtime.cjs');
 const prefix='/api/editor-phase1';
+const shareOrigin=process.env.FLOWDOC_PREVIEW_SHARE_ORIGIN;
+const sharesDirectory=process.env.FLOWDOC_PREVIEW_SHARE_DIR;
+const shareUrl=shareOrigin?new URL(shareOrigin):undefined;
+if(shareUrl&&(shareUrl.origin!==shareOrigin||shareUrl.protocol!=='https:'&&
+  !['127.0.0.1','localhost'].includes(shareUrl.hostname)))throw Error('Invalid shared Preview origin');
+const previewShares=sharesDirectory&&shareUrl?await openPreviewShares(sharesDirectory):undefined;
+if(previewShares)setInterval(()=>previewShares.sweep().catch(()=>{}),15*60*1000).unref();
 const mediaTypes={
   '.css':'text/css; charset=utf-8','.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8',
   '.json':'application/json; charset=utf-8','.wasm':'application/wasm','.woff2':'font/woff2','.woff':'font/woff',
@@ -24,9 +32,19 @@ const server=createServer((request,response)=>{
 });
 
 async function dispatch(request,response){
-  if(!/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(request.headers.host??''))
+  const host=request.headers.host??'';
+  const local=/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host);
+  const publicGuest=previewShares&&host===shareUrl.host;
+  if(!local&&!publicGuest)
     return response.writeHead(403).end();
   const url=new URL(request.url,'http://localhost');
+  if(previewShares&&(url.pathname===sharedPreviewApi||url.pathname.startsWith(sharedPreviewApi+'/'))){
+    request.url='/shared-preview'+url.pathname.slice(sharedPreviewApi.length)+url.search;
+    return api(request,response);
+  }
+  if(publicGuest&&!local&&url.pathname!=='/shared-preview'&&
+    !/^\/(?:assets\/[\w.-]+\.(?:js|css)|font-(?:300|400)\.ttf|flowdoc-sample\.png)$/.test(url.pathname))
+    return response.writeHead(404).end();
   if(url.pathname===prefix||url.pathname.startsWith(prefix+'/')){
     request.url=url.pathname.slice(prefix.length)+url.search;
     return api(request,response);
@@ -37,6 +55,12 @@ async function dispatch(request,response){
   let pathname;
   try{pathname=decodeURIComponent(url.pathname);}
   catch{return response.writeHead(400).end();}
+  if(pathname==='/shared-preview'){
+    if(!previewShares)return response.writeHead(404).end();
+    response.setHeader('Referrer-Policy','no-referrer');
+    response.setHeader('X-Robots-Tag','noindex, nofollow');
+    pathname='/phase1-editor.html';
+  }
   const file=resolve(join(site,pathname));
   const type=mediaTypes[extname(file)];
   if(!file.startsWith(resolve(site)+sep)||!type)
@@ -49,7 +73,7 @@ async function dispatch(request,response){
   await pipeline(createReadStream(file),response);
 }
 
-phase1Bridge({enabled:true,startWorker:()=>spawn(process.execPath,['/phase1/phase1-server.mjs'],{
+phase1Bridge({enabled:true,previewShares,previewShareOrigin:shareOrigin,startWorker:()=>spawn(process.execPath,['/phase1/phase1-server.mjs'],{
   env:{...process.env,FLOWDOC_PREVIEW_WATERMARK_RUNTIME:watermarkRuntime}
 })})
   .configureServer({httpServer:server,middlewares:{use(path,handler){

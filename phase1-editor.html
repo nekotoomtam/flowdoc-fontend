@@ -2,9 +2,9 @@
 <html lang="th">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>จัดการโครง UAT · FlowDoc</title></head>
 <body>
-<header class="topbar"><a class="brand" href="/library.html?phase1=1">FlowDoc</a><span class="badge">UAT · ฉบับทดสอบ · จัดโครง</span></header>
+<header class="topbar"><a id="editor-brand" class="brand" href="/library.html?phase1=1">FlowDoc</a><span id="editor-badge" class="badge">UAT · ฉบับทดสอบ · จัดโครง</span></header>
 <main>
-  <div class="title editor-title"><div><a href="/library.html?phase1=1">‹ กลับคลังโครงทดสอบ</a><h1 id="title">กำลังเปิดโครงเอกสาร</h1><p id="revision"></p></div>
+  <div class="title editor-title"><div><a id="editor-library-link" href="/library.html?phase1=1">‹ กลับคลังโครงทดสอบ</a><h1 id="title">กำลังเปิดโครงเอกสาร</h1><p id="revision"></p></div>
   <div class="editor-toolbar"><nav aria-label="โหมดเอกสาร"><button id="define-tab" aria-pressed="true">แก้โครง</button><button id="preview-tab" aria-pressed="false" disabled>ลองข้อมูล / Preview</button><button id="api-tab" type="button" aria-pressed="false" aria-controls="api-panel" hidden>API</button></nav><button id="save-structure" class="primary" type="button" disabled>บันทึกโครง</button></div></div>
   <div id="structure-pending" class="structure-tools" hidden><strong>ฉบับร่างยังไม่ได้บันทึก</strong><button id="undo-structure" type="button">ย้อนขั้นล่าสุด</button><button id="discard-structure" type="button">ทิ้งการแก้โครง</button></div>
   <p id="status" role="status"></p>
@@ -66,6 +66,7 @@
       <div class="trial-result">
         <div class="trial-heading">
           <h2>กระดาษเสมือนจาก Engine</h2>
+          <button id="open-preview-share" type="button" hidden>แชร์ Preview</button>
           <details id="trial-export" hidden>
             <summary>Export</summary>
             <div class="trial-export-options">
@@ -87,6 +88,15 @@
   </section>
   <section id="api-panel" class="panel api-panel" aria-label="นำโครงไปใช้ผ่าน API" hidden></section>
 </main>
+<dialog id="preview-share-dialog" aria-labelledby="preview-share-title">
+  <h2 id="preview-share-title">แชร์ Preview</h2>
+  <p>ลิงก์ใช้ได้ 24 ชั่วโมงนับจากสร้าง ผู้รับกรอกข้อมูลและดาวน์โหลดไฟล์ทดลองได้</p>
+  <p>ลิงก์เปิดโครงฉบับที่บันทึกไว้ และเริ่มจากข้อมูลว่าง</p>
+  <div class="structure-tools"><button id="create-preview-share" class="primary" type="button">สร้างลิงก์</button><form method="dialog"><button>ปิด</button></form></div>
+  <div id="preview-share-copy-row" hidden><label for="preview-share-link">ลิงก์ที่สร้าง</label><input id="preview-share-link" readonly><button id="copy-preview-share" type="button">คัดลอก</button></div>
+  <div id="preview-share-list"></div>
+  <p id="preview-share-status" role="status"></p>
+</dialog>
 <textarea id="trial-paper-value" hidden rows="1" aria-label="พิมพ์บนกระดาษ"></textarea>
 <div id="trial-paper-draft" hidden aria-hidden="true"></div>
 <form id="inline-editor" hidden><label for="inline-value">แก้ข้อความบนกระดาษ</label><input id="inline-value" required><p id="inline-error" role="alert"></p><div><button type="submit" class="primary">ใช้ข้อความนี้</button><button id="inline-cancel" type="button">ยกเลิก</button></div></form>

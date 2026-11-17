@@ -3,7 +3,7 @@ import type {Trial} from './editor-trial';
 
 type Snapshot=Pick<Trial,'data'|'sections'|'images'>;
 type Format='pdf'|'docx';
-type Context={url:string;docKey:string;revision:number;fingerprint:string;snapshot:()=>Promise<Snapshot>};
+type Context={url:string;docKey:string;revision:number;fingerprint:string;headers?:Record<string,string>;snapshot:()=>Promise<Snapshot>};
 const mediaType={pdf:'application/pdf',docx:wordMediaType};
 
 export function installTrialExport(menu:HTMLDetailsElement,status:HTMLElement,context:()=>Context|undefined){
@@ -25,11 +25,12 @@ export function installTrialExport(menu:HTMLDetailsElement,status:HTMLElement,co
     inform('กำลังสร้างไฟล์จากข้อมูลทดลอง…');
     try{
       const trial=await task.snapshot();
-      const response=await fetch(task.url,{method:'POST',headers:{'Content-Type':'application/json'},
+      const response=await fetch(task.url,{method:'POST',headers:{...task.headers,'Content-Type':'application/json'},
         body:JSON.stringify({format,expectedRevision:task.revision,fingerprint:task.fingerprint,trial}),
         signal:AbortSignal.timeout(180000)});
       if(!response.ok){
         const error=await response.json();
+        if(response.status===410)throw Error('ลิงก์หมดอายุหรือถูกยกเลิกแล้ว กรุณาขอลิงก์ใหม่');
         if(error.error==='STALE_CURRENT')throw Error('โครงมีฉบับใหม่แล้ว กรุณาเปิดฉบับล่าสุดก่อนออกไฟล์');
         if(error.error==='font_not_ready')throw Error('ฟอนต์ของโครงยังไม่พร้อมสำหรับออกไฟล์');
         if(error.error==='invalid_image')throw Error('ตรวจไฟล์รูปที่แนบแล้วลองใหม่');

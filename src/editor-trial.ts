@@ -93,8 +93,14 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
   function fields(schema:Schema,sectionLabel='',headingLevel?:string){
     const element=node('div');element.className='trial-fields';
     const controls=new Map<string,Control>();
+    const computedInputs=new Map<string,'quantity'|'unit'>();
+    for(const field of Object.values(schema.fields)){
+      if(!field.computed)continue;
+      computedInputs.set(field.computed.inputs.quantity,'quantity');
+      computedInputs.set(field.computed.inputs.unit,'unit');
+    }
     for(const [key,field] of Object.entries(schema.fields)){
-      const result=fieldControl(key,field,sectionLabel,headingLevel);
+      const result=fieldControl(key,field,sectionLabel,headingLevel,computedInputs.get(key));
       element.append(result.element);controls.set(key,result);
     }
     if(!controls.size)element.append(node('p','ส่วนนี้ไม่มีตัวแปร'));
@@ -106,8 +112,25 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
       return data;
     }};
   }
-  function fieldControl(key:string,field:Field,sectionLabel:string,headingLevel?:string):Control{
+  function fieldControl(key:string,field:Field,sectionLabel:string,headingLevel?:string,computedInput?:'quantity'|'unit'):Control{
     const label=(field.label||key)+(field.required?' (ต้องระบุ)':'');
+    if(field.computed||field.formula){
+      return {element:node('p',label+' · คำนวณอัตโนมัติ'),fill(){},read(){return undefined;}};
+    }
+    if(field.type==='number'){
+      const input=node('input');input.type='number';input.step='any';
+      return {element:labeled(label,input),fill(sample){
+        if(!input.value){input.value='1';sample.record();}
+      },read(context){
+        if(input.validity.badInput)throw Error('กรอกตัวเลขสำหรับ '+label);
+        if(!input.value&&field.required&&field.default===undefined){
+          if(context.requireImages)throw Error('กรอกตัวเลขสำหรับ '+label+' ก่อนดาวน์โหลด');
+          return context.apiImages?undefined:0;
+        }
+        if(!input.value)return undefined;
+        return input.valueAsNumber;
+      }};
+    }
     if(field.type==='array'||field.type==='area'){
       const panel=node('fieldset');panel.append(node('legend',(field.type==='area'?'พื้นที่ ': '')+label));
       const formats=field.type==='area'?Object.values(definition.areaFormats??{}).filter(format=>format.ownerAreaId===field.areaId):[];
@@ -202,11 +225,11 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
     if(key==='anchor')input.dataset.trialAnchor='';
     return {element:labeled(label,input),fill(sample){
       if(input.value.trim())return;
-      input.value=key==='anchor'?sample.nextAnchor():sampleTextValue(key,field,sectionLabel,headingLevel);
+      input.value=computedInput==='quantity'?'1':key==='anchor'?sample.nextAnchor():sampleTextValue(key,field,sectionLabel,headingLevel);
       sample.record();
     },read(context,path){
       context.fields.set(JSON.stringify(path),input);
-      if(!input.value)context.blanks.push(path);
+      if(!input.value&&!computedInput)context.blanks.push(path);
       return input.value;
     }};
   }

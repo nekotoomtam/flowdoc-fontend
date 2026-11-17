@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {open,rm,stat} from 'node:fs/promises';
 import {join} from 'node:path';
+import {pathToFileURL} from 'node:url';
 import {createPdfEngine,createDocxEngine,PDF_STREAM_CONTRACT,validateTemplate,prepareGeneration,composeDocument,normalizeOutputName} from '/candidate/node_modules/@flowdoc/core/dist/index.js';
 import {outputDisposition} from '/candidate/dist/tasks/output-name.js';
 import {artifactSpec,DOCX_MAX_BYTES} from '/candidate/dist/tasks/artifact.js';
@@ -43,18 +44,30 @@ export function createTrialExports(root,readDraft,resourcesFor){
       const engine=await (format==='docx'?createDocxEngine(resources):createPdfEngine(resources));
       if(!engine.ok)return invalid(engine);
       const provider=await trialImageProvider(assets,PDF_STREAM_CONTRACT);
-      const output=await open(entry.path,'wx');
+      const maxBytes=format==='docx'?DOCX_MAX_BYTES:256*1024*1024;
+      const rawPath=entry.path+'.raw';
+      const signal=AbortSignal.timeout(100000);
       let rendered;
       try{
-        const sink={write:bytes=>output.writeFile(bytes),async abort(){}};
-        const signal=AbortSignal.timeout(100000);
-        rendered=format==='docx'
-          ?await engine.value.generateDocxTo(composed.value,provider,sink,{signal,maxBytes:DOCX_MAX_BYTES})
-          :await engine.value.generatePdfTo(composed.value,provider,sink,{signal,maxBytes:256*1024*1024});
-      }finally{await output.close();}
-      if(!rendered.ok)return invalid(rendered);
+        const output=await open(rawPath,'wx',0o600);
+        try{
+          const sink={write:bytes=>output.writeFile(bytes),async abort(){}};
+          rendered=format==='docx'
+            ?await engine.value.generateDocxTo(composed.value,provider,sink,{signal,maxBytes})
+            :await engine.value.generatePdfTo(composed.value,provider,sink,{signal,maxBytes});
+        }finally{await output.close();}
+        if(!rendered.ok)return invalid(rendered);
+        const raw=await stat(rawPath);
+        if(raw.size!==rendered.value.byteLength||raw.size===0)return reject(503,'export_failed');
+        try{
+          const location=process.env.FLOWDOC_PREVIEW_WATERMARK_RUNTIME;
+          const runtime=location?pathToFileURL(location):new URL('./preview-watermark-runtime.cjs',import.meta.url);
+          const {default:{stampPreviewExport}}=await import(runtime.href);
+          await stampPreviewExport(format,rawPath,entry.path,{maxBytes,signal});
+        }catch{return reject(503,'export_watermark_failed');}
+      }finally{await rm(rawPath,{force:true});}
       const {size}=await stat(entry.path);
-      if(size!==rendered.value.byteLength||size===0)return reject(503,'export_failed');
+      if(size===0)return reject(503,'export_failed');
       entry.size=size;
       entry.timer=setTimeout(()=>void release(entry).catch(()=>{}),5*60*1000);
       return {status:200,body:{id,size,mediaType:artifactSpec(format).mediaType,

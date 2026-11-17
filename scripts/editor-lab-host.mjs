@@ -8,6 +8,7 @@ import {fileURLToPath} from 'node:url';
 import {phase1Bridge} from './phase1-bridge.mjs';
 
 const site=fileURLToPath(new URL('../dist/',import.meta.url));
+const watermarkRuntime=join(site,'preview-watermark-runtime.cjs');
 const prefix='/api/editor-phase1';
 const mediaTypes={
   '.css':'text/css; charset=utf-8','.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8',
@@ -48,7 +49,9 @@ async function dispatch(request,response){
   await pipeline(createReadStream(file),response);
 }
 
-phase1Bridge({enabled:true,startWorker:()=>spawn(process.execPath,['/phase1/phase1-server.mjs'])})
+phase1Bridge({enabled:true,startWorker:()=>spawn(process.execPath,['/phase1/phase1-server.mjs'],{
+  env:{...process.env,FLOWDOC_PREVIEW_WATERMARK_RUNTIME:watermarkRuntime}
+})})
   .configureServer({httpServer:server,middlewares:{use(path,handler){
     if(path!==prefix)throw Error('Unexpected Editor API path');
     api=handler;

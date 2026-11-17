@@ -1869,6 +1869,7 @@ function mountPreview(result:Preview,focusPage?:number){
     }
     page.setAttribute('aria-label',label);page.firstElementChild!.textContent=label;
     sheet.style.aspectRatio=data[0]+'/'+data[1];
+    sheet.style.setProperty('--preview-watermark-width',Math.min(1,data[1]/data[0])*78+'%');
   }
   previewPaper.append(additions);
   previewPaper.dataset.revision=String(result.revision);

@@ -1,4 +1,4 @@
-import {randomUUID} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 import {open,rm,stat} from 'node:fs/promises';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -6,11 +6,15 @@ import {createPdfEngine,createDocxEngine,PDF_STREAM_CONTRACT,validateTemplate,pr
 import {outputDisposition} from '/candidate/dist/tasks/output-name.js';
 import {artifactSpec,DOCX_MAX_BYTES} from '/candidate/dist/tasks/artifact.js';
 import {trialImages,trialImageProvider} from './trial-preview-images.mjs';
+import {sectionBackgrounds} from './section-backgrounds.mjs';
+import {layoutPreview} from './trial-engine-layout.mjs';
 
 const reject=(status,error)=>({status,body:{error}});
 const invalid=result=>({status:422,body:{issues:result.issues.slice(0,20).map(({code,path})=>({code,path}))}});
 export function createTrialExports(root,readDraft,resourcesFor){
   let active;
+  const directory=process.env.FLOWDOC_SECTION_BACKGROUND_DIR;
+  const backgrounds=directory?sectionBackgrounds(directory):undefined;
   async function release(entry){
     if(!entry)return;
     clearTimeout(entry.timer);
@@ -36,6 +40,19 @@ export function createTrialExports(root,readDraft,resourcesFor){
       if(!prepared.ok)return invalid(prepared);
       const composed=composeDocument(validated.value,prepared.value);
       if(!composed.ok)return invalid(composed);
+      const settings=backgrounds&&!sharedDraft?await backgrounds.read(draft.templateId):{};
+      const sectionImages=new Map(),images=new Map();
+      for(const section of composed.value.sections??[]){
+        const setting=settings[section.definitionId];
+        if(!setting)continue;
+        if(!images.has(setting.sha256)){
+          const image=await backgrounds.image(draft.templateId,setting.sha256);
+          if(!image||createHash('sha256').update(image.bytes).digest('hex')!==setting.sha256)
+            return reject(422,'invalid_section_background');
+          images.set(setting.sha256,{...image,sha256:setting.sha256});
+        }
+        sectionImages.set(section.sectionId,images.get(setting.sha256));
+      }
       let assets;
       try{assets=await trialImages(trial.images);}
       catch{return reject(422,'invalid_image');}
@@ -44,6 +61,17 @@ export function createTrialExports(root,readDraft,resourcesFor){
       const engine=await (format==='docx'?createDocxEngine(resources):createPdfEngine(resources));
       if(!engine.ok)return invalid(engine);
       const provider=await trialImageProvider(assets,PDF_STREAM_CONTRACT);
+      let pageBackgrounds,wordBackgrounds;
+      if(sectionImages.size){
+        const ordered=composed.value.sections.map(section=>sectionImages.get(section.sectionId));
+        if(format==='docx')wordBackgrounds=ordered;
+        else if(ordered.every(image=>image===ordered[0]))pageBackgrounds=ordered[0];
+        else{
+          const layout=await layoutPreview(composed.value,resources,provider.images);
+          if(!layout.ok)return invalid(layout);
+          pageBackgrounds=layout.value.pages.map(page=>sectionImages.get(page.sectionId));
+        }
+      }
       const maxBytes=format==='docx'?DOCX_MAX_BYTES:256*1024*1024;
       const rawPath=entry.path+'.raw';
       const signal=AbortSignal.timeout(100000);
@@ -63,7 +91,7 @@ export function createTrialExports(root,readDraft,resourcesFor){
           const location=process.env.FLOWDOC_PREVIEW_WATERMARK_RUNTIME;
           const runtime=location?pathToFileURL(location):new URL('./preview-watermark-runtime.cjs',import.meta.url);
           const {default:{stampPreviewExport}}=await import(runtime.href);
-          await stampPreviewExport(format,rawPath,entry.path,{maxBytes,signal});
+          await stampPreviewExport(format,rawPath,entry.path,{maxBytes,signal,pageBackgrounds,wordBackgrounds});
         }catch{return reject(503,'export_watermark_failed');}
       }finally{await rm(rawPath,{force:true});}
       const {size}=await stat(entry.path);

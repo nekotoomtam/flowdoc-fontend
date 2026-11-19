@@ -162,7 +162,7 @@ function outline(section: Section): Outline {
         .find(([,f])=>f.type==='area'&&f.areaId===node.props?.areaId)?.[0] : undefined;
       const inline = node.children?.map(inlineText).join('');
       const gap=node.type==='text-block'&&!node.children?.length&&node.props?.heightMode==='fixed'&&node.props.height;
-      const label = areaField ?? (inline || (gap?'เว้นระยะ '+displayLength(gap):['table-row','table-cell'].includes(node.type) ? kinds[node.type]+' '+(position+1) : kinds[node.type]??node.type));
+      const label = areaField ?? ((inline&&!inline.trim()?'เว้นวรรค':inline) || (gap?'เว้นระยะ '+displayLength(gap):['table-row','table-cell'].includes(node.type) ? kinds[node.type]+' '+(position+1) : kinds[node.type]??node.type));
       const result: Outline = {id,ref:{...parent.ref,nodeId:id,part:undefined},label,type:node.type,section,node,format,parent,band:parent.band,children:[]};
       if (node.type==='area') {
         result.children = Object.entries(draft.definition.areaFormats??{}).filter(([,f])=>f.ownerAreaId===node.props?.areaId).map(([formatId,f])=>{
@@ -369,7 +369,13 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
     }else if(item.type==='image'){
       const image=choose(item,props?.source?'ภาพ · {{'+props.source.key+'}}':'ภาพ','definition-image');
       if(props?.width)image.style.width=length(props.width);
-      if(props?.height)image.style.minHeight=length(props.height);
+      if(props?.height)image.style.height=length(props.height);
+      image.title=image.textContent??'';image.setAttribute('aria-label',image.title);
+      image.textContent='';
+      const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');
+      icon.setAttribute('viewBox','0 0 24 24');icon.setAttribute('aria-hidden','true');
+      icon.innerHTML='<path d="M3 4h18v16H3z M4 18l6-7 3 3 3-4 4 6" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="16" cy="8" r="1.5" fill="currentColor"/>';
+      image.append(icon);
       const align=(props as {align?:string}|undefined)?.align;
       if(align==='center')image.style.marginInline='auto';
       if(align==='right')image.style.marginLeft='auto';
@@ -407,7 +413,8 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
     }
     return block;
   }
-  sheet.style.setProperty('--sheet-pt','calc(100cqw / '+width+')');
+  sheet.dataset.widthPt=String(width);sheet.dataset.heightPt=String(height);
+  sheet.style.width='calc('+width+' * var(--sheet-pt))';
   sheet.style.minHeight=unit(height);
   sheet.dataset.pageSize=layout?.size??'A4';
   const body=element('div');body.className='definition-body';
@@ -415,6 +422,7 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
     const empty=element('div');empty.className='empty-authoring-paper';
     empty.append(element('strong','กระดาษเปล่า'),element('p','เลือกองค์ประกอบแรกของ Section นี้'),
       button('+ เพิ่มพื้นที่ (Area)',()=>askArea(root.ref)),button('+ เพิ่มข้อความ',()=>tryStage({kind:'node',at:root.ref,type:'text-block'})));
+    if(draft.readOnly)empty.replaceChildren(element('strong','กระดาษเปล่า'));
     body.append(empty);
   }
   const margin=layout?.margin??{};
@@ -498,6 +506,8 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
 
 function scrollWithin(viewport:HTMLElement,target:HTMLElement){
   const box=viewport.getBoundingClientRect(), selected=target.getBoundingClientRect();
+  if(selected.left<box.left)viewport.scrollLeft+=selected.left-box.left-8;
+  else if(selected.right>box.right)viewport.scrollLeft+=selected.right-box.right+8;
   if(selected.top<box.top)viewport.scrollTop+=selected.top-box.top-8;
   else if(selected.bottom>box.bottom)viewport.scrollTop+=selected.bottom-box.bottom+8;
 }
@@ -548,6 +558,7 @@ function variableGroup(schema:Schema,scope:string,label:string,at?:Ref){
         variables.querySelector('[aria-current=true]')?.removeAttribute('aria-current');
         field.setAttribute('aria-current','true');
         value.textContent=label+' › '+path+' · '+definition.type;
+        showBindingTargets(current,key,label+' › '+path);
       });
       field.className='variable-field';
       field.dataset.variableScope=scope;field.dataset.variablePath=path;
@@ -558,7 +569,7 @@ function variableGroup(schema:Schema,scope:string,label:string,at?:Ref){
     return list;
   }
   container.append(Object.keys(schema.fields).length?fields(schema):element('p','ยังไม่มีตัวแปร'));
-  if(at&&creationMode()){
+  if(at&&creationMode()&&!draft.readOnly){
     const add=button('+ ประกาศตัวแปร',()=>askVariable(at,scope as 'global'|'section'|'local'|'header'|'footer',label));
     const part:Part=scope==='global'?'globalSchema':scope==='section'?'section-schema':scope==='local'?'format-schema':'band-schema';
     const edit=button('แก้ไข / ลบตัวแปร',()=>editPart(at,part,'ตัวแปร · '+label));
@@ -592,9 +603,38 @@ function drawDefinitionVariables(){
   contextVariables=element('div');
   variables.replaceChildren(...groups,contextVariables);
 }
+function boundSource(item:Outline){
+  const inline=item.inline;
+  return inline?.type==='field-ref'&&inline.scope&&inline.key?{scope:inline.scope,key:inline.key}:
+    item.node?.type==='image'?item.node.props?.source:undefined;
+}
+function focusPaper(item:Outline){
+  select(item,true);
+  const target=paperNodes.get(item);
+  if(target){target.focus({preventScroll:true});scrollWithin(paper.parentElement!,target);}
+}
+const lastBinding=new WeakMap<Schema,Map<string,string>>();
+function showBindingTargets(schema:Schema,key:string,label:string){
+  const candidates=[...outlines.values()].filter(item=>{
+    const source=boundSource(item);
+    return source?.key===key&&variableScopes(item).some(s=>s.scope===source.scope&&s.schema===schema);
+  });
+  const current=candidates.find(item=>item===selection)??candidates.find(item=>refKey(item.ref)===lastBinding.get(schema)?.get(key));
+  if(current||candidates.length===1){focusPaper(current??candidates[0]);return;}
+  q('binding-inspector').hidden=false;
+  q('binding-name').textContent=label;
+  q('binding-return').hidden=true;
+  q('binding-targets').replaceChildren(...(candidates.length?candidates.map(item=>button(outlinePath(item),()=>focusPaper(item))):
+    [element('p','ยังไม่มีจุดที่ผูกบนกระดาษ')]));
+}
+q('binding-return').addEventListener('click',()=>{if(selection)focusPaper(selection);});
 function drawVariables(item:Outline){
   const selected=item.inline?.type==='field-ref'&&item.inline.scope&&item.inline.key
     ?{scope:item.inline.scope,key:item.inline.key}:item.node?.type==='image'?item.node.props?.source:undefined;
+  q('binding-inspector').hidden=!selected;
+  q('binding-return').hidden=!selected;
+  q('binding-targets').replaceChildren();
+  q('binding-name').textContent=selected?selected.scope+' · '+selected.key:'';
   variables.querySelector('[aria-current=true]')?.removeAttribute('aria-current');
   q('variable-detail').textContent='';
   for(const stale of contextVariables.children){
@@ -605,6 +645,10 @@ function drawVariables(item:Outline){
     .map(({schema,scope,label})=>variableGroup(schema,scope,label)));
   if(selected){
     const scope=scopes.find(scope=>scope.scope===selected.scope);
+    if(scope){
+      const seen=lastBinding.get(scope.schema)??new Map<string,string>();
+      seen.set(selected.key,refKey(item.ref));lastBinding.set(scope.schema,seen);
+    }
     const group=scope&&variableGroups.get(scope.schema);
     const field=group&&[...group.querySelectorAll<HTMLButtonElement>('[data-variable-path]')]
       .find(control=>control.dataset.variablePath===selected.key);
@@ -659,10 +703,11 @@ function select(item: Outline, measure: boolean, spacing?:'before'|'after') {
     scrollWithin(paper.parentElement!,target);
   }
   q('path').textContent=path.join(' › ');
-  form.hidden=item.type!=='section';
+  form.hidden=item.type!=='section'||!!draft.readOnly;
   if(item.type==='section'&&!hasConflict) input.value=item.label;
   if(!hasConflict)status.textContent='';
   drawVariables(item);
+  fitPaper();
   showLayoutFacts(item,spacing);
   showActions(item);
   if(measure)afterPaint('flowdoc:tree-selection',started,{type:item.type});
@@ -680,12 +725,12 @@ function refreshButtons(){
   q<HTMLButtonElement>('save-structure').disabled=!dirty||isSaving||hasConflict;
   q<HTMLButtonElement>('undo-structure').disabled=isSaving||hasConflict||!history.length;
   q<HTMLButtonElement>('discard-structure').disabled=isSaving||hasConflict||!savedDefinition;
-  q<HTMLButtonElement>('add-section').disabled=isSaving||hasConflict;
+  q<HTMLButtonElement>('add-section').disabled=isSaving||hasConflict||!!draft.readOnly;
   previewTab.disabled=dirty||!templateId||isSaving||hasConflict;
-  apiTab.hidden=!templateId||!savedDefinition||draft.revision<1;
+  apiTab.hidden=!templateId||!savedDefinition||draft.revision<1||!!draft.readOnly;
   previewTab.title=previewTab.disabled?'บันทึกโครงก่อนลองข้อมูล':'ลองค่าตัวแปรบนกระดาษเสมือน';
-  save.disabled=dirty||isSaving||hasConflict||!templateId;
-  input.readOnly=dirty||isSaving;
+  save.disabled=dirty||isSaving||hasConflict||!templateId||!!draft.readOnly;
+  input.readOnly=dirty||isSaving||!!draft.readOnly;
   if(selection)showActions(selection);
   for(const control of variables.querySelectorAll<HTMLButtonElement>('[data-schema-action]'))control.disabled=isSaving||hasConflict;
 }
@@ -694,6 +739,7 @@ function showDraft(data: Draft, keep?: Ref) {
   title.textContent=data.name;
   q('revision').textContent=data.revision?'Model 20 · Revision '+data.revision:'Model 20 · ฉบับร่างใหม่';
   q('creation-steps').hidden=Boolean(templateId)||!creationMode();
+  q('editor-badge').textContent=data.readOnly?'อ่านอย่างเดียว':'แก้โครงเอกสาร';
   const prior=new Map(roots.map(root=>[root.section,root]));
   roots=data.definition.sections.map(section=>prior.get(section)??outline(section));
   outlines=new Map();
@@ -769,12 +815,12 @@ function ask(title:string, fields:FormField[], run:(values:Record<string,string>
   dialog.showModal();
 }
 function stage(change:Change){
-  if(isSaving||hasConflict)return;
+  if(isSaving||hasConflict||draft.readOnly)return;
   const result=applyStructureChange(draft.definition,change);
   stageDefinition(result.definition,result.selection,change.kind);
 }
 function stageDefinition(definition:Definition,keep:Ref,action:string){
-  if(isSaving||hasConflict)return;
+  if(isSaving||hasConflict||draft.readOnly)return;
   const started=performance.now();
   history.push({definition:draft.definition,selection:selection!.ref});
   if(history.length>20)history.shift();
@@ -897,7 +943,7 @@ function askBinding(item:Outline){
 }
 function displayLength(value:Length){return new Intl.NumberFormat('th-TH',{maximumFractionDigits:3}).format(value.value)+' '+value.unit;}
 function editLineSpacing(item:Outline,side:'before'|'after'){
-  if(isSaving||hasConflict)return;
+  if(isSaving||hasConflict||draft.readOnly)return;
   const before=side==='before';
   const prior=(before?item.node?.props?.spaceBefore:item.node?.props?.spaceAfter)??{value:0,unit:'pt'};
   const label=before?'ระยะเว้นก่อนเส้น':'ระยะเว้นหลังเส้น';
@@ -1002,6 +1048,22 @@ function editTableCell(table:Outline,current?:Outline){
     picker.addEventListener('change',update);update();
   });
 }
+function paintControl(item:Outline,property:'color'|'borderColor'|'fillColor',label:string){
+  const group=element('fieldset');group.className='paint-control';group.dataset.paint=property;
+  group.append(element('legend',label));
+  const current=item.node?.props?.[property]?.toUpperCase();
+  const apply=(value:string)=>{if(value!==current)tryStage({kind:'paint',at:item.ref,property,value});};
+  for(const [value,name] of [['172A3A','กรมท่า'],['286695','น้ำเงิน'],['187A65','เขียว'],['B94C39','แดง'],['FFFFFF','ขาว'],['000000','ดำ']]){
+    const swatch=button('',()=>apply(value));swatch.style.backgroundColor='#'+value;
+    swatch.dataset.color=value;swatch.title=name+' #'+value;swatch.setAttribute('aria-label',swatch.title);
+    swatch.setAttribute('aria-pressed',String(value===current));group.append(swatch);
+  }
+  const custom=element('input');custom.type='color';custom.value='#'+(current??'000000');
+  custom.title='เลือกสีเอง';custom.setAttribute('aria-label',label+' · เลือกสีเอง');
+  custom.addEventListener('change',()=>apply(custom.value.substring(1).toUpperCase()));
+  group.append(custom);group.disabled=isSaving||hasConflict||draft.readOnly===true;
+  return group;
+}
 function showLayoutFacts(item:Outline,spacing?:'before'|'after'){
   const panel=q('layout-facts'),summary=q('paper-layout-summary'),actions=q('paper-layout-actions');
   actions.replaceChildren();
@@ -1017,6 +1079,10 @@ function showLayoutFacts(item:Outline,spacing?:'before'|'after'){
     if(!draft.readOnly)actions.append(control);
     return control;
   };
+  const paint=q('paper-paint');paint.replaceChildren();
+  if(item.type==='line')paint.append(paintControl(item,'color','สีเส้น'));
+  if(item.type==='table')paint.append(paintControl(item,'borderColor','สีขอบตาราง'));
+  if(item.type==='table-cell')paint.append(paintControl(item,'fillColor','สีพื้นเซลล์'));
   const lineage:Outline[]=[];
   for(let current:Outline|undefined=item;current;current=current.parent)lineage.push(current);
   const table=lineage.find(current=>current.type==='table');
@@ -1393,7 +1459,7 @@ function closeInlineEditor(){
   inlineTarget=undefined;inlineEditor.hidden=true;q('inline-error').textContent='';
 }
 function openInlineEditor(item:Outline){
-  if(item.inline?.type!=='text'||isSaving||hasConflict)return;
+  if(item.inline?.type!=='text'||isSaving||hasConflict||draft.readOnly)return;
   select(item,true);
   const anchor=paperNodes.get(item);
   if(!anchor||!paper.contains(anchor))return;
@@ -1423,15 +1489,33 @@ inlineEditor.addEventListener('keydown',event=>{
   if(event.key==='Escape'){event.preventDefault();const target=inlineTarget;closeInlineEditor();if(target)paperNodes.get(target)?.focus();}
 });
 q('inline-cancel').addEventListener('click',closeInlineEditor);
-let paperZoom=100;
+let paperZoom=100,fitMode=true;
+const paperViewport=paper.parentElement!;
+function setPaperZoom(value:number){
+  paperZoom=value;
+  paper.style.setProperty('--sheet-pt',String(4/3*value/100)+'px');
+  q('paper-zoom').textContent=Math.round(value)+'%';
+  q('zoom-fit').setAttribute('aria-pressed',String(fitMode));
+  q<HTMLButtonElement>('zoom-out').disabled=value<=20;
+  q<HTMLButtonElement>('zoom-in').disabled=value>=250;
+}
+function fitPaper(){
+  if(!fitMode||!paperViewport.clientWidth)return;
+  const sheet=(selection&&paperNodes.get(selection)?.closest<HTMLElement>('.definition-sheet'))??
+    (selection&&sectionSheets.get(roots.find(root=>root.section===selection!.section)!)?.querySelector<HTMLElement>('.definition-sheet'))??
+    paper.querySelector<HTMLElement>('.definition-sheet');
+  if(!sheet)return;
+  const tools=sheet.parentElement?.querySelector<HTMLElement>('.definition-section-tools');
+  const width=Number(sheet.dataset.widthPt)*4/3,height=Number(sheet.dataset.heightPt)*4/3;
+  setPaperZoom(Math.min(150,(paperViewport.clientWidth-28)/width*100,(paperViewport.clientHeight-(tools?.offsetHeight??0)-36)/height*100));
+}
 function zoomPaper(delta:number){
-  paperZoom=Math.max(100,Math.min(175,paperZoom+delta));
-  paper.style.setProperty('--paper-zoom',String(paperZoom/100));
-  q('paper-zoom').textContent=paperZoom+'%';
-  q<HTMLButtonElement>('zoom-out').disabled=paperZoom===100;
-  q<HTMLButtonElement>('zoom-in').disabled=paperZoom===175;
+  fitMode=false;
+  setPaperZoom(Math.max(20,Math.min(250,(delta>0?Math.floor(paperZoom/25):Math.ceil(paperZoom/25))*25+delta)));
   closeInlineEditor();
 }
+q('zoom-fit').addEventListener('click',()=>{fitMode=true;fitPaper();});
+new ResizeObserver(()=>fitPaper()).observe(paperViewport);
 q('zoom-in').addEventListener('click',()=>zoomPaper(25));
 q('zoom-out').addEventListener('click',()=>zoomPaper(-25));
 q('show-guides').addEventListener('click',()=>{
@@ -1465,7 +1549,7 @@ q('discard-structure').addEventListener('click',()=>{
   },'การแก้ในหน้านี้จะถูกทิ้ง');
 });
 q('save-structure').addEventListener('click',async()=>{
-  if(!isDirty()||isSaving||hasConflict)return;
+  if(!isDirty()||isSaving||hasConflict||draft.readOnly)return;
   const started=performance.now(), keep=selection?.ref;
   isSaving=true;refreshButtons();
   status.textContent='กำลังตรวจโครงกับ Core และบันทึก…';
@@ -2164,7 +2248,7 @@ function changeMode(mode:'define'|'preview'|'api') {
 form.addEventListener('submit',async event=>{
   event.preventDefault();
   const item=selection,label=input.value.trim();
-  if(!item||item.type!=='section'||!label||isSaving||hasConflict||isDirty())return;
+  if(!item||item.type!=='section'||!label||isSaving||hasConflict||isDirty()||draft.readOnly)return;
   if(label===item.section.label){status.textContent='ชื่อส่วนยังเหมือนเดิม';return;}
   isSaving=true;refreshButtons();
   status.textContent='กำลังบันทึก…';
@@ -2208,7 +2292,17 @@ if(sharedPreview){
   void load();
 }else if(newMode&&!templateId){
   q('title').textContent='สร้างโครงเอกสาร';q('new-document').hidden=false;
-  q<HTMLFormElement>('new-document-form').addEventListener('submit',event=>{
+  const newForm=q<HTMLFormElement>('new-document-form');
+  function updateNewSheet(){
+    const values=new FormData(newForm),size=String(values.get('size')),landscape=values.get('orientation')==='landscape';
+    const [short,long]=paperSizes[size]??paperSizes.A4,[width,height]=landscape?[long,short]:[short,long];
+    const sheet=q('new-sheet');sheet.style.aspectRatio=width+' / '+height;
+    const inner=sheet.firstElementChild as HTMLElement;
+    for(const side of paddingSides)inner.style[side]=Math.max(0,Math.min(180,Number(values.get(side))||0))/(side==='left'||side==='right'?width:height)*100+'%';
+    q('new-sheet-label').textContent=size+' · '+(landscape?'แนวนอน':'แนวตั้ง');
+  }
+  newForm.addEventListener('input',updateNewSheet);updateNewSheet();
+  newForm.addEventListener('submit',event=>{
     event.preventDefault();
     try{
       const values=Object.fromEntries(new FormData(event.currentTarget as HTMLFormElement)) as Record<string,string>;

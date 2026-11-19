@@ -4,7 +4,7 @@
 <body>
 <header class="topbar"><a id="editor-brand" class="brand" href="/library.html?phase1=1">FlowDoc</a><span id="editor-badge" class="badge">UAT · ฉบับทดสอบ · จัดโครง</span></header>
 <main>
-  <div class="title editor-title"><div><a id="editor-library-link" href="/library.html?phase1=1">‹ กลับคลังโครงทดสอบ</a><h1 id="title">กำลังเปิดโครงเอกสาร</h1><p id="revision"></p></div>
+  <div class="title editor-title"><div><a id="editor-library-link" href="/library.html?phase1=1">‹ คลังโครงเอกสาร</a><h1 id="title">กำลังเปิดโครงเอกสาร</h1><p id="revision"></p></div>
   <div class="editor-toolbar"><nav aria-label="โหมดเอกสาร"><button id="define-tab" aria-pressed="true">แก้โครง</button><button id="preview-tab" aria-pressed="false" disabled>ลองข้อมูล / Preview</button><button id="api-tab" type="button" aria-pressed="false" aria-controls="api-panel" hidden>API</button></nav><button id="save-structure" class="primary" type="button" disabled>บันทึกโครง</button></div></div>
   <div id="structure-pending" class="structure-tools" hidden><strong>ฉบับร่างยังไม่ได้บันทึก</strong><button id="undo-structure" type="button">ย้อนขั้นล่าสุด</button><button id="discard-structure" type="button">ทิ้งการแก้โครง</button></div>
   <p id="status" role="status"></p>
@@ -12,6 +12,7 @@
   <p class="selection-kicker">ขั้นที่ 1 · ตั้งกระดาษ</p>
   <h2>สร้างโครงเอกสารใหม่</h2>
   <p>ตั้งชื่อโครงและ Section แรก จากนั้นเริ่มวางองค์ประกอบบนกระดาษเปล่า</p>
+  <div class="new-paper-workspace"><figure class="new-paper-stage"><div id="new-sheet"><i></i></div><figcaption id="new-sheet-label"></figcaption></figure>
   <form id="new-document-form">
     <label>ชื่อโครงเอกสาร <input name="name" maxlength="128" required></label>
     <label>รหัสโครง <input name="key" maxlength="42" pattern="[a-z0-9\-]+" placeholder="เช่น uat-v1" required></label>
@@ -28,25 +29,27 @@
     </fieldset>
     <p id="new-document-error" role="alert"></p>
     <button class="primary" type="submit">เริ่มวางโครงบนกระดาษ</button>
-  </form>
+  </form></div>
 </section>
 <div class="creation-steps" id="creation-steps" hidden><strong>ขั้นที่ 2 · วางองค์ประกอบ</strong><span>เลือก Section เพื่อเพิ่มหัว–ท้ายและ Area จากนั้นเลือก Format เพื่อวาง node</span><span>ขั้นที่ 3 · ตรวจและบันทึกโครง</span></div>
 
   <div class="grid" id="editor" hidden>
-    <section class="panel" aria-label="Tree โครงสร้าง"><h2>โครงสร้างเอกสาร</h2><p>เลือกจาก Tree หรือจากกระดาษ</p><div class="structure-tools"><button id="add-section" type="button">+ เพิ่ม Section</button></div><div id="tree"></div></section>
-    <section class="panel workspace" aria-label="กระดาษนิยาม"><div class="paper-toolbar"><div><h2>กระดาษนิยาม</h2><p>เลือกบนกระดาษเพื่อดูว่ารายการนั้นอยู่ตรงไหนและวางตำแหน่งอย่างไร</p></div><div class="paper-controls"><button id="zoom-out" type="button" aria-label="ย่อกระดาษ" disabled>−</button><span id="paper-zoom">100%</span><button id="zoom-in" type="button" aria-label="ขยายกระดาษ">+</button><button id="show-guides" type="button" aria-pressed="true">เส้นช่วยดูโครง</button><details class="paper-view-options"><summary>มุมมอง</summary><button id="show-handles" type="button" aria-pressed="false">แสดงจุดเลือก</button></details></div></div>
+    <section class="panel" aria-label="Tree โครงสร้าง"><h2>โครงสร้างเอกสาร</h2><div class="structure-tools"><button id="add-section" type="button">+ เพิ่ม Section</button></div><div id="tree"></div></section>
+    <section class="panel workspace" aria-label="กระดาษนิยาม"><div class="paper-toolbar"><div><h2>กระดาษนิยาม</h2></div><div class="paper-controls"><button id="zoom-fit" type="button" aria-pressed="true">พอดีหน้า</button><button id="zoom-out" type="button" aria-label="ย่อกระดาษ" disabled>−</button><span id="paper-zoom">100%</span><button id="zoom-in" type="button" aria-label="ขยายกระดาษ">+</button><button id="show-guides" type="button" aria-pressed="true">เส้นช่วยดูโครง</button><details class="paper-view-options"><summary>มุมมอง</summary><button id="show-handles" type="button" aria-pressed="false">แสดงจุดเลือก</button></details></div></div>
+      <p id="guide-legend"><i class="legend-grid" aria-hidden="true"></i> ตาราง <i class="legend-spacing" aria-hidden="true"></i> ระยะเว้น</p>
+      <div class="definition-viewport"><article id="paper" class="show-guides"></article></div></section>
+    <aside class="selection-inspector">
       <div id="paper-edit-tools" class="paper-edit-tools" role="group" aria-label="แก้ไขบนกระดาษ">
         <nav id="paper-path" aria-label="ตำแหน่งในโครงเอกสาร"></nav>
         <p id="paper-selection" aria-live="polite"></p>
         <p id="paper-layout-summary" hidden></p>
         <div id="paper-actions"></div>
+        <div id="paper-paint"></div>
         <div id="paper-order"></div>
         <div id="paper-layout-actions" hidden></div>
       </div>
-      <p id="guide-legend">กรอบสีเขียวอ่อนคือขอบตาราง · แถบสีอำพันคือระยะเว้นที่กดตรวจได้</p>
-      <div class="definition-viewport"><article id="paper" class="show-guides"></article></div></section>
-    <aside>
-      <section class="panel layout-inspector" aria-label="ที่มาของตำแหน่ง"><h2>ทำไมถึงอยู่ตรงนี้</h2><div id="layout-facts"></div></section>
+      <section id="binding-inspector" class="panel" hidden><h2>ตัวแปรที่ผูกไว้</h2><code id="binding-name"></code><button id="binding-return" type="button">◎ ชี้บนกระดาษ</button><div id="binding-targets"></div></section>
+      <section class="panel layout-inspector" aria-label="ที่มาของตำแหน่ง"><h2>ตำแหน่งและระยะ</h2><div id="layout-facts"></div></section>
       <details id="advanced-details" class="panel extra-panel"><summary>คำสั่งและรายละเอียดเพิ่มเติม</summary>
       <h2 id="selection"></h2><p id="path"></p><p id="selection-detail"></p>
       <form id="rename" hidden><label for="section-name">ชื่อส่วนเอกสาร</label><input id="section-name" required maxlength="128"><button class="primary" id="save" type="submit">บันทึกชื่อ Section</button></form>

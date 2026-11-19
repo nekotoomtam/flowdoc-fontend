@@ -35,6 +35,7 @@ export type Change = {kind:'section';label:string} | {kind:'area';at:Ref;key:str
   | {kind:'format';at:Ref;key:string} | {kind:'node';at:Ref;type:string;source?:{scope:string;key:string};pageField?:'current'|'total';position?:{anchor:string;side:'before'|'after'}}
   | {kind:'inline-text';at:Ref;text:string}
   | {kind:'line-spacing';at:Ref;side:'before'|'after';length:Length}
+  | {kind:'paint';at:Ref;property:'color'|'borderColor'|'fillColor';value:string}
   | {kind:'row-break';at:Ref;allowBreak:boolean}
   | {kind:'column-width';at:Ref;column:number;length:Length}
   | {kind:'cell-padding';at:Ref;padding:CellPadding}
@@ -421,6 +422,12 @@ export function applyStructureChange(source:Definition,change:Change):{definitio
     if(node?.type!=='line')return fail('เลือกเส้นที่กำหนดระยะเว้น');
     layoutLength(change.length);
     (node.props??={})[change.side==='before'?'spaceBefore':'spaceAfter']=change.length;
+    selection=change.at;
+  }else if(change.kind==='paint'){
+    const {node}=resolve(def,change.at);
+    const target={color:'line',borderColor:'table',fillColor:'table-cell'}[change.property];
+    if(!node||node.type!==target||!/^[0-9a-f]{6}$/i.test(change.value))return fail('ตรวจสอบสีและชิ้นส่วนที่เลือก');
+    (node.props??={})[change.property]=change.value.toUpperCase();
     selection=change.at;
   }else if(change.kind==='row-break'){
     const {node,fragment}=resolve(def,change.at);

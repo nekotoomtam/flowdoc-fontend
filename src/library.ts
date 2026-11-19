@@ -7,6 +7,7 @@ type TemplateSummary = {
   description: string | null;
   revision: number | null;
   updatedAt: string;
+  readOnly?: boolean;
 };
 
 const search = document.querySelector<HTMLInputElement>('#search')!;
@@ -45,11 +46,16 @@ function updatedAt(item: TemplateSummary) {
   return Number.isNaN(parsed.getTime()) ? '' : date.format(parsed);
 }
 
+function accessLabel(item: TemplateSummary) {
+  if (item.readOnly) return 'อ่านอย่างเดียว';
+  return item.revision === null ? 'ยังไม่มีนิยามโครง' : 'ฉบับร่าง';
+}
+
 function openDetails(item: TemplateSummary) {
   document.querySelector('#detail-name')!.textContent = item.name;
   document.querySelector('#detail-key')!.textContent = item.docKey;
   document.querySelector('#detail-info')!.textContent =
-    [item.revision === null ? 'ยังไม่มีนิยามโครง' : 'ฉบับร่าง · Revision ' + item.revision, updatedAt(item)].filter(Boolean).join(' · ');
+    [accessLabel(item), item.revision === null ? '' : 'Revision ' + item.revision, updatedAt(item)].filter(Boolean).join(' · ');
   detail.showModal();
 }
 
@@ -72,7 +78,7 @@ function card(item: TemplateSummary) {
   const open = document.createElement('button');
   open.type = 'button';
   open.className = 'card-open';
-  open.setAttribute('aria-label', (phase1 ? 'เปิดแก้ไข ' : 'เปิดดู ') + item.name);
+  open.setAttribute('aria-label', (phase1 && !item.readOnly ? 'เปิดแก้ไข ' : 'เปิดดู ') + item.name);
   open.onclick = () => phase1 ? openEditor(item) : openDetails(item);
 
   const thumbnail = document.createElement('span');
@@ -87,7 +93,7 @@ function card(item: TemplateSummary) {
   caption.className = 'caption';
   caption.append(text('span', item.name, 'card-title'));
   caption.append(text('span', item.description || item.docKey, 'description'));
-  caption.append(text('span', [item.revision === null ? 'ยังไม่มีนิยามโครง' : 'ฉบับร่าง', updatedAt(item)].filter(Boolean).join(' · '), 'meta'));
+  caption.append(text('span', [accessLabel(item), updatedAt(item)].filter(Boolean).join(' · '), 'meta'));
   open.append(thumbnail, caption);
 
   const menu = document.createElement('details');
@@ -104,7 +110,7 @@ function card(item: TemplateSummary) {
   for (const label of ['แก้ไข', 'ลบ']) {
     const action = text('button', label);
     action.type = 'button';
-    action.disabled = !phase1 || label !== 'แก้ไข';
+    action.disabled = !phase1 || item.readOnly === true || label !== 'แก้ไข';
     if (!action.disabled) action.onclick = () => openEditor(item);
     actions.append(action);
   }
@@ -134,6 +140,7 @@ function isSummary(value: unknown): value is TemplateSummary {
   const row = value as Partial<TemplateSummary>;
   return typeof row.templateId === 'string' && typeof row.name === 'string' &&
     typeof row.docKey === 'string' && typeof row.updatedAt === 'string' &&
+    (row.readOnly === undefined || typeof row.readOnly === 'boolean') &&
     (row.description === null || typeof row.description === 'string') &&
     (row.revision === null || (typeof row.revision === 'number' && Number.isSafeInteger(row.revision)));
 }

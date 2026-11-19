@@ -1,3 +1,5 @@
+import {issuePanel} from './editor-api-issue';
+import type {IssueContext} from './editor-api-issue';
 import type {Definition, Schema} from './editor-structure';
 import {draftInputContract,fullApiExample,imagePart,postmanCollection,postmanCurl,postmanDocumentUrl,postmanImage,shellLiteral,wordMediaType} from './editor-postman';
 import type {ApiExample as Example,PublishedContract} from './editor-postman';
@@ -5,7 +7,7 @@ import type {ApiExample as Example,PublishedContract} from './editor-postman';
 type Publication={version:number;fingerprint:string;contract:PublishedContract;
   target?:{status:'unconfigured'|'unavailable'}|{status:'verified';baseUrl:string}};
 type ApiContext={docKey:string;revision:number;fingerprint:string;definition:Definition;dirty:boolean;
-  publicationUrl:string;trial?:()=>Example};
+  publicationUrl:string;trial?:()=>Example;issue?:IssueContext};
 
 function element<K extends keyof HTMLElementTagNameMap>(tag:K,text?:string){
   const node=document.createElement(tag);
@@ -119,7 +121,7 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
   const scope=element('section');scope.append(element('h3','ข้อมูลที่โครงรับ'),spec);
   body.append(scope,examplePane);
   const publishedPane=element('section');publishedPane.hidden=true;publishedPane.className='api-published';
-  panel.replaceChildren(head,publishedPane,body);
+  panel.replaceChildren(head,...(ctx.issue?[issuePanel(ctx.issue,signal)]:[]),publishedPane,body);
   void fetch(ctx.publicationUrl,{signal}).then(async response=>{
     if(!response.ok)throw Error('Publication unavailable');
     const {value}=await response.json() as {value:Publication|null};

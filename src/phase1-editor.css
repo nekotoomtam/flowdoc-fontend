@@ -390,3 +390,7 @@ body:has(#editor) .editor-title nav button[aria-pressed=true]{background:#deebf6
 .selection-inspector #paper-order p,.selection-inspector #paper-selection{white-space:normal;overflow-wrap:anywhere}
 .selection-inspector #paper-selection span{max-width:100%;box-sizing:border-box}
 .selection-inspector .variable-field{max-width:100%;white-space:normal}
+.api-issue-panel{margin:12px 0;padding:12px 16px;border:1px solid #b6cedd;border-radius:8px;background:#f2f8fb}
+.api-issue-panel h3,.api-issue-panel p{margin:0 0 7px}
+.api-issue-panel button,.api-issue-panel a,.api-issue-panel code{margin-inline-end:9px}
+.api-issue-panel code{overflow-wrap:anywhere}

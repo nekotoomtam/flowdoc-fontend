@@ -51,7 +51,7 @@ function startRemoteWorker(){
 
 export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1',
   documentsBaseUrl=process.env.FLOWDOC_DOCUMENTS_BASE_URL,documentsBaseUrlFor,
-  previewShares,previewShareOrigin,sectionPublication,sectionBackgroundDirectory=process.env.FLOWDOC_SECTION_BACKGROUND_DIR,startWorker=startRemoteWorker}={}) {
+  previewShares,previewShareOrigin,sectionPublication,issueEnabled=false,sectionBackgroundDirectory=process.env.FLOWDOC_SECTION_BACKGROUND_DIR,startWorker=startRemoteWorker}={}) {
   const backgrounds=sectionBackgroundDirectory?sectionBackgrounds(sectionBackgroundDirectory):undefined;
   let child, sequence=0;
   const pending=new Map();
@@ -83,7 +83,7 @@ export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1',
     if(pending.size>=8&&packet.action!=='export-release')return Promise.resolve({status:429,body:{error:'lab_busy'}});
     const proc=start(), id=++sequence;
     return new Promise((resolve,reject)=>{
-      const timer=setTimeout(()=>stop(proc),['preview','export'].includes(packet.action)?120000:30000);
+      const timer=setTimeout(()=>stop(proc),['preview','export','issue'].includes(packet.action)?120000:30000);
       pending.set(id,{timer,resolve,reject});
       proc.stdin.write(JSON.stringify({...packet,id})+'\n');
     });
@@ -160,6 +160,7 @@ export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1',
         }
         try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw 400;}
       };
+      const issueRoute=!guest&&issueEnabled&&/^\/drafts\/([^/]+)\/issue(?:\/([a-f0-9-]+)\.pdf)?$/i.exec(req.url??'');
       const match=/^\/drafts\/([^/]+)(\/(?:preview|export|structure|publication))?$/.exec(req.url??'');
       const pageRoute=/^\/drafts\/([^/]+)\/preview-pages\/(\d+)\/(\d+)$/.exec(req.url??'');
       const assetRoute=/^\/drafts\/([^/]+)\/preview-assets\/([a-f0-9-]+)$/.exec(req.url??'');
@@ -189,6 +190,26 @@ export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1',
         if(type==='assets'&&uuid.test(key)){action='trial-asset';templateId=id;body={run,key};}
       }
       try{
+        if(issueRoute&&uuid.test(issueRoute[1])){
+          const [,templateId,taskId]=issueRoute;
+          if(req.method==='GET'&&!taskId){
+            const result=await ask({action:'issue-capability',templateId});
+            return send(result.status,result.body);
+          }
+          if(req.method==='GET'&&uuid.test(taskId??'')){
+            const result=await ask({action:'issue-file',templateId,body:{taskId}});
+            if(result.status!==200)return send(result.status,result.body);
+            const bytes=Buffer.from(result.bytes,'base64');
+            res.writeHead(200,{'Content-Type':'application/pdf','Content-Length':bytes.length,
+              'Content-Disposition':'attachment; filename="FlowDoc-'+taskId+'.pdf"','Cache-Control':'no-store',
+              'X-Content-Type-Options':'nosniff','X-FlowDoc-Sha256':result.body.sha256,'X-FlowDoc-Task-Id':taskId});
+            return res.end(bytes);
+          }
+          if(req.method!=='POST'||taskId||req.headers.origin!==expectedOrigin)return send(403,{error:'forbidden'});
+          const body=await readBody(4*1024*1024);
+          const result=await ask({action:'issue',templateId,body,backgrounds:await backgrounds?.read(templateId)});
+          return send(result.status,result.body);
+        }
         if(shareRoute){
           if(!previewShares||!publicOrigin||!uuid.test(shareRoute[1]))return send(404,{error:'not_found'});
           const [,templateId,id]=shareRoute;

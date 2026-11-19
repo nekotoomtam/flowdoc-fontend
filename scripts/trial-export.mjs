@@ -54,7 +54,7 @@ export function createTrialExports(root,readDraft,resourcesFor){
         sectionImages.set(section.sectionId,images.get(setting.sha256));
       }
       let assets;
-      try{assets=await trialImages(trial.images);}
+      try{assets=await trialImages(trial.images,format==='pdf'?composed.value:undefined);}
       catch{return reject(422,'invalid_image');}
       const resources=await resourcesFor(templateId,draft);
       if(!resources)return reject(422,'font_not_ready');

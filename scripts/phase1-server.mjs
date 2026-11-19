@@ -3,6 +3,8 @@ import {execFile} from 'node:child_process';
 import {loadOriginalUat} from './original-uat-preview.mjs';
 import {trialImages} from './trial-preview-images.mjs';
 import {createTrialExports} from './trial-export.mjs';
+import {openEditorServiceIssue} from './editor-service-issue.mjs';
+import {sectionBackgrounds} from './section-backgrounds.mjs';
 import {applyTrialValueChanges} from './trial-value-delta.mjs';
 import {layoutPreview} from './trial-engine-layout.mjs';
 import {createResumePreview} from './trial-resume-layout.mjs';
@@ -11,6 +13,7 @@ import {randomBytes, randomUUID, createHash} from 'node:crypto';
 import {readFile, mkdtemp} from 'node:fs/promises';
 import {createInterface} from 'node:readline';
 import {createPool} from '/candidate/dist/db/connection.js';
+import {loadTemplate,registerTemplate} from '/candidate/dist/templates/registry.js';
 import {createServer} from '/candidate/dist/http/server.js';
 import {createAuthoring} from '/candidate/dist/authoring/service.js';
 import {readReferences} from '/candidate/dist/fonts/retention.js';
@@ -39,6 +42,7 @@ const tempRoot = await mkdtemp('/tmp/flowdoc-editor-phase1-');
 let originalFixture;
 let originalPreview;
 const trialPreviews=new Map();
+let serviceIssue;
 const previewOutlines=new Map();
 function original(){
   return originalFixture??=(loadOriginalUat(core.PDF_STREAM_CONTRACT).catch(error=>{
@@ -131,6 +135,12 @@ function projectOriginalPage(cache,index){
 let resumePreview;
 try {
   if(process.env.FLOWDOC_RESUMABLE_PREVIEW==='1')resumePreview=await createResumePreview();
+  const backgroundRoot=process.env.FLOWDOC_SECTION_BACKGROUND_DIR;
+  serviceIssue=await openEditorServiceIssue(process.env.FLOWDOC_EDITOR_ISSUE_CONFIG,{
+    registerSnapshot:definition=>registerTemplate(pool,JSON.stringify(definition)),
+    readSnapshot:(key,version)=>loadTemplate(pool,key,version),
+    backgroundStore:backgroundRoot?sectionBackgrounds(backgroundRoot):undefined,
+  });
   assert.equal((await pool.query('SELECT current_database() AS db')).rows[0].db, database);
   const packageInfo = JSON.parse(await readFile('/candidate/package.json','utf8'));
   assert.equal(packageInfo.version, '0.5.5');
@@ -218,7 +228,7 @@ try {
       if(custom)markBlankRuns(resolved,previewSample.marks);
       let assets=fixture;
       if(custom){
-        try{assets=await trialImages(trial.images);}
+        try{assets=await trialImages(trial.images,resolved);}
         catch{return {status:422,body:{error:'invalid_image'}};}
       }
       // The Engine shapes the actual trial below. Service actual-input preflight invokes a PDF writer.
@@ -262,7 +272,8 @@ try {
         if(custom){
           const id=randomUUID();
           cache.header.previewId=id;cache.header.trialPatchBase=true;
-          trialPreviews.set(id,{...cache,templateId,scope:shared?.scope,assets:assets.assets,trial});
+          const backgrounds=serviceIssue?.accepts(draft)?await serviceIssue.captureBackgrounds(draft):undefined;
+          trialPreviews.set(id,{...cache,templateId,scope:shared?.scope,assets:assets.assets,trial,backgrounds});
           setTimeout(()=>trialPreviews.delete(id),20*60*1000).unref();
           if(trialPreviews.size>2)trialPreviews.delete(trialPreviews.keys().next().value);
         }else originalPreview=cache;
@@ -331,7 +342,7 @@ try {
     const selectedRoute='/'+packet.templateId;
     if(packet.templateId!==identity){
       const owned=await pool.query('SELECT 1 FROM authoring_templates a JOIN templates t ON t.id=a.template_id WHERE a.principal=$1 AND t.id=$2 AND t.doc_key LIKE $3',[principal,packet.templateId,'editor-draft-%']);
-      if(!owned.rowCount||!['get','publication','rename','structure','preview','export','export-chunk','export-release','trial-page','trial-asset'].includes(packet.action))return {status:404,body:{error:'not_found'}};
+      if(!owned.rowCount||!['get','publication','rename','structure','preview','export','export-chunk','export-release','trial-page','trial-asset','issue','issue-capability','issue-file'].includes(packet.action))return {status:404,body:{error:'not_found'}};
     }
     if(packet.action==='publication'){
       const {rows:[published]}=await pool.query(
@@ -362,6 +373,14 @@ try {
     if (packet.action === 'structure') {
       const result = await service('PUT',selectedRoute,packet.body);
       return {status:result.statusCode,body:result.json()};
+    }
+    if(['issue','issue-capability','issue-file'].includes(packet.action)){
+      const result=serviceIssue&&await readDraft(packet.templateId);
+      const draft=result?.ok?result.value:undefined;
+      if(!serviceIssue?.accepts(draft))return {status:404,body:{error:'ISSUE_NOT_AVAILABLE'}};
+      if(packet.action==='issue-capability')return {status:200,body:{available:true}};
+      if(packet.action==='issue-file')return serviceIssue.file(draft,packet.body.taskId);
+      return serviceIssue.issue(draft,trialPreviews.get(packet.body?.previewId),packet.body,packet.backgrounds);
     }
     if (packet.action === 'preview') return render(packet.templateId,packet.body,packet.shared);
     if (packet.action === 'export') return trialExports.generate(packet.templateId,packet.body,packet.shared?.draft);

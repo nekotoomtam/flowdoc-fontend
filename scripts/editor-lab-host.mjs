@@ -75,7 +75,8 @@ async function dispatch(request,response){
 }
 
 const sectionPublication=await openSectionPublication(process.env.FLOWDOC_SECTION_PUBLICATION_CONFIG);
-phase1Bridge({enabled:true,sectionPublication,previewShares,previewShareOrigin:shareOrigin,startWorker:()=>spawn(process.execPath,['/phase1/phase1-server.mjs'],{
+phase1Bridge({enabled:true,sectionPublication,previewShares,previewShareOrigin:shareOrigin,
+  issueEnabled:!!process.env.FLOWDOC_EDITOR_ISSUE_CONFIG,startWorker:()=>spawn(process.execPath,['/phase1/phase1-server.mjs'],{
   env:{...process.env,FLOWDOC_PREVIEW_WATERMARK_RUNTIME:watermarkRuntime}
 })})
   .configureServer({httpServer:server,middlewares:{use(path,handler){

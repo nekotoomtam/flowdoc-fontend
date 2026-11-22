@@ -1,0 +1,41 @@
+/* Shared interface colors. Document ink, fills and borders come from the template. */
+:root {
+  --bg: #f6f7f3;
+  --surface: #ffffff;
+  --surface-subtle: #f3f6f3;
+  --workspace: #e7ece8;
+  --ink: #172d2b;
+  --muted: #5a6b63;
+  --line: #dce6dd;
+  --action: #145b4c;
+  --on-action: #ffffff;
+  --header: #123d35;
+  --on-header: #ffffff;
+  --header-border: #688f85;
+  --focus: #4e9b84;
+  --selection: #e5f0ea;
+  --selection-text: #144f40;
+  --selection-border: #9dbbad;
+  --selection-edge: #216d59;
+  --active-version: #204e40;
+  --active-version-bg: #e5efe9;
+  --warning: #5e370e;
+  --warning-bg: #fff4de;
+  --warning-edge: #ad631b;
+  --error: #84223e;
+  --error-bg: #fff3ee;
+  --modal-shade: #122f2b65;
+
+  --node-page-text: #214f88;
+  --node-page-bg: #e2ecf8;
+  --node-layout-text: #72508b;
+  --node-layout-bg: #f2eafa;
+  --node-grid-text: #12665b;
+  --node-grid-bg: #dff3eb;
+  --node-data-text: #8a490d;
+  --node-data-bg: #fff0d7;
+  --node-text-text: #495868;
+  --node-text-bg: #edf0f3;
+  --node-media-text: #943f64;
+  --node-media-bg: #f9e8ef;
+}

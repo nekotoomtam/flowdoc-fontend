@@ -160,8 +160,10 @@ export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1',
         }
         try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw 400;}
       };
+      if(!guest&&!issueEnabled&&req.method==='GET'&&/^\/drafts\/[a-f0-9-]{36}\/issue$/i.test(req.url??''))
+        return send(200,{available:false,reason:'service_unconfigured'});
       const issueRoute=!guest&&issueEnabled&&/^\/drafts\/([^/]+)\/issue(?:\/([a-f0-9-]+)\.pdf)?$/i.exec(req.url??'');
-      const match=/^\/drafts\/([^/]+)(\/(?:preview|export|structure|publication))?$/.exec(req.url??'');
+      const match=/^\/drafts\/([^/]+)(\/(?:preview|export|structure|publication|baseline|publish-baseline|compare-baseline|clone-review|save-review|paper-review|publish-review))?$/.exec(req.url??'');
       const pageRoute=/^\/drafts\/([^/]+)\/preview-pages\/(\d+)\/(\d+)$/.exec(req.url??'');
       const assetRoute=/^\/drafts\/([^/]+)\/preview-assets\/([a-f0-9-]+)$/.exec(req.url??'');
       const trialRoute=/^\/drafts\/([^/]+)\/preview-runs\/([^/]+)\/(pages|assets)\/([^/]+)$/.exec(req.url??'');
@@ -171,12 +173,21 @@ export function phase1Bridge({enabled=process.env.FLOWDOC_EDITOR_PHASE1==='1',
       else if(req.method==='POST'&&req.url==='/drafts')action='create';
       else if(match&&uuid.test(match[1])){
         templateId=match[1];
+        if(!guest&&issueEnabled&&match[2]==='/baseline'&&req.method==='GET')action='baseline';
+        if(!guest&&issueEnabled&&((match[2]==='/baseline'&&req.method==='PUT')||(['/publish-baseline','/compare-baseline','/clone-review','/save-review','/paper-review','/publish-review'].includes(match[2])&&req.method==='POST'))){
+          if(req.headers.origin!==expectedOrigin)return send(403,{error:'forbidden'});
+          action=match[2]==='/baseline'?'set-baseline':match[2].slice(1);
+        }
         if(req.method==='GET'&&!match[2])action='get';
         if(req.method==='GET'&&match[2]==='/publication')action='publication';
         if(req.method==='PUT'&&!match[2])action='rename';
         if(req.method==='POST'&&match[2]==='/preview')action='preview';
         if(req.method==='POST'&&match[2]==='/export')action='export';
         if(req.method==='PUT'&&match[2]==='/structure')action='structure';
+      }
+      const versionPaper=!guest&&/^\/drafts\/([a-f0-9-]{36})\/versions\/([1-9]\d*)$/.exec(req.url??'');
+      if(req.method==='GET'&&versionPaper&&uuid.test(versionPaper[1])){
+        action='version-paper';templateId=versionPaper[1];body={version:Number(versionPaper[2])};
       }
       if(req.method==='GET'&&pageRoute&&uuid.test(pageRoute[1])){
         action='preview-page';templateId=pageRoute[1];body={revision:Number(pageRoute[2]),index:Number(pageRoute[3])};

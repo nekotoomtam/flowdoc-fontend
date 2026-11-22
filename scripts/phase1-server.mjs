@@ -1,3 +1,5 @@
+import {baselineWorksheet} from './baseline-worksheet.mjs';
+import {draftReview} from './draft-review.mjs';
 import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
 import {loadOriginalUat} from './original-uat-preview.mjs';
@@ -10,6 +12,7 @@ import {layoutPreview} from './trial-engine-layout.mjs';
 import {createResumePreview} from './trial-resume-layout.mjs';
 import {markBlankRuns,previewInput,trialBindings} from './trial-preview-bindings.mjs';
 import {randomBytes, randomUUID, createHash} from 'node:crypto';
+import {request as localRequest} from 'node:http';
 import {readFile, mkdtemp} from 'node:fs/promises';
 import {createInterface} from 'node:readline';
 import {createPool} from '/candidate/dist/db/connection.js';
@@ -20,6 +23,21 @@ import {readReferences} from '/candidate/dist/fonts/retention.js';
 import {resolveFontReadiness} from '/candidate/dist/fonts/readiness.js';
 import {snapshotResources, rendererIdentity} from '/candidate/dist/fonts/snapshot.js';
 import * as core from '/candidate/node_modules/@flowdoc/core/dist/index.js';
+
+const versionSource=await readFile('/lab/srs-api-version-source.json','utf8').then(JSON.parse).catch(error=>{
+  if(error.code==='ENOENT')return null;
+  throw error;
+});
+function issuerControl(path,body){
+  return new Promise((resolve,reject)=>{
+    const req=localRequest({socketPath:'/lab/srs-control/issuer.sock',path,method:body?'POST':'GET'},res=>{
+      const chunks=[];res.on('data',part=>chunks.push(part));res.on('error',reject);
+      res.on('end',()=>{try{resolve({status:res.statusCode,body:JSON.parse(Buffer.concat(chunks).toString())});}catch(error){reject(error);}});
+    });
+    req.setTimeout(path==='/compare'?120000:4000,()=>req.destroy(Error('Issuer timeout')));
+    req.on('error',reject);req.end(body?JSON.stringify(body):undefined);
+  });
+}
 
 const database = 'flowdoc_editor_phase1_20261108';
 const docKey = 'stage6-uat-editor-phase1';
@@ -94,7 +112,7 @@ function identifyTrialPages(draw,bindings,fonts){
     documentHash.update(index?',':'').update(layout);
     // Image URLs belong to one run and can expire. Keep these pages within that run.
     if(page.images?.length)return null;
-    const digest=createHash('sha256').update(fontHash).update(layout);
+    const digest=createHash('sha256').update(fontHash).update(layout).update(JSON.stringify(bindings.formMarks[index]));
     for(const [lineIndex,command] of page.commands.entries()){
       const edit=bindings.lines.get(command);
       if(edit)digest.update(JSON.stringify([lineIndex,edit,bindings.tab.get(edit.occurrence)]));
@@ -127,9 +145,9 @@ function projectOriginalPage(cache,index){
       });
       edit={...owner,clusters,...cache.bindings.tab.get(owner.occurrence)};
     }
-    return {text,...bounds,fontSizePt,baselineOffsetPt,color,scale,glyphUses,...(edit?{edit}:{})};
+    return {text,...bounds,fontSizePt,baselineOffsetPt,color,scale,glyphUses,...(cache.sources?{sourceId:cache.sources[command.nodeId]?.sourceId}:{}),...(edit?{edit}:{})};
   });
-  return {...page,sampleImages:images??[],glyphs,lines};
+  return {...page,sampleImages:images??[],glyphs,lines,formMarks:cache.bindings?.formMarks[index]};
 }
 
 let resumePreview;
@@ -137,6 +155,11 @@ try {
   if(process.env.FLOWDOC_RESUMABLE_PREVIEW==='1')resumePreview=await createResumePreview();
   const backgroundRoot=process.env.FLOWDOC_SECTION_BACKGROUND_DIR;
   serviceIssue=await openEditorServiceIssue(process.env.FLOWDOC_EDITOR_ISSUE_CONFIG,{
+    managedLatest:async(draft,consumer)=>{
+      const {documentBaseline}=await import('/candidate/dist/templates/baseline.js');
+      const state=await documentBaseline(pool,draft.templateId,consumer);
+      return state.pinned===null?null:state.versions[0];
+    },
     registerSnapshot:definition=>registerTemplate(pool,JSON.stringify(definition)),
     readSnapshot:(key,version)=>loadTemplate(pool,key,version),
     backgroundStore:backgroundRoot?sectionBackgrounds(backgroundRoot):undefined,
@@ -169,13 +192,41 @@ try {
     take((await service('PUT',route,{definition,expectedRevision:0,idempotencyKey:'phase1-seed-uat'})).json());
   }
 
+  async function fontCatalog(){
+      const releases=[];
+      let cursor;
+      do {
+        const result=await app.inject({method:'GET',url:'/authoring/fonts?limit=100'+(cursor?'&cursor='+encodeURIComponent(cursor):''),
+          headers:{authorization:'Bearer '+token}});
+        if(result.statusCode!==200)return {status:result.statusCode,body:result.json()};
+        const value=take(result.json());
+        releases.push(...value.releases);
+        cursor=value.nextCursor;
+      }while(cursor);
+      return {status:200,body:{value:{releases}}};
+    }
+  async function withDefaultFont(draft,pinnedRelease){
+    if(draft.definition.schemaVersion!==2)return draft;
+    const styles=Object.entries(draft.definition.styles);
+    if(!styles.some(([,style])=>style.font?.kind==='unselected'))return draft;
+    let releaseId=pinnedRelease;
+    if(!releaseId){
+      const catalog=await fontCatalog();
+      releaseId=catalog.body.value?.releases.filter(r=>r.familyName==='Sarabun'&&
+        r.faces.some(f=>f.weight===400&&f.style==='normal')).sort((a,b)=>b.version-a.version)[0]?.releaseId;
+    }
+    if(!releaseId)return draft;
+    const font={kind:'library',releaseId,weight:400,style:'normal'};
+    return {...draft,defaultFontRelease:releaseId,definition:{...draft.definition,
+      styles:Object.fromEntries(styles.map(([id,style])=>[id,style.font?.kind==='unselected'?{...style,font}:style]))}};
+  }
   async function renderResources(templateId,draft,fontProbe){
-    const refs=await readReferences(pool,templateId,draft.revision);
+    const refs=await readReferences(pool,templateId,draft.revision,draft.versionId);
     const {snapshot,readiness}=await resolveFontReadiness(pool,draft.definition,draft.fingerprint,refs,
       fontProbe,undefined,{deferFiles:true});
     return readiness.status==='ready'?snapshotResources(snapshot,tempRoot):undefined;
   }
-  const trialExports=createTrialExports(tempRoot,async templateId=>(await service('GET','/'+templateId)).json(),renderResources);
+  const trialExports=createTrialExports(tempRoot,async templateId=>(await service('GET','/'+templateId)).json(),renderResources,withDefaultFont);
   let previewBusy = false;
   async function render(templateId,body,shared) {
     const {expectedRevision,sample:mode,trialPatch,layoutMode}=body??{};
@@ -194,6 +245,7 @@ try {
         if(result.statusCode!==200)return {status:result.statusCode,body:result.json()};
         draft=take(result.json());
       }
+      if(!draft.versionId)draft=await withDefaultFont(draft);
       if (draft.revision !== expectedRevision) return {status:409,body:{error:'STALE_CURRENT'}};
       if(!custom&&mode!=='benchmark'&&originalPreview?.revision===draft.revision&&originalPreview.fingerprint===draft.fingerprint)
         return {status:200,body:originalPreview.header};
@@ -251,6 +303,7 @@ try {
       if(assets){
         const paths=await glyphPaths(draw,resources);
         const cache={revision:draft.revision,fingerprint:draft.fingerprint,draw,paths,fonts:Object.keys(paths)};
+        if(shared?.review)cache.sources=resolved.sourceMap;
         if(custom)cache.bindings=trialBindings(draft.definition,resolved,sample,draw);
         const focus=trial?.focus;
         const candidates=typeof focus?.key==='string'?cache.bindings?.locations.get(focus.key):undefined;
@@ -266,14 +319,18 @@ try {
         const first=projectOriginalPage(cache,pageIndex);
         const identity=custom?identifyTrialPages(draw,cache.bindings,resources.fonts):{layoutHash:hash(draw.pages)};
         cache.header={revision:cache.revision,fingerprint:cache.fingerprint,pages:[first],pageIndex,paged:true,
-          pageCount:draw.pages.length,pageSizes,...identity,renderPath:'engine-layout',engineMs,renderMs:performance.now()-started,
+          fieldPages:cache.bindings?.fieldPages,pageCount:draw.pages.length,pageSizes,...identity,renderPath:'engine-layout',engineMs,renderMs:performance.now()-started,
           engineVersion:rendererIdentity.version,...(layout.resume?{resume:layout.resume}:{}),
           ...(fixture?{entryCount:fixture.entryCount,imagePlacements:fixture.placements}:{})};
+        if(shared?.baseline){
+          // The library needs the paper only. It must never create a printable draft proof.
+          return {status:200,body:{page:first,pageIndex,pageCount:draw.pages.length}};
+        }
         if(custom){
           const id=randomUUID();
           cache.header.previewId=id;cache.header.trialPatchBase=true;
           const backgrounds=serviceIssue?.accepts(draft)?await serviceIssue.captureBackgrounds(draft):undefined;
-          trialPreviews.set(id,{...cache,templateId,scope:shared?.scope,assets:assets.assets,trial,backgrounds});
+          trialPreviews.set(id,{...cache,defaultFontRelease:draft.defaultFontRelease,templateId,scope:shared?.scope,assets:assets.assets,trial,backgrounds});
           setTimeout(()=>trialPreviews.delete(id),20*60*1000).unref();
           if(trialPreviews.size>2)trialPreviews.delete(trialPreviews.keys().next().value);
         }else originalPreview=cache;
@@ -318,31 +375,96 @@ try {
   }
   async function dispatch(packet) {
     if(packet.action==='create')return createDraft(packet.body);
-    if(packet.action==='fonts'){
-      const releases=[];
-      let cursor;
-      do {
-        const result=await app.inject({method:'GET',url:'/authoring/fonts?limit=100'+(cursor?'&cursor='+encodeURIComponent(cursor):''),
-          headers:{authorization:'Bearer '+token}});
-        if(result.statusCode!==200)return {status:result.statusCode,body:result.json()};
-        const value=take(result.json());
-        releases.push(...value.releases);
-        cursor=value.nextCursor;
-      }while(cursor);
-      return {status:200,body:{value:{releases}}};
-    }
+    if(packet.action==='fonts')return fontCatalog();
     if (packet.action === 'catalog') {
       const {rows} = await pool.query(
-        'SELECT t.id AS "templateId", t.doc_key AS "docKey", t.name, c.revision, c.updated_at AS "updatedAt" ' +
+        'SELECT t.id AS "templateId", t.doc_key AS "docKey", t.name, c.revision, c.updated_at AS "updatedAt", ' +
+        'ARRAY(SELECT v.version FROM template_versions v WHERE v.template_id=t.id ORDER BY v.version DESC) AS "publishedVersions" ' +
         'FROM authoring_templates a JOIN templates t ON t.id=a.template_id JOIN template_current c ON c.template_id=t.id '+
         'WHERE a.principal=$1 AND (t.id=$2 OR t.doc_key LIKE $3) ORDER BY c.updated_at DESC',
         [principal,identity,'editor-draft-%']);
-      return {status:200,body:{items:rows.map(row=>({...row,description:'ฉบับทดสอบแยกจาก UAT ในคลังจริง'}))}};
+      const items=rows.map(row=>({...row,description:'ฉบับทดสอบแยกจาก UAT ในคลังจริง'}));
+      const external=items.find(row=>row.templateId===versionSource?.templateId&&row.docKey===versionSource.docKey);
+      if(external){
+        external.issuerVersion=null;
+        const result=await issuerControl('/state').catch(()=>null);
+        if(result?.status===200){
+          external.issuerVersion=result.body.pinned??result.body.versions[0];
+          external.issuerBaseline=result.body;
+        }
+      }
+      for(const item of items.filter(row=>serviceIssue?.hasLibraryVersions(row))){
+        const draft=(await service('GET','/'+item.templateId)).json()?.value;
+        const consumer=serviceIssue.consumerFor(draft);
+        if(!consumer)continue;
+        const {documentBaseline}=await import('/candidate/dist/templates/baseline.js');
+        const state=await documentBaseline(pool,item.templateId,consumer);
+        item.libraryVersions={...state,canCompare:serviceIssue.hasBaselineSample(draft)};
+        item.relatedDrafts=[];
+        for(const copy of items.filter(row=>row.docKey.startsWith('editor-draft-review-'))){
+          const origin=await serviceIssue.reviewOrigin(draft,copy.templateId);
+          if(origin)item.relatedDrafts.push({id:copy.templateId,source:origin.source});
+        }
+      }
+      return {status:200,body:{items}};
     }
     const selectedRoute='/'+packet.templateId;
     if(packet.templateId!==identity){
       const owned=await pool.query('SELECT 1 FROM authoring_templates a JOIN templates t ON t.id=a.template_id WHERE a.principal=$1 AND t.id=$2 AND t.doc_key LIKE $3',[principal,packet.templateId,'editor-draft-%']);
-      if(!owned.rowCount||!['get','publication','rename','structure','preview','export','export-chunk','export-release','trial-page','trial-asset','issue','issue-capability','issue-file'].includes(packet.action))return {status:404,body:{error:'not_found'}};
+      if(!owned.rowCount||!['get','version-paper','publication','rename','structure','preview','export','export-chunk','export-release','trial-page','trial-asset','issue','issue-capability','issue-file','baseline','set-baseline','publish-baseline','compare-baseline','clone-review','save-review','paper-review','publish-review'].includes(packet.action))return {status:404,body:{error:'not_found'}};
+    }
+    if(['baseline','set-baseline','publish-baseline','compare-baseline','clone-review','save-review','paper-review','publish-review'].includes(packet.action)){
+      if(packet.templateId===versionSource?.templateId){
+        const path={baseline:'/state','set-baseline':'/apply','compare-baseline':'/compare'}[packet.action];
+        if(!path)return {status:404,body:{error:'not_available'}};
+        return issuerControl(path,packet.body);
+      }
+      const result=await service('GET',selectedRoute);
+      const draft=result.json()?.value;
+      const consumer=serviceIssue?.consumerFor(draft);
+      if(!consumer)return {status:404,body:{error:'not_available'}};
+      const {documentBaseline,setDocumentBaseline}=await import('/candidate/dist/templates/baseline.js');
+      const state=await documentBaseline(pool,draft.templateId,consumer);
+      const latest=state.versions[0]??0;
+      if(packet.action==='baseline')return {status:200,body:{...state,revision:draft.revision,fingerprint:draft.fingerprint,canCompare:serviceIssue.hasBaselineSample(draft)}};
+      const body=packet.body;
+      if(!body||body.latest!==latest||body.pinned!==state.pinned)return {status:409,body:{error:'stale'}};
+      if(packet.action.endsWith('-review'))return draftReview(packet.action,{body,parent:draft,state,serviceIssue,
+        load:(key,version)=>loadTemplate(pool,key,version),service,createDraft,render});
+      if(packet.action==='compare-baseline'){
+        if(!state.versions.includes(body.version)||!serviceIssue.hasBaselineSample(draft))return {status:404,body:{error:'not_available'}};
+        const edits=body.edits??{};
+        if(Array.isArray(edits)||typeof edits!=='object'||Object.values(edits).some(v=>typeof v!=='string'||v.length>2000))return {status:422,body:{error:'invalid_values'}};
+        const sample=await serviceIssue.baselineSample(draft);
+        const papers=[];
+        for(const version of [state.pinned??latest,body.version]){
+          const stored=take(await loadTemplate(pool,draft.docKey,version));
+          const {template:{definition,fingerprint},versionId}=stored;
+          const {trial,editable,omitted,payload}=baselineWorksheet(definition,sample,edits);
+          trial.pageIndex=Number.isSafeInteger(body.pageIndex)?body.pageIndex:0;
+          const result=await render(draft.templateId,{expectedRevision:version,trial},{
+            baseline:true,draft:{templateId:draft.templateId,docKey:draft.docKey,definition,fingerprint,versionId,revision:version}
+          });
+          if(result.status!==200)return result;
+          papers.push({...result.body,version,editable,omitted,payload});
+        }
+        return {status:200,body:{papers}};
+      }
+      if(packet.action==='publish-baseline'){
+        if(body.fingerprint!==draft.fingerprint||body.revision!==draft.revision)return {status:409,body:{error:'stale_draft'}};
+        return serviceIssue.publish(draft,latest+1);
+      }
+      const changed=await setDocumentBaseline(pool,draft.templateId,consumer,body,body.version);
+      return changed==='updated'?{status:200,body:{version:body.version}}:{status:changed==='stale'?409:422,body:{error:changed}};
+    }
+    if(packet.action==='version-paper'){
+      const version=packet.body?.version;
+      if(!Number.isSafeInteger(version)||version<1)return {status:400,body:{error:'invalid_version'}};
+      const {rows:[template]}=await pool.query('SELECT doc_key FROM templates WHERE id=$1',[packet.templateId]);
+      const stored=template&&await loadTemplate(pool,template.doc_key,version);
+      if(!stored?.ok)return {status:404,body:{error:'version_not_found'}};
+      const {definition,fingerprint}=stored.value.template;
+      return {status:200,body:{ok:true,value:{templateId:packet.templateId,readOnly:true,definition,fingerprint,name:definition.name,revision:version}}};
     }
     if(packet.action==='publication'){
       const {rows:[published]}=await pool.query(
@@ -375,12 +497,18 @@ try {
       return {status:result.statusCode,body:result.json()};
     }
     if(['issue','issue-capability','issue-file'].includes(packet.action)){
-      const result=serviceIssue&&await readDraft(packet.templateId);
+      const result=serviceIssue&&(await service('GET',selectedRoute)).json();
       const draft=result?.ok?result.value:undefined;
       if(!serviceIssue?.accepts(draft))return {status:404,body:{error:'ISSUE_NOT_AVAILABLE'}};
-      if(packet.action==='issue-capability')return {status:200,body:{available:true}};
+      if(packet.action==='issue-capability'){
+        const {documentBaseline}=await import('/candidate/dist/templates/baseline.js');
+        const state=await documentBaseline(pool,draft.templateId,serviceIssue.consumerFor(draft));
+        return {status:200,body:{available:true,managed:state.pinned!==null}};
+      }
       if(packet.action==='issue-file')return serviceIssue.file(draft,packet.body.taskId);
-      return serviceIssue.issue(draft,trialPreviews.get(packet.body?.previewId),packet.body,packet.backgrounds);
+      const proof=trialPreviews.get(packet.body?.previewId);
+      const effective=proof?.defaultFontRelease?await withDefaultFont(draft,proof.defaultFontRelease):draft;
+      return serviceIssue.issue(effective,proof,packet.body,packet.backgrounds);
     }
     if (packet.action === 'preview') return render(packet.templateId,packet.body,packet.shared);
     if (packet.action === 'export') return trialExports.generate(packet.templateId,packet.body,packet.shared?.draft);

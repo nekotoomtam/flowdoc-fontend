@@ -15,6 +15,7 @@
     "@xmldom/xmldom": "0.9.12",
     "jszip": "3.10.1",
     "pdf-lib": "1.17.1",
+    "pdfjs-dist": "6.5.438",
     "prosemirror-commands": "^1.7.0",
     "prosemirror-history": "^1.4.0",
     "prosemirror-keymap": "^1.2.0",

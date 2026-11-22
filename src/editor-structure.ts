@@ -34,15 +34,20 @@ export type Ref = {sectionId:string;formatId?:string;band?:'header'|'footer';nod
 export type Change = {kind:'section';label:string} | {kind:'area';at:Ref;key:string;format:string}
   | {kind:'format';at:Ref;key:string} | {kind:'node';at:Ref;type:string;source?:{scope:string;key:string};pageField?:'current'|'total';position?:{anchor:string;side:'before'|'after'}}
   | {kind:'inline-text';at:Ref;text:string}
+  | {kind:'column-boundary';at:Ref;left:number;fraction:number}
+  | {kind:'layout-column';at:Ref;action:'add-before'|'add-after'|'remove'|'weight';weight?:number}
+  | {kind:'column-content';at:Ref;type:'text-block'|'line';text?:string}
+  | {kind:'spacer-height';at:Ref;length:Length}
   | {kind:'line-spacing';at:Ref;side:'before'|'after';length:Length}
   | {kind:'paint';at:Ref;property:'color'|'borderColor'|'fillColor';value:string}
   | {kind:'row-break';at:Ref;allowBreak:boolean}
+  | {kind:'table-divider';at:Ref;header?:Ref;cell:Ref;left:number;fraction:number}
   | {kind:'column-width';at:Ref;column:number;length:Length}
   | {kind:'cell-padding';at:Ref;padding:CellPadding}
   | {kind:'binding';at:Ref;scope:string;key:string}
   | {kind:'group';at:Ref;scope:'global'|'section'|'local';key:string;member:string}
   | {kind:'merge'|'split';at:Ref}
-  | {kind:'reorder';at:Ref;delta:-1|1} | {kind:'move';at:Ref;to:Ref} | {kind:'delete';at:Ref};
+  | {kind:'reorder';at:Ref;delta:-1|1;targetId?:string} | {kind:'move';at:Ref;to:Ref;bindings?:Record<string,string>} | {kind:'delete';at:Ref};
 const schema=():Schema=>({type:'object',fields:{}});
 const uid=()=>crypto.randomUUID();
 const pt=(value:number):Length=>({unit:'pt',value});
@@ -112,10 +117,13 @@ function makeFormat(def:Definition,areaId:string,name:string){
   formats[id]={key:name,ownerAreaId:areaId,inputSchema:schema(),repeats:[],fragment:{rootIds:[node.id],nodes:{[node.id]:node}}};
   return id;
 }
-function sectionScoped(value:unknown):boolean{
-  if(!value||typeof value!=='object')return false;
-  if('scope' in value&&value.scope==='section')return true;
-  return Object.values(value).some(sectionScoped);
+function sectionBinding(value:unknown,handled?:Set<object>):string|undefined{
+  if(!value||typeof value!=='object')return;
+  if(!handled?.has(value)&&'scope' in value&&value.scope==='section')
+    return 'key' in value&&typeof value.key==='string'?value.key:'ตัวแปร';
+  for(const child of Object.values(value)){
+    const found=sectionBinding(child,handled);if(found)return found;
+  }
 }
 function staticHorizontalTable(host:Host,f:Fragment,table:DocNode){
   return !host.repeats?.some(r=>r.tableId===table.id)&&!host.rowGroups?.some(r=>r.tableId===table.id)
@@ -232,6 +240,23 @@ function nodeReorder(host:Host,fragment:Fragment,node:DocNode,list:string[],delt
     list.slice(0,-1).some(id=>fragment.nodes[id].props?.verticalAlign==='bottom'))
     fail('Area ท้ายหน้าต้องอยู่ท้าย Section');
 }
+export function reorderTargets(def:Definition,at:Ref){
+  const targets=new Map<string,-1|1>();
+  const state=structureOrder(def,at);
+  if(!state)return targets;
+  const {host,fragment,node}=resolve(def,at);
+  for(const delta of [-1,1] as const){
+    if(delta===-1?state.up:state.down)continue;
+    const copy=[...state.ids];
+    for(let i=state.index+delta;i>=0&&i<copy.length;i+=delta){
+      const target=copy[i];
+      try{if(node&&fragment)nodeReorder(host,fragment,node,copy,delta);}
+      catch{break;}
+      targets.set(target,delta);
+    }
+  }
+  return targets;
+}
 export function structureOrder(definition:Definition,at:Ref){
   if(at.part)return;
   const {node,fragment,host,format}=resolve(definition,at);
@@ -315,14 +340,59 @@ function remove(def:Definition,at:Ref):Ref{
   const i=def.sections.indexOf(section);def.sections.splice(i,1);
   return {sectionId:def.sections[Math.min(i,def.sections.length-1)].id};
 }
-function move(def:Definition,at:Ref,to:Ref):Ref {
+export type MoveBinding={id:string;key:string;format:string};
+export class FormatBindingRequired extends Error{
+  constructor(message:string,readonly fields:MoveBinding[]){super(message);}
+}
+function rebindFormats(formats:Format[],source:Section,target:Section,area:boolean,bindings?:Record<string,string>){
+  const required=new Map<string,MoveBinding>();
+  const edits:{inline:Inline;id:string}[]=[];
+  for(const format of formats){
+    const refs=Object.values(format.fragment.nodes).flatMap(node=>node.type==='text-block'
+      ?(node.children??[]).filter(i=>i.type==='field-ref'&&i.scope==='section'&&i.key):[]);
+    const other=sectionBinding(format,new Set(refs));
+    if(other)fail('Format '+format.key+' ผูกกับ '+other+' ของ Section '+source.label);
+    for(const inline of refs){
+      const key=inline.key!,id=area?JSON.stringify([format.key,key]):key;
+      required.set(id,{id,key,format:format.key});
+      edits.push({inline,id});
+    }
+  }
+  const fields=[...required.values()];
+  if(!fields.length)return;
+  const first=fields[0];
+  if(!bindings)throw new FormatBindingRequired('Format '+first.format+' ผูกกับ '+first.key+' ของ Section '+source.label,fields);
+  for(const field of fields){
+    const type=source.inputSchema.fields[field.key]?.type;
+    if(!['string','link'].includes(type)||!own(bindings,field.id)||!own(target.inputSchema.fields,bindings[field.id])||
+      target.inputSchema.fields[bindings[field.id]].type!==type)fail('เลือกตัวแปรปลายทางชนิดเดียวกับ '+field.key);
+  }
+  for(const {inline,id} of edits)inline.key=bindings[id];
+}
+function layoutColumn(def:Definition,at:Ref){
+  const {node,fragment}=resolve(def,at);
+  const index=Number(at.part?.slice(7));
+  if(!at.band||!fragment||node?.type!=='columns'||!node.columns||at.part!=='column:'+index||!node.columns[index]?.childIds)
+    throw Error('เลือกคอลัมน์ในชุดคอลัมน์บนกระดาษ');
+  return {columns:node.columns,index,ids:node.columns[index].childIds!,fragment};
+}
+function move(def:Definition,at:Ref,to:Ref,bindings?:Record<string,string>):Ref {
   const from=resolve(def,at), target=resolve(def,to);
+  if(to.part?.startsWith('column:')){
+    const targetColumn=layoutColumn(def,to),node=from.node;
+    if(!node||!from.fragment||from.host!==target.host||at.part||!['text-block','image','line'].includes(node.type))
+      return fail('ย้ายได้เฉพาะข้อความ ภาพ หรือเส้นในชุดคอลัมน์เดียวกัน');
+    const source=targetColumn.columns.find(column=>column.childIds?.includes(node.id));
+    if(!source?.childIds||source.childIds===targetColumn.ids)return fail('เลือกคอลัมน์อื่นในชุดเดียวกัน');
+    canDetach(from.host,from.fragment,node);
+    source.childIds.splice(source.childIds.indexOf(node.id),1);targetColumn.ids.push(node.id);return at;
+  }
   if(from.format&&!from.node){
     const area=areaIdOf(target.node);
     if(area===from.format.ownerAreaId)fail('เลือก Area ปลายทางที่ต่างจากเดิม');
     if(formatsFor(def,from.format.ownerAreaId).length<=1)fail('Area เดิมต้องเหลืออย่างน้อยหนึ่ง Format');
     key(from.format.key,Object.fromEntries(formatsFor(def,area).map(([,f])=>[f.key,true])));
-    if(from.section!==target.section&&sectionScoped(from.format))fail('Format ใช้ตัวแปรของ Section เดิม');
+    if(from.section!==target.section)rebindFormats([from.format],from.section,target.section,false,bindings);
     from.format.ownerAreaId=area;
     return {sectionId:to.sectionId,formatId:at.formatId};
   }
@@ -332,7 +402,6 @@ function move(def:Definition,at:Ref,to:Ref):Ref {
     if(to.nodeId||to.formatId||to.band||from.section===target.section)fail('เลือก Section อื่นเป็นปลายทาง');
     if(node.props?.verticalAlign==='bottom')fail('Area ท้ายหน้าต้องคงตำแหน่งใน Section เดิม');
     const aid=areaIdOf(node), field=areaField(def,from.section,aid);
-    if(formatsFor(def,aid).some(([,format])=>sectionScoped(format)))fail('Area มี Format ที่ใช้ตัวแปรของ Section เดิม');
     const destination=authored(target.section);
     if(own(destination.nodes,node.id))fail('ปลายทางมี node id นี้อยู่แล้ว');
     if(field.schema===from.section.inputSchema){
@@ -340,21 +409,31 @@ function move(def:Definition,at:Ref,to:Ref):Ref {
       target.section.inputSchema.fields[field.key]=field.field;
       delete field.schema.fields[field.key];
     }
+    rebindFormats(formatsFor(def,aid).map(([,format])=>format),from.section,target.section,true,bindings);
     const ids=nodeList(f,node.id);ids.splice(ids.indexOf(node.id),1);
     delete f.nodes[node.id];if(!f.rootIds.length)from.section.source={kind:'blank'};
     destination.nodes[node.id]=node;insertRoot(destination,node.id);
     return {...to,nodeId:node.id};
   }
+  const toCell=cellMoveTarget(from,target);
+  const list=nodeList(f,node.id);list.splice(list.indexOf(node.id),1);toCell.childIds!.push(node.id);
+  return {...to,nodeId:node.id};
+}
+function cellMoveTarget(from:ReturnType<typeof resolve>,target:ReturnType<typeof resolve>){
+  const {node,fragment:f}=from;
+  if(!node||!f)return fail('เลือกกล่องข้อความหรือรูปภาพ');
   if(!['text-block','image'].includes(node.type)||from.host!==target.host||target.node?.type!=='table-cell')
     fail('ย้ายข้อความหรือภาพได้ระหว่างเซลล์ในโครงเดียวกัน');
   const fromCell=owner(f,node.id), toCell=target.node!;
   const row=fromCell?owner(f,fromCell.id):undefined;
   if(fromCell?.type!=='table-cell'||toCell===fromCell||!row||owner(f,toCell.id)!==row||
-    dynamicRow(from.host,row.id)||from.host.cellRepeats?.some(r=>[fromCell.id,toCell.id].includes(r.cellId)))
-    fail('เลือกเซลล์อื่นในแถวเดียวกันที่ไม่มีการวนซ้ำ');
+    from.host.rowGroups?.some(group=>group.rowTemplateIds.includes(row.id)||group.memberRepeat.rowTemplateId===row.id||group.memberRepeat.emptyRowTemplateId===row.id)||from.host.cellRepeats?.some(r=>[fromCell.id,toCell.id].includes(r.cellId)))
+    fail('เลือกเซลล์ในแถวเดียวกันที่ไม่ติดกฎกลุ่มแถวหรือการวนในเซลล์');
   canDetach(from.host,f,node);
-  const list=nodeList(f,node.id);list.splice(list.indexOf(node.id),1);toCell.childIds!.push(node.id);
-  return {...to,nodeId:node.id};
+  return toCell;
+}
+export function canMoveBetweenCells(def:Definition,at:Ref,to:Ref){
+  try{cellMoveTarget(resolve(def,at),resolve(def,to));return true;}catch{return false;}
 }
 function layoutLength(length:Length){
   if(!['pt','mm'].includes(length.unit)||!Number.isFinite(lengthInPoints(length))||length.value<0)fail('กรอกระยะตั้งแต่ 0 ขึ้นไป');
@@ -381,6 +460,10 @@ export function applyStructureChange(source:Definition,change:Change):{definitio
   }
   if(change.kind==='move'){
     affected.add(change.to.sectionId);
+    if(change.bindings){
+      const {node}=resolve(source,change.at);
+      if(node?.type==='area')for(const [id] of formatsFor(source,areaIdOf(node)))formats.add(id);
+    }
     if(change.to.formatId)formats.add(change.to.formatId);
   }
   const def:Definition={...source,
@@ -417,6 +500,46 @@ export function applyStructureChange(source:Definition,change:Change):{definitio
     selection={sectionId:change.at.sectionId,formatId:id};
   }else if(change.kind==='node'){
     selection=addNode(def,change.at,change.type,change.source,change.pageField,change.position);
+  }else if(change.kind==='column-boundary'){
+    const {columns,index}=layoutColumn(def,change.at);
+    const {left,fraction}=change;
+    if(!Number.isInteger(left)||!(left===index||left===index-1)||!columns[left]||!columns[left+1]||!(fraction>0&&fraction<1))
+      return fail('เลือกขอบร่วมระหว่างสองคอลัมน์');
+    const total=(columns[left].weight??1)+(columns[left+1].weight??1);
+    columns[left].weight=total*fraction;columns[left+1].weight=total*(1-fraction);
+    selection=change.at;
+  }else if(change.kind==='layout-column'){
+    const {columns,index,ids}=layoutColumn(def,change.at);
+    let next=index;
+    if(change.action==='weight'){
+      if(!Number.isFinite(change.weight)||!(change.weight!>0))return fail('สัดส่วนต้องมากกว่า 0');
+      columns[index].weight=change.weight;
+    }else if(change.action==='remove'){
+      if(columns.length===1)return fail('ต้องเหลืออย่างน้อยหนึ่งคอลัมน์');
+      for(const id of [...ids])remove(def,{...change.at,nodeId:id,part:undefined});
+      columns.splice(index,1);next=Math.min(index,columns.length-1);
+    }else{
+      next=index+(change.action==='add-after'?1:0);
+      columns.splice(next,0,{weight:columns[index].weight??1,childIds:[]});
+    }
+    selection={...change.at,part:'column:'+next};
+  }else if(change.kind==='column-content'){
+    const {fragment,ids}=layoutColumn(def,change.at);
+    const node:DocNode=change.type==='line'?{id:uid(),type:'line',props:{}}:text(def);
+    if(change.type==='text-block'){
+      if(!change.text?.trim())return fail('กรอกข้อความที่จะวาง');
+      node.children![0].text=change.text;
+    }
+    fragment.nodes[node.id]=node;ids.push(node.id);
+    selection={...change.at,nodeId:node.id,part:undefined};
+  }else if(change.kind==='spacer-height'){
+    const {node}=resolve(def,change.at);
+    if(node?.type!=='text-block'||node.children?.length||node.props?.heightMode!=='fixed'||!node.props.height)
+      return fail('เลือกบล็อกเว้นระยะที่มีความสูงกำหนดไว้');
+    layoutLength(change.length);
+    if(change.length.value===0)return fail('ความสูงต้องมากกว่า 0');
+    node.props.height=change.length;
+    selection=change.at;
   }else if(change.kind==='line-spacing'){
     const {node}=resolve(def,change.at);
     if(node?.type!=='line')return fail('เลือกเส้นที่กำหนดระยะเว้น');
@@ -437,6 +560,18 @@ export function applyStructureChange(source:Definition,change:Change):{definitio
       return fail('หัวตารางต้องอยู่ด้วยกัน');
     (node.props??={}).allowBreak=change.allowBreak;
     selection=change.at;
+  }else if(change.kind==='table-divider'){
+    const {left,fraction}=change;
+    if(!Number.isInteger(left)||!Number.isFinite(fraction)||fraction<=0||fraction>=1)return fail('ระยะคอลัมน์ไม่ถูกต้อง');
+    for(const ref of change.header?[change.at,change.header]:[change.at]){
+      const {node,fragment}=resolve(def,ref);
+      const first=node?.columns?.[left],second=node?.columns?.[left+1];
+      if(node?.type!=='table'||!fragment||!first?.width||!second?.width)return fail('ไม่พบเส้นแบ่งคอลัมน์');
+      const total=lengthInPoints(first.width)+lengthInPoints(second.width);
+      first.width=pt(total*fraction);second.width=pt(total*(1-fraction));
+      ensureCellContentWidth(node,fragment);
+    }
+    selection=change.cell;
   }else if(change.kind==='column-width'){
     const {node,fragment}=resolve(def,change.at);
     const column=node?.columns?.[change.column];
@@ -480,13 +615,17 @@ export function applyStructureChange(source:Definition,change:Change):{definitio
   }else if(change.kind==='delete'){
     selection=remove(def,change.at);
   }else if(change.kind==='move'){
-    selection=move(def,change.at,change.to);
+    selection=move(def,change.at,change.to,change.bindings);
   }else if(change.kind==='reorder'){
     const {section,host,fragment:f,node,format}=resolve(def,change.at);
-    if(node&&f){
-      nodeReorder(host,f,node,nodeList(f,node.id),change.delta);
-    }else if(!format&&!change.at.band)reorder(def.sections,section,change.delta);
-    else fail('รายการนี้ไม่มีลำดับให้จัดใหม่');
+    if(change.at.part||(!node&&(format||change.at.band)))fail('รายการนี้ไม่มีลำดับให้จัดใหม่');
+    const ids=node&&f?nodeList(f,node.id):def.sections.map(s=>s.id);
+    const distance=change.targetId===undefined?1:(ids.indexOf(change.targetId)-ids.indexOf(node?.id??section.id))*change.delta;
+    if(change.targetId!==undefined&&(!ids.includes(change.targetId)||distance<=0))fail('ปลายทางต้องอยู่ในกลุ่มเดียวกัน');
+    for(let step=0;step<distance;step++){
+      if(node&&f)nodeReorder(host,f,node,ids,change.delta);
+      else reorder(def.sections,section,change.delta);
+    }
     selection=change.at;
   }
   else return fail('คำสั่งจัดโครงไม่รองรับ');

@@ -230,7 +230,7 @@ export function showApi(panel:HTMLElement,ctx:ApiContext,signal:AbortSignal){
     const advanced=element('div');
     advanced.append(element('h3','เรียกผ่าน Service · เวอร์ชัน '+value.version),
       element('p','ตั้งค่า '+(baseUrl?'FLOWDOC_TOKEN':'FLOWDOC_BASE_URL และ FLOWDOC_TOKEN')+' ที่เซิร์ฟเวอร์ผู้เรียก แล้วเตรียมไฟล์ตามสัญญาของฉบับเผยแพร่ หากมีภาพให้เพิ่มส่วนไฟล์ตามตำแหน่งที่ระบุ'),
-      element('p','Service ใช้เวอร์ชันเผยแพร่ล่าสุดขณะรับงาน'+(matches?'':' · ใช้สัญญาด้านล่างเตรียมข้อมูลสำหรับเวอร์ชันที่เผยแพร่')),
+      element('p','คำขอที่ไม่ส่งเลขรุ่นใช้รุ่นที่ตั้งไว้ให้ระบบผู้เรียก หากยังไม่ได้ตั้งจะใช้รุ่นเผยแพร่ล่าสุด'+(matches?'':' · ใช้สัญญาด้านล่างเตรียมข้อมูลสำหรับเวอร์ชันที่เผยแพร่')),
       element('p','คำสั่งสำหรับ Bash'),
       button('คัดลอกคำสั่งเรียก API',()=>copy(command().map(line=>line.trimStart()).join(' '),'คัดลอกคำสั่งเรียก API แล้ว')),preview);
     publishedPane.append(details('คำสั่ง Bash สำหรับคำขอเดียวกัน',advanced),

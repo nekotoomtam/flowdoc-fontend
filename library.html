@@ -5,19 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>คลังโครงเอกสาร · FlowDoc</title>
 <link rel="stylesheet" href="/ui-colors.css"></head>
-<body>
+<body class="library-gallery">
   <header class="topbar"><a href="library.html" class="brand">▤ <span>FlowDoc</span></a><span class="badge">อ่านอย่างเดียว</span></header>
   <main>
-    <nav class="crumb" aria-label="ตำแหน่งปัจจุบัน">พื้นที่ทำงาน / คลังโครงเอกสาร</nav>
+    
     <section class="hero">
-      <div><div class="eyebrow">DOCUMENT STUDIO</div><h1>คลังโครงเอกสาร</h1><p>ค้นหาและเปิดดูโครงเอกสารที่บันทึกไว้</p></div>
-      <button id="create-draft" class="primary" type="button" disabled>＋ สร้างโครงเอกสาร</button>
+      <div><h1>คลังแม่แบบ</h1><p>ค้นหาและเปิดดูโครงเอกสารที่บันทึกไว้</p></div>
+      <input type="search" id="search" placeholder="ค้นหาแม่แบบ" aria-label="ค้นหาแม่แบบ">
     </section>
     <section aria-labelledby="catalog-title">
       <div class="toolbar">
-        <h2 id="catalog-title">โครงเอกสารทั้งหมด <span id="count"></span></h2>
+        <h2 id="catalog-title">แม่แบบในคลัง <span id="count"></span></h2>
         <div class="controls">
-          <input type="search" id="search" placeholder="ค้นหาชื่อหรือรหัสโครง" aria-label="ค้นหาชื่อหรือรหัสโครง">
+          <button id="create-draft" class="primary" type="button" disabled>＋ สร้างแม่แบบ</button>
           <button id="refresh" type="button">รีเฟรช</button>
         </div>
       </div>
@@ -26,7 +26,7 @@
     </section>
   </main>
   <dialog id="detail" aria-labelledby="detail-name">
-    <nav class="detail-crumb"><button id="return-library" type="button">คลังโครงเอกสาร</button> / รายละเอียดแม่แบบ</nav>
+    <nav class="detail-crumb"><button id="return-library" type="button">← คลังแม่แบบ</button></nav>
     <h2 id="detail-name"></h2>
     <p id="detail-key" hidden></p>
     <p id="detail-info"></p>

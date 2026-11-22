@@ -1142,6 +1142,23 @@ function paintControl(item:Outline,property:'color'|'borderColor'|'fillColor',la
   group.append(custom);group.disabled=isSaving||hasConflict||draft.readOnly===true;
   return group;
 }
+function isBandRoot(item:Outline){
+  return Boolean(item.node&&!item.ref.part&&item.band?.fragment.rootIds.includes(item.id));
+}
+function bandItemPages(item:Outline){
+  return item.band?.firstPageOnly?.includes(item.id)?'first':'all';
+}
+function editBandItemPages(item:Outline){
+  const current=bandItemPages(item);
+  const band=item.ref.band==='header'?'หัวกระดาษ':'ท้ายกระดาษ';
+  const mode=item.ref.band==='header'?item.section.headerMode:item.section.footerMode;
+  const note=mode&&mode!=='all'?(mode==='none'?'Section นี้ซ่อน'+band+'อยู่':mode==='first'?'Section นี้แสดง'+band+'เฉพาะหน้าแรก':
+    'Section นี้แสดง'+band+'เฉพาะหน้าถัดไป ถ้าเลือกหน้าแรก ชิ้นงานนี้จะไม่แสดง'):undefined;
+  ask('แสดงบนหน้า · '+item.label,[{key:'mode',label:'แสดงบนหน้า',value:current,options:[['all','ทุกหน้าที่แสดง'+band],['first','หน้าแรกของ Section']]}],values=>{
+    const mode=values.mode==='first'?'first':'all';
+    if(mode!==current)stage({kind:'band-item-pages',at:item.ref,mode});
+  },note);
+}
 function showLayoutFacts(item:Outline,spacing?:'before'|'after'){
   const panel=q('layout-facts'),summary=q('paper-layout-summary'),actions=q('paper-layout-actions');
   actions.replaceChildren();
@@ -1198,6 +1215,7 @@ function showLayoutFacts(item:Outline,spacing?:'before'|'after'){
     if(cell&&cell!==item)navigate('เลือกเซลล์',cell);
     if(table!==item)navigate('เลือกตาราง',table);
   }
+  if(isBandRoot(item))note('แสดงบนหน้า',bandItemPages(item)==='first'?'หน้าแรกของ Section':'ตามการตั้งค่าของ'+(item.ref.band==='header'?'หัวกระดาษ':'ท้ายกระดาษ'));
   if(item.type==='text-block'&&!item.node?.children?.length&&props?.heightMode==='fixed'&&props.height){
     const prior=props.height;
     note('ความสูงบล็อกเว้นระยะ',displayLength(prior));
@@ -1470,6 +1488,7 @@ function showActions(item:Outline){
       add('+ แทรกหลัง',()=>chooseNode(parent,choices,{anchor:item.id,side:'after'}),'add');
     }
   }
+  if(isBandRoot(item))add('แสดงบนหน้า',()=>editBandItemPages(item));
   if(item.type==='header'||item.type==='footer'){
     add('ขนาดและระยะของแถบ',()=>bandSettings(item));
     add('+ เพิ่มเลขหน้า',()=>ask('เพิ่มเลขหน้า',[{key:'field',label:'ชนิด',options:[['current','เลขหน้าปัจจุบัน'],['total','จำนวนหน้าทั้งหมด']]}],

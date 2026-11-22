@@ -67,7 +67,7 @@ export function fullApiExample(contract:InputContract):ApiExample{
   return {payload:{data,sections},images};
 }
 
-export function postmanCurl(contract:PublishedContract,example:ApiExample,baseUrl:string){
+export function postmanCurl(contract:PublishedContract,example:ApiExample,baseUrl:string,pinVersion=false){
   const url=baseUrl?baseUrl+'/documents':postmanDocumentUrl;
   // Keep shell quotes and cURL's form option separator out of the JSON text.
   const body=JSON.stringify(example.payload,null,2).replace(/[;']/g,char=>char===';'?'\\u003b':'\\u0027');
@@ -75,6 +75,7 @@ export function postmanCurl(contract:PublishedContract,example:ApiExample,baseUr
     'curl --request POST '+shellLiteral(url),
     '  --header '+shellLiteral('Authorization: Bearer {{FLOWDOC_TOKEN}}'),
     '  --header '+shellLiteral('Doc-Key: '+contract.docKey),
+    ...(pinVersion?['  --header '+shellLiteral('Document-Version: '+contract.version)]:[]),
     '  --header '+shellLiteral('Output-Format: docx'),
     '  --header '+shellLiteral('Accept: '+wordMediaType),
     '  --form '+shellLiteral('payload='+body+';type=application/json'),
@@ -82,7 +83,7 @@ export function postmanCurl(contract:PublishedContract,example:ApiExample,baseUr
   ].join(' \\\n');
 }
 
-export function postmanCollection(contract:PublishedContract,example:ApiExample,baseUrl=''){
+export function postmanCollection(contract:PublishedContract,example:ApiExample,baseUrl='',pinVersion=false){
   const auth={type:'bearer',bearer:[{key:'token',value:'{{FLOWDOC_TOKEN}}',type:'string'}]};
   const tests=[
     "pm.test('FlowDoc returned a Word download', () => {",
@@ -102,7 +103,7 @@ export function postmanCollection(contract:PublishedContract,example:ApiExample,
     item:[
       {name:'ดาวน์โหลด Word',event:[{listen:'test',script:{type:'text/javascript',exec:tests}}],
         request:{method:'POST',auth,url:postmanDocumentUrl,
-          header:[{key:'Doc-Key',value:'{{DOC_KEY}}'},{key:'Output-Format',value:'docx'},{key:'Accept',value:wordMediaType}],
+          header:[{key:'Doc-Key',value:'{{DOC_KEY}}'},...(pinVersion?[{key:'Document-Version',value:String(contract.version)}]:[]),{key:'Output-Format',value:'docx'},{key:'Accept',value:wordMediaType}],
           body:{mode:'formdata',formdata:[
             {key:'payload',type:'text',contentType:'application/json',value:JSON.stringify(example.payload,null,2)},
             ...example.images.map(image=>({key:imagePart(image.path),type:'file',src:postmanImage,contentType:'image/png'})),

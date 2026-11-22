@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>คลังโครงเอกสาร · FlowDoc</title>
-</head>
+<link rel="stylesheet" href="/ui-colors.css"></head>
 <body>
   <header class="topbar"><a href="library.html" class="brand">▤ <span>FlowDoc</span></a><span class="badge">อ่านอย่างเดียว</span></header>
   <main>
@@ -26,10 +26,12 @@
     </section>
   </main>
   <dialog id="detail" aria-labelledby="detail-name">
+    <nav class="detail-crumb"><button id="return-library" type="button">คลังโครงเอกสาร</button> / รายละเอียดแม่แบบ</nav>
     <h2 id="detail-name"></h2>
-    <p id="detail-key"></p>
+    <p id="detail-key" hidden></p>
     <p id="detail-info"></p>
-    <p>หน้านี้เปิดดูรายการจริงได้ การแก้ไขโครงจะอยู่ในหน้า Editor</p>
+    <div id="detail-actions"></div>
+    <section id="baseline-controls" aria-label="รุ่นที่ระบบรับงานใช้"></section>
     <form method="dialog"><button autofocus>กลับคลัง</button></form>
   </dialog>
   <script type="module" src="/src/library.ts"></script>

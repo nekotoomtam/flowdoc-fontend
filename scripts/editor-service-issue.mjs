@@ -96,7 +96,7 @@ export function worksheetForm(definition,trial){
   return {form,worksheetSha256:sha(JSON.stringify(sorted(input)))};
 }
 
-export async function openEditorServiceIssue(configPath,{registerSnapshot,readSnapshot,backgroundStore,fetchImpl=fetch}={}){
+export async function openEditorServiceIssue(configPath,{registerSnapshot,readSnapshot,managedLatest,backgroundStore,fetchImpl=fetch}={}){
   if(!configPath)return;
   const config=await json(configPath);
   const {serviceUrl,credentialsFile,artifactDirectory,backgroundDirectory,templates}=config;
@@ -147,17 +147,7 @@ export async function openEditorServiceIssue(configPath,{registerSnapshot,readSn
     await install(join(store,'objects',digest+'.png'),image.bytes);
     await install(join(store,'v'+version+'.json'),JSON.stringify({templateId:draft.templateId,version,sectionId,sha256:digest}));
   }
-  async function generate(draft,proof,formatted,backgrounds,key){
-    const receiptPath=join(artifactDirectory,key+'.json');
-    const previous=await optionalFile(receiptPath);
-    if(previous){
-      const result=JSON.parse(previous);
-      if(!(await optionalFile(join(artifactDirectory,result.taskId+'.pdf'))))fail(503,'ISSUE_ARTIFACT_UNAVAILABLE');
-      return {status:200,body:result};
-    }
-    // Registry receives the exact verified definition. A revision uses one
-    // immutable version slot even if the caller submits a new worksheet.
-    const version=draft.revision;
+  async function publishDefinition(draft,version,backgrounds){
     await writeBackgroundPin(draft,version,backgrounds);
     const definition={...draft.definition,version};
     const publication=await registerSnapshot(definition);
@@ -168,6 +158,27 @@ export async function openEditorServiceIssue(configPath,{registerSnapshot,readSn
       published.docKey!==draft.docKey||published.version!==version||
       selected.value.template.fingerprint!==published.fingerprint||
       !isDeepStrictEqual(selected.value.template.definition,definition))fail(409,'IMMUTABLE_PUBLICATION_CONFLICT');
+    return published;
+  }
+  async function generate(draft,proof,formatted,backgrounds,key,managedVersion){
+    const receiptPath=join(artifactDirectory,key+'.json');
+    const previous=await optionalFile(receiptPath);
+    if(previous){
+      const result=JSON.parse(previous);
+      if(!(await optionalFile(join(artifactDirectory,result.taskId+'.pdf'))))fail(503,'ISSUE_ARTIFACT_UNAVAILABLE');
+      return {status:200,body:result};
+    }
+    const version=managedVersion??draft.revision;
+    let published;
+    if(managedVersion!==null){
+      const stored=await readSnapshot(draft.docKey,version);
+      if(!stored.ok||!isDeepStrictEqual(stored.value.template.definition,{...draft.definition,version}))
+        fail(409,'PUBLISH_DRAFT_FIRST');
+      await writeBackgroundPin(draft,version,backgrounds);
+      published={fingerprint:stored.value.template.fingerprint,versionId:stored.value.versionId};
+    }else{
+      published=await publishDefinition(draft,version,backgrounds);
+    }
     const contract=await request('/templates/'+encodeURIComponent(draft.docKey)+'/contract?version='+version);
     if(!contract.ok||(await contract.json()).value?.version!==version)fail(409,'PUBLISHED_VERSION_UNAVAILABLE');
     const issued=await request('/documents',{method:'POST',headers:{'Doc-Key':draft.docKey,
@@ -218,7 +229,31 @@ export async function openEditorServiceIssue(configPath,{registerSnapshot,readSn
   }
   return {
     accepts,
+    hasLibraryVersions(row){return allowed.has(row.templateId)&&allowed.get(row.templateId).docKey===row.docKey;},
     captureBackgrounds,
+    async rememberReview(parent,id,origin){
+      if(!accepts(parent)||!uuid.test(id))throw Error('Invalid review');
+      await install(join(artifactDirectory,'review-'+parent.templateId+'-'+id+'.json'),JSON.stringify(origin));
+    },
+    async reviewOrigin(parent,id){
+      if(!accepts(parent)||!uuid.test(id))return;
+      const bytes=await optionalFile(join(artifactDirectory,'review-'+parent.templateId+'-'+id+'.json'));
+      return bytes&&JSON.parse(bytes);
+    },
+    hasBaselineSample(draft){return accepts(draft)&&Boolean(allowed.get(draft.templateId)?.baselineSampleFile);},
+    async baselineSample(draft){
+      if(!this.hasBaselineSample(draft))return null;
+      return json(allowed.get(draft.templateId).baselineSampleFile);
+    },
+    consumerFor(draft){
+      if(!accepts(draft))return null;
+      return {ownerKey:credential.ownerKey,principalId:credential.principalId};
+    },
+    async publish(draft,version){
+      if(!accepts(draft))return {status:404,body:{error:'ISSUE_NOT_AVAILABLE'}};
+      try{return {status:201,body:{value:await publishDefinition(draft,version,await captureBackgrounds(draft))}};}
+      catch(error){return publicFailure(error);}
+    },
     async issue(draft,proof,body,localBackgrounds){
       try{
         if(!accepts(draft))fail(404,'ISSUE_NOT_AVAILABLE');
@@ -229,10 +264,13 @@ export async function openEditorServiceIssue(configPath,{registerSnapshot,readSn
             .filter(([id])=>draft.definition.sections.some(section=>section.id===id)).map(([id,item])=>[id,item.sha256]).sort())))
           fail(409,'PREVIEW_BACKGROUND_CHANGED');
         const formatted=worksheetForm(draft.definition,proof.trial);
-        const key=sha(JSON.stringify([draft.templateId,draft.revision,draft.fingerprint,backgrounds,formatted.worksheetSha256]));
+        const managedVersion=await managedLatest?.(draft,{ownerKey:credential.ownerKey,principalId:credential.principalId})??null;
+        const parts=[draft.templateId,draft.revision,draft.fingerprint,backgrounds,formatted.worksheetSha256];
+        if(managedVersion!==null)parts.push(managedVersion);
+        const key=sha(JSON.stringify(parts));
         if(active.has(key))return await active.get(key);
         if(active.size)fail(429,'ISSUE_BUSY');
-        const writing=generate(draft,proof,formatted,backgrounds,key);
+        const writing=generate(draft,proof,formatted,backgrounds,key,managedVersion);
         active.set(key,writing);
         try{return await writing;}finally{active.delete(key);}
       }catch(error){return publicFailure(error);}

@@ -1,11 +1,11 @@
 <!doctype html>
 <html lang="th">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>จัดการโครง UAT · FlowDoc</title></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>จัดการโครง UAT · FlowDoc</title><link rel="stylesheet" href="/ui-colors.css"></head>
 <body>
-<header class="topbar"><a id="editor-brand" class="brand" href="/library.html?phase1=1">FlowDoc</a><span id="editor-badge" class="badge">UAT · ฉบับทดสอบ · จัดโครง</span></header>
+<header class="topbar"><a id="editor-brand" class="brand" href="/library.html?phase1=1">▤ <span>FlowDoc</span></a><span id="editor-badge" class="badge">UAT · ฉบับทดสอบ · จัดโครง</span></header>
 <main>
   <div class="title editor-title"><div><a id="editor-library-link" href="/library.html?phase1=1">‹ คลังโครงเอกสาร</a><h1 id="title">กำลังเปิดโครงเอกสาร</h1><p id="revision"></p></div>
-  <div class="editor-toolbar"><nav aria-label="โหมดเอกสาร"><button id="define-tab" aria-pressed="true">แก้โครง</button><button id="preview-tab" aria-pressed="false" disabled>ลองข้อมูล / Preview</button><button id="api-tab" type="button" aria-pressed="false" aria-controls="api-panel" hidden>API</button></nav><button id="save-structure" class="primary" type="button" disabled>บันทึกโครง</button></div></div>
+  <div class="editor-toolbar"><nav aria-label="โหมดเอกสาร"><button id="define-tab" aria-pressed="true">แก้โครง</button><button id="preview-tab" aria-pressed="false" disabled>ลองข้อมูล / Preview</button></nav><button id="save-structure" class="primary" type="button" disabled>บันทึกร่าง</button><button id="compare-saved" type="button" hidden>ทาบกับรุ่นที่ใช้อยู่</button></div></div>
   <div id="structure-pending" class="structure-tools" hidden><strong>ฉบับร่างยังไม่ได้บันทึก</strong><button id="undo-structure" type="button">ย้อนขั้นล่าสุด</button><button id="discard-structure" type="button">ทิ้งการแก้โครง</button></div>
   <p id="status" role="status"></p>
 <section id="new-document" class="panel new-document" hidden>
@@ -35,28 +35,32 @@
 
   <div class="grid" id="editor" hidden>
     <section class="panel" aria-label="Tree โครงสร้าง"><h2>โครงสร้างเอกสาร</h2><div class="structure-tools"><button id="add-section" type="button">+ เพิ่ม Section</button></div><div id="tree"></div></section>
-    <section class="panel workspace" aria-label="กระดาษนิยาม"><div class="paper-toolbar"><div><h2>กระดาษนิยาม</h2></div><div class="paper-controls"><button id="zoom-fit" type="button" aria-pressed="true">พอดีหน้า</button><button id="zoom-out" type="button" aria-label="ย่อกระดาษ" disabled>−</button><span id="paper-zoom">100%</span><button id="zoom-in" type="button" aria-label="ขยายกระดาษ">+</button><button id="show-guides" type="button" aria-pressed="true">เส้นช่วยดูโครง</button><details class="paper-view-options"><summary>มุมมอง</summary><button id="show-handles" type="button" aria-pressed="false">แสดงจุดเลือก</button></details></div></div>
-      <p id="guide-legend"><i class="legend-grid" aria-hidden="true"></i> ตาราง <i class="legend-spacing" aria-hidden="true"></i> ระยะเว้น</p>
-      <div class="definition-viewport"><article id="paper" class="show-guides"></article></div></section>
-    <aside class="selection-inspector">
+    <section class="panel workspace" aria-label="กระดาษนิยาม"><div class="paper-toolbar"><div><h2>กระดาษนิยาม</h2></div><div class="paper-controls"><button id="zoom-fit" type="button" aria-pressed="false">พอดีหน้า</button><button id="zoom-width" type="button" aria-pressed="false" title="ขยายกระดาษให้เต็มความกว้างของพื้นที่แก้โครง">พอดีกว้าง</button><button id="zoom-out" type="button" aria-label="ย่อกระดาษ">−</button><span id="paper-zoom" title="Ctrl + ล้อเมาส์เพื่อซูมกระดาษ">75%</span><button id="zoom-in" type="button" aria-label="ขยายกระดาษ">+</button><button id="zoom-selection" type="button" disabled>ขยายจุดที่เลือก</button><button id="show-guides" type="button" aria-pressed="true">เส้นช่วยดูโครง</button><details class="paper-view-options"><summary>มุมมอง</summary><div class="paper-view-menu"><button id="show-handles" type="button" aria-pressed="false">แสดงจุดเลือก</button><p id="paper-zoom-help">Ctrl + ล้อเมาส์ ซูมตรงจุดที่ชี้<br>เมื่อโฟกัสกระดาษ Ctrl +/− ซูม · Ctrl 0 กลับ 100%</p><p id="guide-legend"><i class="legend-grid" aria-hidden="true"></i> ตาราง <i class="legend-spacing" aria-hidden="true"></i> ระยะเว้น</p></div></details></div></div>
+
+      <div class="definition-viewport" tabindex="0" role="region" aria-label="พื้นที่กระดาษแก้โครง" aria-describedby="paper-zoom-help"><article id="paper" class="show-guides"></article></div></section>
+    <aside class="selection-inspector" aria-label="รายละเอียดชิ้นที่เลือก">
       <div id="paper-edit-tools" class="paper-edit-tools" role="group" aria-label="แก้ไขบนกระดาษ">
-        <nav id="paper-path" aria-label="ตำแหน่งในโครงเอกสาร"></nav>
         <p id="paper-selection" aria-live="polite"></p>
+        <nav id="paper-path" aria-label="ตำแหน่งในโครงเอกสาร"></nav>
+      </div>
+      <div class="inspector-scroll">
+      <section id="binding-inspector" class="panel" hidden><h2>ตัวแปรที่ผูกไว้</h2><button id="binding-name" type="button" title="ชี้ช่องที่ผูกไว้บนกระดาษ"></button><button id="binding-return" type="button">◎ ชี้บนกระดาษ</button><div id="binding-targets"></div></section>
+      <details class="inspector-group" open><summary>เครื่องมือของชิ้นที่เลือก</summary><div class="inspector-body">
         <p id="paper-layout-summary" hidden></p>
         <div id="paper-actions"></div>
         <div id="paper-paint"></div>
         <div id="paper-order"></div>
         <div id="paper-layout-actions" hidden></div>
-      </div>
-      <section id="binding-inspector" class="panel" hidden><h2>ตัวแปรที่ผูกไว้</h2><code id="binding-name"></code><button id="binding-return" type="button">◎ ชี้บนกระดาษ</button><div id="binding-targets"></div></section>
-      <section class="panel layout-inspector" aria-label="ที่มาของตำแหน่ง"><h2>ตำแหน่งและระยะ</h2><div id="layout-facts"></div></section>
-      <details id="advanced-details" class="panel extra-panel"><summary>คำสั่งและรายละเอียดเพิ่มเติม</summary>
+      </div></details>
+      <details class="inspector-group layout-inspector"><summary>ตำแหน่งและระยะ</summary><div id="layout-facts" class="inspector-body"></div></details>
+      <details id="variable-panel" class="inspector-group"><summary>ตัวแปรของเอกสาร</summary><div class="inspector-body"><div id="variables"></div><p id="variable-detail" role="status"></p></div></details>
+      <details id="advanced-details" class="inspector-group"><summary>คำสั่งเพิ่มเติม</summary><div class="inspector-body">
       <h2 id="selection"></h2><p id="path"></p><p id="selection-detail"></p>
       <form id="rename" hidden><label for="section-name">ชื่อส่วนเอกสาร</label><input id="section-name" required maxlength="128"><button class="primary" id="save" type="submit">บันทึกชื่อ Section</button></form>
       <div id="actions" class="structure-tools"></div>
       <div id="conflict" hidden><p>มีฉบับใหม่กว่าในระบบ การแก้ในหน้านี้ยังอยู่จนกว่าจะกดโหลดฉบับล่าสุด</p><button id="reload">โหลดฉบับล่าสุด</button></div>
-      </details>
-      <details id="variable-panel" class="panel extra-panel" open><summary>ตัวแปรของเอกสาร</summary><div id="variables"></div><p id="variable-detail" role="status"></p></details>
+      </div></details>
+      </div>
     </aside>
   </div>
   <section id="preview" class="panel" hidden aria-label="กระดาษเสมือนจาก Engine">
@@ -64,15 +68,15 @@
       <aside id="trial-input" hidden aria-label="ข้อมูลทดลอง">
         <h2>ข้อมูลทดลอง</h2>
         <p>ช่องกรอกมาจากตัวแปรของโครงฉบับที่บันทึกไว้ ค่าที่กรอกอยู่ในแท็บนี้</p>
-        <form id="trial-form"></form>
+        <p id="trial-location" role="status"></p><form id="trial-form"></form>
       </aside>
       <div class="trial-result">
         <div class="trial-heading">
           <h2>กระดาษเสมือนจาก Engine</h2>
           <button id="preview-print-layout" type="button" aria-pressed="false" hidden>ดูหน้าที่จะออก PDF</button>
           <button id="open-preview-share" type="button" hidden>แชร์ Preview</button>
-          <details id="trial-export" hidden>
-            <summary>Export</summary>
+          <div id="preview-issue-slot"></div><details id="trial-export" hidden>
+            <summary>ไฟล์ตัวอย่าง</summary>
             <div class="trial-export-options">
               <button type="button" data-export-format="pdf">ดาวน์โหลด PDF</button>
               <button type="button" data-export-format="docx">ดาวน์โหลด Word (.docx)</button>
@@ -90,7 +94,6 @@
       </div>
     </div>
   </section>
-  <section id="api-panel" class="panel api-panel" aria-label="นำโครงไปใช้ผ่าน API" hidden></section>
 </main>
 <dialog id="preview-share-dialog" aria-labelledby="preview-share-title">
   <h2 id="preview-share-title">แชร์ Preview</h2>

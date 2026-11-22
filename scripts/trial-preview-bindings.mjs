@@ -70,7 +70,7 @@ export function trialBindings(definition,resolved,sample,draw){
     }
   }
   const formats=new Map(Object.entries(definition.areaFormats??{}).map(([id,f])=>[id,host(f.fragment,f)]));
-  function lookup(id){
+  function sourceFor(id){
     const band=hosts.get(id),source=band?.source??resolved.sourceMap[id],section=sections.get(source?.sectionId);
     if(!section)return;
     const {index,authored}=section;
@@ -83,8 +83,10 @@ export function trialBindings(definition,resolved,sample,draw){
       local=[...scopePath(field?'section':'global',index), (field??global)[0],source.areaEntryIndex,'data'];
     }
     const block=owner?.fragment.nodes[source.sourceId];
-    const field=block?.type==='text-block'&&block.children.length===1?block.children[0]:undefined;
-    if(field?.type!=='field-ref')return;
+    return block&&{block,owner,source,index,local};
+  }
+  function inputPath(context,field){
+    const {owner,source,index,local}=context;
     let path=scopePath(field.scope,index,local);
     if(field.scope==='group'||field.scope==='item'){
       const group=owner.structure.rowGroups?.find(g=>g.id===source.groupId);
@@ -101,8 +103,16 @@ export function trialBindings(definition,resolved,sample,draw){
         if(base)path=[...base,repeat.source.key,source.itemIndex];
       }
     }
+    return path&&[...path,field.key];
+  }
+  function lookup(id){
+    const context=sourceFor(id);
+    const block=context?.block;
+    const field=block?.type==='text-block'&&block.children.length===1?block.children[0]:undefined;
+    if(field?.type!=='field-ref')return;
+    const {owner,source}=context;
+    const path=inputPath(context,field);
     if(!path)return;
-    path=[...path,field.key];
     const value=path.reduce((current,key)=>current&&Object.hasOwn(current,key)?current[key]:undefined,sample);
     if(typeof value!=='string')return;
     const cell=owner.fragment.nodes[owner.parents.get(source.sourceId)];
@@ -154,5 +164,29 @@ export function trialBindings(definition,resolved,sample,draw){
   }
   const stops=[...ordered.values()],tab=new Map();
   for(const [index,stop] of stops.entries())tab.set(stop.occurrence,{previous:stops[index-1],next:stops[index+1]});
-  return {lines,locations,tab};
+  // Read-only form locators also cover mixed runs and images. Editable caret
+  // ranges above remain restricted to exact whole-field text.
+  const fieldPages=Object.create(null),formMarks=[],keysByNode=new Map();
+  function keysFor(id){
+    if(keysByNode.has(id))return keysByNode.get(id);
+    const ctx=sourceFor(id);
+    const refs=ctx?.block.type==='image'?[ctx.block.props.source]:
+      (ctx?.block.children??[]).filter(i=>i.type==='field-ref');
+    const keys=[...new Set(refs.filter(f=>f?.key).map(f=>inputPath(ctx,f)).filter(Boolean).map(path=>JSON.stringify(path)))];
+    keysByNode.set(id,keys);
+    return keys;
+  }
+  for(const [index,page] of draw.pages.entries()){
+    const marks=[];
+    for(const part of [...page.commands,...(page.images??[])]){
+      const keys=keysFor(part.nodeId);
+      if(!keys.length)continue;
+      const {xPt,yPt,widthPt,heightPt}=part.bounds??part;
+      if(![xPt,yPt,widthPt,heightPt].every(Number.isFinite))continue;
+      marks.push({keys,xPt,yPt,widthPt,heightPt});
+      for(const key of keys)fieldPages[key]??=index;
+    }
+    formMarks.push(marks);
+  }
+  return {lines,locations,tab,fieldPages,formMarks};
 }

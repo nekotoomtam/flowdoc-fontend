@@ -11,7 +11,7 @@ import {layoutPreview} from './trial-engine-layout.mjs';
 
 const reject=(status,error)=>({status,body:{error}});
 const invalid=result=>({status:422,body:{issues:result.issues.slice(0,20).map(({code,path})=>({code,path}))}});
-export function createTrialExports(root,readDraft,resourcesFor){
+export function createTrialExports(root,readDraft,resourcesFor,resolveDraft=draft=>draft){
   let active;
   const directory=process.env.FLOWDOC_SECTION_BACKGROUND_DIR;
   const backgrounds=directory?sectionBackgrounds(directory):undefined;
@@ -31,7 +31,7 @@ export function createTrialExports(root,readDraft,resourcesFor){
     try{
       const result=sharedDraft?{ok:true,value:sharedDraft}:await readDraft(templateId);
       if(!result.ok)return reject(404,'not_found');
-      const draft=result.value;
+      const draft=await resolveDraft(result.value);
       if(draft.revision!==expectedRevision||draft.fingerprint!==fingerprint)return reject(409,'STALE_CURRENT');
       const validated=validateTemplate(draft.definition);
       if(!validated.ok)return invalid(validated);

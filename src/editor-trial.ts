@@ -1,3 +1,4 @@
+import {paperFieldNames} from './editor-paper-field-names';
 import type {Definition,Field,Schema} from './editor-structure';
 import {postmanImage,sampleTextValue} from './editor-postman';
 
@@ -33,7 +34,8 @@ async function fileBytes(file:File){
   for(let i=0;i<bytes.length;i+=16384)binary+=String.fromCharCode(...bytes.subarray(i,i+16384));
   return btoa(binary);
 }
-export function mountTrial(form:HTMLFormElement,definition:Definition,starter:ReadonlyMap<string,string>,changed:(structural:boolean,key?:string)=>void,render:(trial:Trial,current:()=>boolean,usable:()=>boolean,structure:number,fields:ReadContext['fields'])=>Promise<void>){
+export function mountTrial(form:HTMLFormElement,definition:Definition,starter:ReadonlyMap<string,string>,changed:(structural:boolean,key?:string)=>void,render:(trial:Trial,current:()=>boolean,usable:()=>boolean,structure:number,fields:ReadContext['fields'])=>Promise<void>,locate:(key:string,label:string)=>void){
+  const fieldName=paperFieldNames(definition);
   const error=node('p');error.className='trial-error';error.setAttribute('role','alert');
   let editVersion=0,structureVersion=0,bindings=new Map<string,HTMLTextAreaElement>(),running=false;
   let keys:WeakMap<HTMLTextAreaElement,string>|undefined;
@@ -100,7 +102,12 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
       computedInputs.set(field.computed.inputs.unit,'unit');
     }
     for(const [key,field] of Object.entries(schema.fields)){
-      const result=fieldControl(key,field,sectionLabel,headingLevel,computedInputs.get(key));
+      const result=fieldControl(key,field,fieldName(schema,key),sectionLabel,headingLevel,computedInputs.get(key));
+      if(!['area','array'].includes(field.type)){
+        result.element.dataset.fieldName=fieldName(schema,key);
+        result.element.title=key;
+        for(const input of result.element.querySelectorAll<HTMLElement>('input,textarea,select'))input.dataset.variableKey=key;
+      }
       element.append(result.element);controls.set(key,result);
     }
     if(!controls.size)element.append(node('p','ส่วนนี้ไม่มีตัวแปร'));
@@ -108,12 +115,17 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
       for(const control of controls.values())control.fill(sample);
     },read(context:ReadContext,path:Path){
       const data:SampleData=Object.create(null);
-      for(const [key,control] of controls){const value=control.read(context,[...path,key]);if(value!==undefined)data[key]=value;}
+      for(const [key,control] of controls){
+        const at=[...path,key];
+        if(control.element.dataset.fieldName)control.element.dataset.formKey=JSON.stringify(at);
+        const value=control.read(context,at);
+        if(value!==undefined)data[key]=value;
+      }
       return data;
     }};
   }
-  function fieldControl(key:string,field:Field,sectionLabel:string,headingLevel?:string,computedInput?:'quantity'|'unit'):Control{
-    const label=(field.label||key)+(field.required?' (ต้องระบุ)':'');
+  function fieldControl(key:string,field:Field,name:string,sectionLabel:string,headingLevel?:string,computedInput?:'quantity'|'unit'):Control{
+    const label=name+(field.required?' (ต้องระบุ)':'');
     if(field.computed||field.formula){
       return {element:node('p',label+' · คำนวณอัตโนมัติ'),fill(){},read(){return undefined;}};
     }
@@ -221,7 +233,8 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
         return {type:type.value,text:caption.value,[type.value==='link'?'url':'target']:target};
       }};
     }
-    const input=node('textarea');input.rows=2;
+    const input=node('textarea');
+    input.rows=/Number$|Date$|^(documentVersion|author|projectName|telephone|fax)$/.test(key)?1:2;
     if(key==='anchor')input.dataset.trialAnchor='';
     return {element:labeled(label,input),fill(sample){
       if(input.value.trim())return;
@@ -340,6 +353,21 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
       if(current())error.textContent=cause instanceof Error?cause.message:'จัดหน้าทดลองไม่สำเร็จ';
     }finally{running=false;schedule(0);}
   }
+  let selectedField:HTMLElement|undefined;
+  function selectField(field:HTMLElement){
+    if(selectedField!==field){
+      selectedField?.classList.remove('linked-field');
+      field.classList.add('linked-field');selectedField=field;
+    }
+  }
+  const locateControl=(event:Event)=>{
+    const field=(event.target as Element)?.closest<HTMLElement>('[data-form-key]');
+    if(field?.dataset.formKey&&field.dataset.fieldName){
+      selectField(field);locate(field.dataset.formKey,field.dataset.fieldName);
+    }
+  };
+  form.addEventListener('focusin',locateControl);
+  form.addEventListener('click',locateControl);
   form.onsubmit=event=>event.preventDefault();
   const refresh=()=>{queued=()=>undefined;schedule();};
   queueMicrotask(()=>{if(!running&&!disposed)void send();});
@@ -358,6 +386,8 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
       for(let panel=field.closest('details');panel;panel=panel.parentElement?.closest('details')??null)panel.open=true;
       const viewport=fieldsPanel.getBoundingClientRect(),target=field.getBoundingClientRect();
       if(target.top<viewport.top||target.bottom>viewport.bottom)fieldsPanel.scrollTop+=target.top-viewport.top-24;
+      const row=field.closest<HTMLElement>('[data-form-key]');
+      if(row){selectField(row);return row.dataset.fieldName;}
     },
     write(key:string,value:string,focus:()=>TrialFocus,composing:boolean){
       const input=bindings.get(key);
@@ -367,6 +397,6 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
       if(composing){queued=undefined;window.clearTimeout(timer);timer=undefined;}
       else{queued=focus;schedule();}
     },
-    dispose(){disposed=true;editVersion++;queued=undefined;window.clearTimeout(timer);form.removeEventListener('compositionend',finishComposition);},
+    dispose(){form.removeEventListener('focusin',locateControl);form.removeEventListener('click',locateControl);disposed=true;editVersion++;queued=undefined;window.clearTimeout(timer);form.removeEventListener('compositionend',finishComposition);},
   };
 }

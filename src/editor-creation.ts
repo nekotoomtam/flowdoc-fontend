@@ -24,7 +24,7 @@ export function settings(values:Record<string,string>):PaperSettings{
   })) as PaperSettings['margin'];
   return {size:values.size,orientation:values.orientation,margin};
 }
-export function newDefinition(values:Record<string,string>){
+export function newDefinition(values:Record<string,string>,releaseId:string){
   const name=values.name.trim(),key=values.key.trim();
   if(!name||name.length>128||!values.section.trim()||values.section.length>128)invalid('กรอกชื่อโครงและชื่อ Section');
   if(!/^[a-z0-9-]{1,42}$/.test(key))invalid('รหัสโครงใช้ a–z, ตัวเลข หรือ - ได้ไม่เกิน 42 ตัว');
@@ -32,7 +32,7 @@ export function newDefinition(values:Record<string,string>){
   const definition:Definition & {name:string;templateId:string;docKey:string;schemaVersion:2;version:1;examples:unknown[]}={
     templateId,docKey,name,schemaVersion:2,nodeModelVersion:20,version:1,examples:[],
     book:{contentSlot:'body',defaultPageLayoutId:layout} as Definition['book'],
-    styles:{body:{font:{kind:'unselected'},fontSize:pt(12),lineHeightPt:18}},
+    styles:{body:{font:{kind:'library',releaseId,weight:400,style:'normal'},fontSize:pt(12),lineHeightPt:18}},
     globalSchema:{type:'object',fields:{}},
     pageLayouts:{[layout]:{page:settings(values)}},
     sections:[{id:section,sectionKey:'S0001',label:values.section.trim(),nameBase:values.section.trim(),

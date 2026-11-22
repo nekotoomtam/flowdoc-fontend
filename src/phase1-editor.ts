@@ -1,7 +1,7 @@
 import './phase1-editor.css';
 import {mountColumnEdges} from './editor-column-edges';
 import {treeIcon} from './editor-tree-icon';
-import {addBand,addVariable,applyPart,canEditSectionContent,changePage,newDefinition,partValue,settings} from './editor-creation';
+import {addBand,addVariable,sumSources,applyPart,canEditSectionContent,changePage,newDefinition,partValue,settings} from './editor-creation';
 import type {Part} from './editor-creation';
 import {openVisualAuthoring} from './editor-visual-authoring';
 import {mountTrial} from './editor-trial';
@@ -28,7 +28,7 @@ type DrawPage = {
 };
 type TrialTab = {occurrence:string;pageIndex:number};
 type PreviewEdit = {previous?:TrialTab;next?:TrialTab;key:string;occurrence:string;start:number;end:number;blank?:boolean;contentWidth?:number;align?:string;clusters:[number,number,number][]};
-type Preview = {fieldPages?:Record<string,number>;trialPatchBase?:boolean;pageKeys?:(string|null)[];pageSizes?:[number,number,string][];pageIndex?:number;previewId?:string;revision: number; fingerprint: string; engineVersion: string; engineMs: number; renderMs: number; layoutHash: string; renderPath?:string; pageCount: number; pages: DrawPage[]; paged?:boolean; entryCount?:number; imagePlacements?:number};
+type Preview = {formulaResults?:{instanceKey:string;values:Record<string,number>}[];fieldPages?:Record<string,number>;trialPatchBase?:boolean;pageKeys?:(string|null)[];pageSizes?:[number,number,string][];pageIndex?:number;previewId?:string;revision: number; fingerprint: string; engineVersion: string; engineMs: number; renderMs: number; layoutHash: string; renderPath?:string; pageCount: number; pages: DrawPage[]; paged?:boolean; entryCount?:number; imagePlacements?:number};
 type ServiceReply = {ok: boolean; value?: Draft; expiresAt?:string; issues?: {code: string; path?:string}[]};
 const q = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id)! as T;
 const title = q('title'), status = q('status'), editor = q('editor'), tree = q('tree'), paper = q('paper'), variables = q('variables');
@@ -589,11 +589,14 @@ function variableGroup(schema:Schema,scope:string,label:string,at?:Ref){
     const list=element('ul');
     for(const [key,definition] of Object.entries(current.fields)){
       const path=base+key,li=element('li');
-      const field=button(key+' · '+definition.type,()=>{
+      const field=button(key+' · '+(definition.formula?'ผลรวม':definition.type),()=>{
         variables.querySelector('[aria-current=true]')?.removeAttribute('aria-current');
         field.setAttribute('aria-current','true');
         value.textContent=label+' › '+path+' · '+definition.type;
         showBindingTargets(current,key,label+' › '+path);
+        if(at&&scope==='section'&&!base&&definition.type==='number'&&!definition.formula?.lookup&&creationMode()&&!draft.readOnly){
+          value.append(' ',button(definition.formula?'แก้สูตรผลรวม':'ตั้งสูตรผลรวม',()=>editSum(at,key)));
+        }
       });
       field.className='variable-field';
       field.dataset.variableScope=scope;field.dataset.variablePath=path;
@@ -922,9 +925,29 @@ function askArea(at:Ref){
   ask('เพิ่ม Area พร้อม Format แรก',[{key:'key',label:'ชื่อ Area'},{key:'format',label:'ชื่อ Format แรก'}],
     v=>stage({kind:'area',at,key:v.key,format:v.format}),'Area เป็นตำแหน่งบนกระดาษ ส่วน Format กำหนดสิ่งที่จะวางในพื้นที่นี้');
 }
+function editSum(at:Ref,key:string){
+  const section=draft.definition.sections.find(section=>section.id===at.sectionId)!;
+  const sources=sumSources(draft.definition,section);
+  const formula=section.inputSchema.fields[key].formula;
+  const selected=formula?sources.findIndex(({source})=>source.areaId===formula.source.areaId&&source.formatKey===formula.source.formatKey&&
+    source.arrayField===formula.source.arrayField&&source.valueField===formula.source.valueField):-1;
+  ask('สูตรผลรวม · '+key,[{key:'source',label:'รวมตัวเลขจาก',value:String(selected),
+    options:[['-1','รับค่าโดยตรง'],...sources.map(({label},i):[string,string]=>[String(i),label])]}],({source})=>{
+    const index=Number(source);
+    if(index===selected)return;
+    const next=structuredClone(draft.definition);
+    const field=next.sections.find(s=>s.id===section.id)!.inputSchema.fields[key];
+    if(index<0)delete field.formula;
+    else{
+      field.formula={operation:'sum',source:sources[index].source};
+      delete field.default;delete field.required;
+    }
+    stageDefinition(next,at,'section-sum');
+  },sources.length?undefined:'เพิ่มช่องตัวเลขในรายการของ Format ก่อนตั้งสูตร');
+}
 function askVariable(at:Ref,scope:'global'|'section'|'local'|'header'|'footer',label:string){
   const types:[string,string][]=[['string','ข้อความ'],['image','ภาพ'],['link','ลิงก์']];
-  if(!['header','footer'].includes(scope))types.push(['array','รายการ']);
+  if(!['header','footer'].includes(scope))types.push(['number','ตัวเลข'],['array','รายการ']);
   ask('ประกาศตัวแปร · '+label,[{key:'key',label:'ชื่อตัวแปร'},{key:'type',label:'ชนิด',options:types},
     {key:'required',label:'การส่งค่า',options:[['no','ไม่บังคับ'],['yes','บังคับ']]}],
     v=>stageDefinition(addVariable(draft.definition,at,scope,v),at,'variable'));
@@ -1013,7 +1036,7 @@ function chooseNode(item:Outline,options:[string,string][],position?:{anchor:str
 }
 function askBinding(item:Outline){
   const options=variableScopes(item).flatMap(({scope,label,schema})=>Object.entries(schema.fields)
-    .filter(([,f])=>f.type==='string'||f.type==='link').map(([key])=>[scope+':'+key,label+' › '+key] as [string,string]));
+    .filter(([,f])=>f.type==='string'||f.type==='number'||f.type==='link').map(([key])=>[scope+':'+key,label+' › '+key] as [string,string]));
   if(!options.length){status.textContent='ประกาศตัวแปรข้อความหรือลิงก์ในขอบเขตนี้ก่อน';return;}
   ask('ผูกตัวแปรกับข้อความ',[{key:'field',label:'ตัวแปร',options}],values=>{
     const [scope,key]=values.field.split(':');stage({kind:'binding',at:item.ref,scope,key});
@@ -2763,6 +2786,7 @@ async function loadPreview(trial?:Trial,current=()=>true,usable=current,structur
     if(current())paperDraft=undefined;
     trialBase=!printAccurate&&trial&&data.trialPatchBase&&data.previewId?{previewId:data.previewId,trial,structure}:undefined;
     mountPreview(data,desired);
+    if(current())trialForm?.setFormulaResults(data.formulaResults??[]);
     if(formSelection)void locateFormField(formSelection.key,formSelection.label,false);
     issuePreviewId=trial&&current()?data.previewId:undefined;
     previewHasBlankMarkers=!!trial?.blanks.length;

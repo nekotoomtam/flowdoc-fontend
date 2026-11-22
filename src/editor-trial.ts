@@ -45,6 +45,7 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
   let sampleFile:File|undefined;
   const invalidate=(structural=false,composing=false,key?:string)=>{
     editVersion++;error.textContent='';
+    for(const output of form.querySelectorAll<HTMLOutputElement>('output[data-formula-result]'))output.value='—';
     if(structural){structureVersion++;bindings.clear();keys=undefined;}
     changed(structural,key);
     if(composing){queued=undefined;window.clearTimeout(timer);timer=undefined;}
@@ -126,6 +127,10 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
   }
   function fieldControl(key:string,field:Field,name:string,sectionLabel:string,headingLevel?:string,computedInput?:'quantity'|'unit'):Control{
     const label=name+(field.required?' (ต้องระบุ)':'');
+    if(field.formula&&!field.formula.lookup){
+      const output=node('output','—');output.dataset.formulaResult=key;
+      return {element:labeled(name+' · ผลรวม',output),fill(){},read(){return undefined;}};
+    }
     if(field.computed||field.formula){
       return {element:node('p',label+' · คำนวณอัตโนมัติ'),fill(){},read(){return undefined;}};
     }
@@ -373,6 +378,14 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
   queueMicrotask(()=>{if(!running&&!disposed)void send();});
   return {
     refresh,
+    setFormulaResults(results:{instanceKey:string;values:Record<string,number>}[]){
+      const values=new Map(results.map(r=>[r.instanceKey,r.values]));
+      sections.forEach((section,i)=>{
+        for(const output of section.element.querySelectorAll<HTMLOutputElement>('output[data-formula-result]')){
+          output.value=String(values.get('preview-'+(i+1))?.[output.dataset.formulaResult!]??'—');
+        }
+      });
+    },
     async exportSnapshot(){const {trial}=await snapshot(true);return {data:trial.data,sections:trial.sections,images:trial.images};},
     apiExample(){
       const apiImages:NonNullable<ReadContext['apiImages']>=[];

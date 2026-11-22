@@ -31,6 +31,7 @@ function schema():Form{
 }
 function variable():Form{
   return choice({
+    number:field('ตัวเลข',()=>object({required:field('บังคับส่งค่า',flag,true),default:field('ค่าเริ่มต้น',number,true),label:field('ชื่อแสดง',text,true)})),
     string:field('ข้อความ',()=>variableOptions(false,true)),
     image:field('รูปภาพ',()=>variableOptions()),
     link:field('ลิงก์',()=>variableOptions()),array:field('รายการที่มีรายการย่อย',()=>variableOptions(true)),

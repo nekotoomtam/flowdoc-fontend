@@ -4,12 +4,12 @@
   "eagletainer/scripts/editor-lab-host.mjs": "52f844be1de402ca800bcac7f0e55be9fd3673afb233d396befe09a82ea63b10",
   "eagletainer/scripts/phase1-bridge.mjs": "c2011fd9583a3d3416b3942474362b0c5da2288040c0079e42dbcdca4ee01538",
   "eagletainer/scripts/section-publication.mjs": "148a10246d201e53223fbdc51b464ce65477b4a64145705610c56416503bc6e4",
-  "eagletainer/worker/phase1-server.mjs": "540a002f322e32c9a982f171d26c2fa4718851489bfe85cec7d3f76ebb47e034",
+  "eagletainer/worker/phase1-server.mjs": "4d66974e094491d49fb5fbff5b225021915351e10aa8ed479019f77193e46098",
   "main/scripts/editor-lab-host.mjs": "0426fa30d66fd66b39cd9bcaef24afc29658480ca7aa30dc9e2e4c9711767790",
   "main/scripts/library-sample-fixtures.json": "e27259a92d6a7e8aeb29f6da1691937d86d01ad4fbd302e2880c05749aec5af2",
   "main/scripts/phase1-bridge.mjs": "895c687a0a3df2c597d82228b59e4760b0ede94b0e54d484439d5c2e4b4d64de",
   "main/scripts/srs-from-zero-fixture.json": "d566f0e7c98224ae5de54c0532072ba3ee34c1a7c4aa61c0f0fad6d1b3d09df7",
   "main/scripts/srs-v2-sample-fixture.json": "6199327ee4868de0ec07bae02f4469256b92880e46ffb1aa281b0848a39d8221",
-  "main/worker/phase1-server.mjs": "5adcdee7594c1b8979b90e3b1ce3de044727fb1ecaa99d43253b8844715d8d33",
+  "main/worker/phase1-server.mjs": "a2ba7cfef3236e6e0511e1df59a8e0cf74291c32dba6d04a24932a418190c8fb",
   "main/worker/trial-export.mjs": "705128b544610c465252b17b5bfc5756c8174b0a954d95f74ea7524c35b2feeb"
 }

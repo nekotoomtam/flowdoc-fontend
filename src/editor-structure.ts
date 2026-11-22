@@ -1,4 +1,4 @@
-export type Field = {type:string; label?:string; default?:unknown; allowEmpty?:boolean; items?:Schema; areaId?:string; required?:boolean; computed?:{inputs:{quantity:string;unit:string}}; formula?:unknown};
+export type Field = {type:string; label?:string; default?:unknown; allowEmpty?:boolean; items?:Schema; areaId?:string; required?:boolean; computed?:{inputs:{quantity:string;unit:string}}; formula?:{operation:"sum";source:{areaId:string;formatKey:string;arrayField:string;valueField:string};lookup?:unknown}};
 export type Schema = {type?:'object'; fields:Record<string,Field>};
 export type Inline = {id?:string; type:string; text?:string; key?:string; scope?:string; field?:string;value?:unknown;target?:unknown;url?:unknown};
 export type Length = {unit:'pt'|'mm';value:number};

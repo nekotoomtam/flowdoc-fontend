@@ -242,7 +242,19 @@ try {
         const pageIndex=position?.pageIndex??preferred;
         const first=projectOriginalPage(cache,pageIndex);
         const identity=custom?identifyTrialPages(draw,cache.bindings,resources.fonts):{layoutHash:hash(draw.pages)};
-        cache.header={revision:cache.revision,fingerprint:cache.fingerprint,pages:[first],pageIndex,paged:true,
+        const sumsBySection=new Map();
+        if(custom)for(const section of draft.definition.sections){
+          const keys=Object.keys(section.inputSchema.fields).filter(key=>{
+            const formula=section.inputSchema.fields[key].formula;
+            return formula&&!formula.lookup;
+          });
+          if(keys.length)sumsBySection.set(section.id,keys);
+        }
+        const formulaResults=sumsBySection.size?prepared.value.sections.flatMap(instance=>{
+          const keys=sumsBySection.get(instance.id);
+          return keys?[{instanceKey:instance.instanceKey,values:Object.fromEntries(keys.map(key=>[key,instance.data[key]]))}]:[];
+        }):[];
+        cache.header={formulaResults,revision:cache.revision,fingerprint:cache.fingerprint,pages:[first],pageIndex,paged:true,
           pageCount:draw.pages.length,pageSizes,...identity,renderPath:'engine-layout',engineMs,renderMs:performance.now()-started,
           engineVersion:rendererIdentity.version,...(layout.resume?{resume:layout.resume}:{}),
           ...(fixture?{entryCount:fixture.entryCount,imagePlacements:fixture.placements}:{})};

@@ -64,14 +64,17 @@ function accessLabel(item: TemplateSummary) {
 
 type Versions=NonNullable<TemplateSummary['libraryVersions']>;
 const paperCache=new Map<string,Promise<Paper>>();
+let paperQueue: Promise<void> = Promise.resolve();
 function firstPage(url:string,state:Versions,version:number){
   const key=[url,state.pinned,state.versions[0],version].join('/');
   let pending=paperCache.get(key);
   if(!pending){
-    pending=fetch(url+'/compare-baseline',{method:'POST',headers:{'Content-Type':'application/json'},
+    // The renderer handles one preview at a time. Covers and detail papers share it.
+    pending=paperQueue.then(()=>fetch(url+'/compare-baseline',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({version,latest:state.versions[0],pinned:state.pinned,pageIndex:0,edits:{}})})
-      .then(async response=>{if(!response.ok)throw Error();return (await response.json()).papers[1] as Paper;})
+      .then(async response=>{if(!response.ok)throw Error();return (await response.json()).papers[1] as Paper;}))
       .catch(error=>{paperCache.delete(key);throw error;});
+    paperQueue=pending.then(()=>{},()=>{});
     paperCache.set(key,pending);
   }
   return pending;

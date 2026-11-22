@@ -594,7 +594,7 @@ function variableGroup(schema:Schema,scope:string,label:string,at?:Ref){
         field.setAttribute('aria-current','true');
         value.textContent=label+' › '+path+' · '+definition.type;
         showBindingTargets(current,key,label+' › '+path);
-        if(at&&scope==='section'&&!base&&definition.type==='number'&&!definition.formula?.lookup&&creationMode()&&!draft.readOnly){
+        if(at&&scope==='section'&&!base&&definition.type==='number'&&creationMode()&&!draft.readOnly){
           value.append(' ',button(definition.formula?'แก้สูตรผลรวม':'ตั้งสูตรผลรวม',()=>editSum(at,key)));
         }
       });
@@ -927,23 +927,55 @@ function askArea(at:Ref){
 }
 function editSum(at:Ref,key:string){
   const section=draft.definition.sections.find(section=>section.id===at.sectionId)!;
-  const sources=sumSources(draft.definition,section);
+  const datasets=Object.entries(section.inputSchema.fields).filter(([,field])=>field.type==='array').map(([key,field])=>{
+    const fields=Object.entries(field.items?.fields??{});
+    return {key,label:field.label??key,names:fields.filter(([,f])=>f.type==='string'&&!f.computed),
+      numbers:fields.filter(([,f])=>f.type==='number'&&!f.formula)};
+  }).filter(dataset=>dataset.names.length&&dataset.numbers.length);
+  const numbers=sumSources(draft.definition,section);
+  const names=datasets.length?sumSources(draft.definition,section,'string'):[];
+  const choices=[...numbers.map(option=>({...option,byName:false})),...names.map(option=>({...option,byName:true}))];
   const formula=section.inputSchema.fields[key].formula;
-  const selected=formula?sources.findIndex(({source})=>source.areaId===formula.source.areaId&&source.formatKey===formula.source.formatKey&&
-    source.arrayField===formula.source.arrayField&&source.valueField===formula.source.valueField):-1;
-  ask('สูตรผลรวม · '+key,[{key:'source',label:'รวมตัวเลขจาก',value:String(selected),
-    options:[['-1','รับค่าโดยตรง'],...sources.map(({label},i):[string,string]=>[String(i),label])]}],({source})=>{
-    const index=Number(source);
-    if(index===selected)return;
+  const selected=choices.findIndex(({source,byName})=>formula&&byName===Boolean(formula.lookup)&&source.areaId===formula.source.areaId&&
+    source.formatKey===formula.source.formatKey&&source.arrayField===formula.source.arrayField&&source.valueField===formula.source.valueField);
+  ask('สูตรผลรวม · '+key,[
+    {key:'source',label:'รวมตัวเลขจาก',value:String(selected),options:[['-1','รับค่าโดยตรง'],
+      ...choices.map(({label,byName},i):[string,string]=>[String(i),(byName?'ค้นจากชื่อ · ':'')+label])]},
+    {key:'dataset',label:'ชุดข้อมูลอ้างอิง',value:formula?.lookup?.arrayField??datasets[0]?.key,options:datasets.map(d=>[d.key,d.label])},
+    {key:'match',label:'ช่องชื่อที่ใช้จับคู่',options:[]},
+    {key:'amount',label:'ช่องตัวเลขที่จะรวม',options:[]}
+  ],values=>{
+    const choice=choices[Number(values.source)];
     const next=structuredClone(draft.definition);
     const field=next.sections.find(s=>s.id===section.id)!.inputSchema.fields[key];
-    if(index<0)delete field.formula;
+    if(!choice)delete field.formula;
     else{
-      field.formula={operation:'sum',source:sources[index].source};
+      field.formula={operation:'sum',source:choice.source};
+      if(choice.byName)field.formula.lookup={arrayField:values.dataset,keyField:values.match,valueField:values.amount};
       delete field.default;delete field.required;
     }
-    stageDefinition(next,at,'section-sum');
-  },sources.length?undefined:'เพิ่มช่องตัวเลขในรายการของ Format ก่อนตั้งสูตร');
+    if(JSON.stringify(field.formula)!==JSON.stringify(formula))stageDefinition(next,at,'section-sum');
+  },undefined,controls=>{
+    const source=controls.get('source')!,dataset=controls.get('dataset')!;
+    const updateFields=()=>{
+      const active=datasets.find(d=>d.key===dataset.value);
+      for(const [name,fields,selectedKey] of [
+        ['match',active?.names,formula?.lookup?.keyField],['amount',active?.numbers,formula?.lookup?.valueField]
+      ] as const){
+        const picker=controls.get(name) as HTMLSelectElement;
+        picker.replaceChildren(...(fields??[]).map(([key,field])=>new Option(field.label??key,key)));
+        if(active?.key===formula?.lookup?.arrayField&&selectedKey)picker.value=selectedKey;
+      }
+    };
+    const updateMode=()=>{
+      const enabled=choices[Number(source.value)]?.byName===true;
+      for(const name of ['dataset','match','amount']){
+        const picker=controls.get(name)!;picker.disabled=!enabled;picker.closest('label')!.hidden=!enabled;
+      }
+    };
+    source.addEventListener('change',updateMode);dataset.addEventListener('change',updateFields);
+    updateFields();updateMode();
+  });
 }
 function askVariable(at:Ref,scope:'global'|'section'|'local'|'header'|'footer',label:string){
   const types:[string,string][]=[['string','ข้อความ'],['image','ภาพ'],['link','ลิงก์']];

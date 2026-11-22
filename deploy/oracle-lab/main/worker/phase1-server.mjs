@@ -246,7 +246,7 @@ try {
         if(custom)for(const section of draft.definition.sections){
           const keys=Object.keys(section.inputSchema.fields).filter(key=>{
             const formula=section.inputSchema.fields[key].formula;
-            return formula&&!formula.lookup;
+            return Boolean(formula);
           });
           if(keys.length)sumsBySection.set(section.id,keys);
         }

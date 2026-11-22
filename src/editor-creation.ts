@@ -150,11 +150,11 @@ export function applyPart(source:Definition,at:Ref,part:Part,input:unknown){
   }
   return definition;
 }
-export function sumSources(definition:Definition,section:Section){
+export function sumSources(definition:Definition,section:Section,type:"number"|"string"="number"){
   return Object.entries(section.inputSchema.fields).flatMap(([areaKey,area])=>area.type!=='area'?[]:
     Object.values(definition.areaFormats??{}).filter(format=>format.ownerAreaId===area.areaId).flatMap(format=>
       Object.entries(format.inputSchema.fields).flatMap(([arrayField,array])=>array.type!=='array'?[]:
-        Object.entries(array.items?.fields??{}).filter(([,field])=>field.type==='number'&&!field.formula).map(([valueField,field])=>({
+        Object.entries(array.items?.fields??{}).filter(([,field])=>field.type===type&&!field.formula&&!field.computed).map(([valueField,field])=>({
           source:{areaId:area.areaId!,formatKey:format.key,arrayField,valueField},
           label:[area.label??areaKey,format.label??format.key,array.label??arrayField,field.label??valueField].join(' › '),
         })))));

@@ -127,7 +127,7 @@ export function mountTrial(form:HTMLFormElement,definition:Definition,starter:Re
   }
   function fieldControl(key:string,field:Field,name:string,sectionLabel:string,headingLevel?:string,computedInput?:'quantity'|'unit'):Control{
     const label=name+(field.required?' (ต้องระบุ)':'');
-    if(field.formula&&!field.formula.lookup){
+    if(field.formula){
       const output=node('output','—');output.dataset.formulaResult=key;
       return {element:labeled(name+' · ผลรวม',output),fill(){},read(){return undefined;}};
     }

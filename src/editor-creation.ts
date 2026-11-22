@@ -1,3 +1,4 @@
+import {setBandFirstPageItems} from './editor-structure';
 import type {Band, Definition, Format, Fragment, Length, Ref, Schema, Section} from './editor-structure';
 
 type Edge = 'top'|'right'|'bottom'|'left';
@@ -137,7 +138,9 @@ export function applyPart(source:Definition,at:Ref,part:Part,input:unknown){
     Object.assign(section,input);
   }else if(part==='band'){
     const kind=at.band??invalid('เลือกหัวหรือท้ายกระดาษ');
+    const first=section[kind]?.firstPageOnly??[];
     section[kind]={...input,inputSchema:schema(input.inputSchema),fragment:fragment(input.fragment)} as Band;
+    setBandFirstPageItems(section[kind]!,first);
   }else{
     const formatId=at.formatId??invalid('เลือก Format');
     const current=definition.areaFormats?.[formatId]??invalid('ไม่พบ Format');

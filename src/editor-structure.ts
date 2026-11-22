@@ -21,7 +21,7 @@ type Group = {id:string;tableId:string;rowTemplateIds:string[];source:{scope:str
 type CellRepeat = {id?:string;cellId:string;childTemplateIds:string[];source?:{scope:string;key:string}};
 export type Host = {fragment?:Fragment;repeats?:Repeat[];rowGroups?:Group[];cellRepeats?:CellRepeat[]};
 export type Format = Host & {key:string;label?:string;ownerAreaId:string;inputSchema:Schema;fragment:Fragment};
-export type Band = Host & {baseTextStyleId?:string;inputSchema:Schema;fragment:Fragment;placement?:{mode:string;left:Length;right:Length;offset:Length};sizing?:{mode?:'content'|'fixed';height?:Length;minHeight?:Length;maxHeight?:Length};gap?:Length};
+export type Band = Host & {firstPageOnly?:string[];baseTextStyleId?:string;inputSchema:Schema;fragment:Fragment;placement?:{mode:string;left:Length;right:Length;offset:Length};sizing?:{mode?:'content'|'fixed';height?:Length;minHeight?:Length;maxHeight?:Length};gap?:Length};
 type BandMode = 'all'|'first'|'continuation'|'none';
 export type Section = {id:string;label:string;nameBase?:string;sectionKey:string;pageLayoutId?:string;
   role?:'body'|'cover';headerMode?:BandMode;footerMode?:BandMode;
@@ -44,6 +44,7 @@ export type Change = {kind:'section';label:string} | {kind:'area';at:Ref;key:str
   | {kind:'table-divider';at:Ref;header?:Ref;cell:Ref;left:number;fraction:number}
   | {kind:'column-width';at:Ref;column:number;length:Length}
   | {kind:'cell-padding';at:Ref;padding:CellPadding}
+  | {kind:'band-item-pages';at:Ref;mode:'all'|'first'}
   | {kind:'binding';at:Ref;scope:string;key:string}
   | {kind:'group';at:Ref;scope:'global'|'section'|'local';key:string;member:string}
   | {kind:'merge'|'split';at:Ref}
@@ -311,6 +312,12 @@ function addNode(def:Definition,at:Ref,type:string,source?:{scope:string;key:str
   else insertRoot(f,next.id);
   return {...at,nodeId:next.id};
 }
+export function setBandFirstPageItems(band:Band,ids:readonly string[]){
+  const selected=new Set(ids);
+  const roots=band.fragment.rootIds.filter(id=>selected.has(id));
+  if(roots.length)band.firstPageOnly=roots;
+  else delete band.firstPageOnly;
+}
 function remove(def:Definition,at:Ref):Ref{
   const {section,host,format,fragment:f,node}=resolve(def,at);
   if(node&&f){
@@ -322,6 +329,7 @@ function remove(def:Definition,at:Ref):Ref{
     if([...ids].some(id=>f.nodes[id].props?.anchorId))fail('รายการนี้มีจุดอ้างอิง ต้องจัดการลิงก์ก่อนลบ');
     for(const id of ids)if(f.nodes[id].type==='area')removeArea(def,section,f.nodes[id]);
     cleanHost(host,ids);list.splice(list.indexOf(node.id),1);
+    if(at.band){const band=section[at.band]!;if(band.firstPageOnly)setBandFirstPageItems(band,band.firstPageOnly);}
     for(const id of ids)delete f.nodes[id];
     if(host===section.source&&!f.rootIds.length)section.source={kind:'blank'};
     return {...at,nodeId:parent?.id};
@@ -598,6 +606,15 @@ export function applyStructureChange(source:Definition,change:Change):{definitio
     if(inline?.type!=='text')return fail('เลือกข้อความคงที่ก่อนแก้');
     if(!change.text.trim())fail('กรอกข้อความก่อนยืนยัน');
     inline.text=change.text;
+    selection=change.at;
+  }else if(change.kind==='band-item-pages'){
+    const {section,node}=resolve(def,change.at);
+    const band=change.at.band&&section[change.at.band];
+    if(!band||!node||change.at.part||change.at.formatId||!band.fragment.rootIds.includes(node.id))
+      return fail('เลือกชิ้นงานที่อยู่ใต้หัวหรือท้ายกระดาษโดยตรง');
+    const first=band.firstPageOnly?.filter(id=>id!==node.id)??[];
+    if(change.mode==='first')first.push(node.id);
+    setBandFirstPageItems(band,first);
     selection=change.at;
   }else if(change.kind==='binding'){
     const {node}=resolve(def,change.at);

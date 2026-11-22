@@ -38,8 +38,9 @@ export function fullApiExample(contract:InputContract):ApiExample{
   }
   let anchors=0;
   function values(schema:Schema,path:Path,sectionLabel='',headingLevel?:string):object{
-    return Object.fromEntries(Object.entries(schema.fields).map(([key,field])=>{
+    return Object.fromEntries(Object.entries(schema.fields).filter(([,field])=>!field.formula).map(([key,field])=>{
       const at=[...path,key];
+      if(field.type==='number')return [key,field.default??1];
       if(field.type==='image'){
         images.push({path:at});
         return [key,{image:{upload:true}}];

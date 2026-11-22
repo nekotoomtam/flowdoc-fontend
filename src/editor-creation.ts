@@ -150,6 +150,16 @@ export function applyPart(source:Definition,at:Ref,part:Part,input:unknown){
   }
   return definition;
 }
+export function sumSources(definition:Definition,section:Section){
+  return Object.entries(section.inputSchema.fields).flatMap(([areaKey,area])=>area.type!=='area'?[]:
+    Object.values(definition.areaFormats??{}).filter(format=>format.ownerAreaId===area.areaId).flatMap(format=>
+      Object.entries(format.inputSchema.fields).flatMap(([arrayField,array])=>array.type!=='array'?[]:
+        Object.entries(array.items?.fields??{}).filter(([,field])=>field.type==='number'&&!field.formula).map(([valueField,field])=>({
+          source:{areaId:area.areaId!,formatKey:format.key,arrayField,valueField},
+          label:[area.label??areaKey,format.label??format.key,array.label??arrayField,field.label??valueField].join(' › '),
+        })))));
+}
+
 export function addVariable(source:Definition,at:Ref,scope:'global'|'section'|'local'|'header'|'footer',values:Record<string,string>){
   const definition=structuredClone(source);
   const section=definition.sections.find(s=>s.id===at.sectionId)??invalid('ไม่พบ Section');
@@ -159,7 +169,7 @@ export function addVariable(source:Definition,at:Ref,scope:'global'|'section'|'l
   const {key,type,required}=values;
   if(!idPattern.test(key)||['constructor','prototype'].includes(key)||Object.hasOwn(target.fields,key))
     invalid('ใช้รหัสตัวแปรภาษาอังกฤษขึ้นต้นและไม่ซ้ำ');
-  const allowed=scope==='header'||scope==='footer'?['string','image','link']:['string','image','link','array'];
+  const allowed=scope==='header'||scope==='footer'?['string','image','link']:['string','number','image','link','array'];
   if(!allowed.includes(type))invalid('ชนิดตัวแปรนี้ใช้ไม่ได้ในขอบเขตนี้');
   target.fields[key]={type,required:required==='yes',...(type==='array'?{items:{type:'object',fields:{}}}:{})};
   return definition;

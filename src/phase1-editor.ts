@@ -2129,7 +2129,7 @@ async function load() {
       if(!paperVersion)await readSectionBackgrounds().catch(()=>{sectionBackgrounds={};});
       showDraft({...data,readOnly:true});
       paper.inert=true;paper.classList.remove('show-guides');
-      fitMode='width';fitPaper();
+      fitMode=new URLSearchParams(location.search).get('fit')==='page'?'page':'width';fitPaper();
       window.parent.postMessage({type:'flowdoc-paper-ready',revision:data.revision,fingerprint:data.fingerprint},location.origin);return;
     }
     await readSectionBackgrounds().catch(()=>{sectionBackgroundEnabled=false;sectionBackgrounds={};});

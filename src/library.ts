@@ -34,8 +34,8 @@ const paperIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 const phase1 = new URLSearchParams(location.search).get('phase1') === '1';
 if (phase1) {
   document.querySelector<HTMLAnchorElement>('.brand')!.href='/library.html?phase1=1';
-  document.querySelector('.badge')!.textContent = 'คลังทดสอบ · เฟส 1';
-  document.querySelector('.hero p')!.textContent = 'เลือกแม่แบบเพื่อดูกระดาษ ฉบับร่าง และรุ่นที่เผยแพร่';
+  document.querySelector('.badge')!.textContent = 'Oracle Lab';
+  document.querySelector('.hero p')!.textContent = 'เลือกแม่แบบเพื่อดูกระดาษและรุ่นที่เผยแพร่';
   const create = document.querySelector<HTMLButtonElement>('#create-draft')!;
   create.disabled=false;
   create.onclick=()=>location.assign('/phase1-editor.html?new=1');
@@ -64,14 +64,17 @@ function accessLabel(item: TemplateSummary) {
 
 type Versions=NonNullable<TemplateSummary['libraryVersions']>;
 const paperCache=new Map<string,Promise<Paper>>();
+let paperQueue: Promise<void> = Promise.resolve();
 function firstPage(url:string,state:Versions,version:number){
   const key=[url,state.pinned,state.versions[0],version].join('/');
   let pending=paperCache.get(key);
   if(!pending){
-    pending=fetch(url+'/compare-baseline',{method:'POST',headers:{'Content-Type':'application/json'},
+    // The renderer handles one preview at a time. Covers and detail papers share it.
+    pending=paperQueue.then(()=>fetch(url+'/compare-baseline',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({version,latest:state.versions[0],pinned:state.pinned,pageIndex:0,edits:{}})})
-      .then(async response=>{if(!response.ok)throw Error();return (await response.json()).papers[1] as Paper;})
+      .then(async response=>{if(!response.ok)throw Error();return (await response.json()).papers[1] as Paper;}))
       .catch(error=>{paperCache.delete(key);throw error;});
+    paperQueue=pending.then(()=>{},()=>{});
     paperCache.set(key,pending);
   }
   return pending;
@@ -96,12 +99,22 @@ function publishedHeader(version:number,openApi:()=>void,commands:HTMLButtonElem
   const title='รุ่น '+version;
   const api=button('เชื่อมต่อ API รุ่น '+version,openApi);
   api.classList.add('primary');
+  const zoom=button('ขยายกระดาษ',()=>{
+    const stage=zoom.closest<HTMLElement>('.template-stage');
+    if(!stage)return;
+    const expanded=stage.classList.toggle('paper-expanded');
+    zoom.textContent=expanded?'เห็นเต็มหน้า':'ขยายกระดาษ';
+    zoom.setAttribute('aria-pressed',String(expanded));
+    const frame=stage.querySelector<HTMLIFrameElement>('.library-paper-frame');
+    if(frame){const url=new URL(frame.src);url.searchParams.set('fit',expanded?'width':'page');frame.src=url.href;}
+  });
+  zoom.setAttribute('aria-pressed','false');
   const choose=button('เลือกรุ่น '+version,()=>{
-    header.replaceWith(paperHeader('เลือกแล้ว · '+title,api,...commands));
+    header.replaceWith(paperHeader('เลือก'+title+' แล้ว',zoom,api,...commands));
     api.focus();
   });
   choose.classList.add('primary');
-  const header=paperHeader(title+' · อ่านอย่างเดียว',choose);
+  const header=paperHeader('กระดาษ'+title,zoom,choose);
   return header;
 }
 function comparisonLayout(title:string,back:()=>void,content:HTMLElement,apply?:HTMLButtonElement){
@@ -200,14 +213,9 @@ async function showBaseline(item:TemplateSummary){
     function draftChoice(copy:TemplateSummary,title:string){
       const choice=button(title,()=>selectDraft(copy));draftChoices.set(copy,choice);rail.append(choice);
     }
-    rail.append(text('h3','ฉบับร่าง'));draftChoice(item,'ฉบับร่างปัจจุบัน');
-    for(const linked of item.relatedDrafts??[]){
-      const copy=items.find(row=>row.templateId===linked.id);
-      if(copy)rail.append(button('แก้ร่างต่อ · ร่างจากรุ่น '+linked.source,()=>openEditor(copy)));
-      if(copy)draftChoice(copy,'ดูร่างจากรุ่น '+linked.source);
-    }
     rail.append(text('h3','รุ่นที่เผยแพร่แล้ว'));
     function selectVersion(){
+      stage.classList.remove('paper-expanded');
       resetComparison();
       const version=Number(picker.value);
       for(const choice of draftChoices.values())choice.setAttribute('aria-pressed','false');
@@ -229,6 +237,12 @@ async function showBaseline(item:TemplateSummary){
     for(const version of state.versions){
       const choice=versionChoice(version,state.pinned??latest,latest,()=>{picker.value=String(version);selectVersion();});
       choices.set(version,choice);rail.append(choice);
+    }
+    rail.append(text('h3','ฉบับร่าง'));draftChoice(item,'ฉบับร่างปัจจุบัน');
+    for(const linked of item.relatedDrafts??[]){
+      const copy=items.find(row=>row.templateId===linked.id);
+      if(copy)rail.append(button('แก้ร่างต่อ · ร่างจากรุ่น '+linked.source,()=>openEditor(copy)));
+      if(copy)draftChoice(copy,'ดูร่างจากรุ่น '+linked.source);
     }
     board.append(rail,stage);
     picker.onchange=selectVersion;
@@ -264,7 +278,7 @@ function definitionPaper(item:TemplateSummary,version?:number){
   frame.title=version?'กระดาษรุ่น '+version:'กระดาษฉบับร่าง';
   frame.className='library-paper-frame';
   const params=new URLSearchParams({id:item.templateId,view:'paper'});
-  if(version)params.set('version',String(version));
+  if(version){params.set('version',String(version));params.set('fit','page');}
   frame.src='/phase1-editor.html?'+params;
   return frame;
 }
@@ -319,9 +333,10 @@ function showTemplate(item:TemplateSummary){
   const summary=text('p',issuerLabel(item)??(versions.length?'เผยแพร่ล่าสุด · รุ่น '+versions[0]+'　·　ไม่มีข้อมูลรุ่นที่ระบบรับงานใช้':
     item.publishedVersions?'ยังไม่มีรุ่นที่เผยแพร่':'ไม่มีข้อมูลรุ่นสำหรับมุมมองนี้'));
   summary.id='baseline-status';
-  rail.append(text('h3',item.readOnly?'โครงเอกสาร':'ฉบับร่าง'));
+
   const picks=new Map<number,HTMLButtonElement>();
   function select(version?:number){
+    stage.classList.remove('paper-expanded');
     clearIssuerPapers();
     for(const [key,choice] of picks)choice.setAttribute('aria-pressed',String(key===(version??0)));
     const commands:HTMLButtonElement[]=[];
@@ -348,10 +363,11 @@ function showTemplate(item:TemplateSummary){
   function addChoice(label:string,version?:number){
     const choice=version?versionChoice(version,item.issuerVersion,versions[0],()=>select(version)):button(label,()=>select());picks.set(version??0,choice);rail.append(choice);
   }
-  addChoice(item.readOnly?'ต้นฉบับ':'ฉบับร่างปัจจุบัน');
+
   rail.append(text('h3','รุ่นที่เผยแพร่แล้ว'));
   for(const version of versions)addChoice('รุ่น '+version,version);
   if(!versions.length)rail.append(text('small',item.publishedVersions?'ยังไม่มีรุ่นเผยแพร่':'ไม่มีข้อมูล'));
+  rail.append(text('h3',item.readOnly?'โครงเอกสาร':'ฉบับร่าง'));addChoice(item.readOnly?'ต้นฉบับ':'ฉบับร่างปัจจุบัน');
   board.append(rail,stage);panel.replaceChildren(summary,board);select(versions[0]);
 }
 function activeVersion(item:TemplateSummary){
@@ -478,6 +494,8 @@ function card(item: TemplateSummary) {
       }).catch(()=>{});
     }
   }
+  caption.prepend(text('span',latest?'แม่แบบที่เผยแพร่':accessLabel(item),'card-kind'));
+  caption.append(text('span','เปิดแม่แบบ →','card-link'));
   open.append(thumbnail, caption);
 
   const menu = document.createElement('details');
@@ -513,7 +531,8 @@ function render() {
   const query = search.value.trim().toLowerCase();
   const shown = items.filter(item => [item.name, item.docKey].some(value => value.toLowerCase().includes(query)));
   count.textContent = available ? shown.length + ' รายการ' : '';
-  cards.replaceChildren(...shown.map(card));
+  const ordered=[...shown].sort((a,b)=>Number(Boolean(b.publishedVersions?.length))-Number(Boolean(a.publishedVersions?.length))||a.name.localeCompare(b.name,'th'));
+  cards.replaceChildren(...ordered.map(card));
   if (!loading && available && !shown.length) {
     cards.append(text('p', query ? 'ไม่พบโครงเอกสารที่ตรงกับคำค้น' : 'ยังไม่มีโครงเอกสารในคลัง', 'empty'));
   }

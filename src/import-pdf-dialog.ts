@@ -213,7 +213,8 @@ export function setupPdfImportDialog() {
       status.textContent = '';
       selection.hidden = true;
       dialog.classList.add('is-reviewing');
-      showImportFieldReview(review, result.fields, result.unreadablePages, occurrence => view?.showEvidence(occurrence));
+      const selectedCount = ranges.reduce((sum, range) => sum + range.end - range.start + 1, 0);
+      showImportFieldReview(review, result.fields, selectedCount, result.unreadablePages, occurrence => view?.showEvidence(occurrence));
     } catch {
       if (signal.aborted) return;
       pages.readOnly = false;

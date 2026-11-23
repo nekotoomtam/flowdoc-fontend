@@ -125,23 +125,31 @@ dialog{background:var(--surface)}
 .is-reviewing form{z-index:2}
 #import-pdf-fields h3{margin:0}
 #import-pdf-field-count{margin:4px 0;color:var(--ink);font-weight:650}
-#import-pdf-field-note,#import-pdf-field-source{font-size:.875rem}
-#import-pdf-field-picker{display:none}
-#import-pdf-field-list{display:grid;gap:4px;list-style:none;max-height:138px;overflow:auto;padding:0;margin:10px 0}
-#import-pdf-field-list button{width:100%;text-align:left}
+#import-pdf-field-note,#import-pdf-field-source,#import-pdf-field-type,#import-pdf-field-help{font-size:.875rem}
+#import-pdf-field-picker:not([hidden]){display:block;margin-top:10px}
+#import-pdf-field-select{display:block;width:100%;margin-top:4px;font:inherit}
+#import-pdf-field-detail,#import-pdf-field-catalog,#import-pdf-field-schema{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+.import-pdf-field-meta{display:flex;align-items:center;flex-wrap:wrap;gap:5px 12px;overflow-wrap:anywhere}
+#import-pdf-field-status{color:var(--muted);font-size:.8125rem}
+#import-pdf-field-type:empty,#import-pdf-field-help:empty{display:none}
+#import-pdf-field-catalog summary,#import-pdf-field-schema summary{cursor:pointer}
+#import-pdf-field-list{max-height:290px;overflow:auto}
+#import-pdf-field-list h4{margin:10px 0 4px}
+#import-pdf-field-list ul{display:grid;gap:4px;list-style:none;padding:0;margin:0}
+#import-pdf-field-list button{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px 8px;width:100%;text-align:left}
+#import-pdf-field-list small{color:var(--muted)}
 #import-pdf-field-list button[aria-pressed=true]{border-color:var(--action);color:var(--action);background:var(--bg)}
 #import-pdf-field-detail label{display:block;margin-top:8px}
 #import-pdf-field-detail input,#import-pdf-field-detail select,#import-pdf-field-detail textarea{display:block;width:100%;font:inherit}
 #import-pdf-field-source{white-space:pre-wrap;overflow-wrap:anywhere}
+#import-pdf-field-value-error{color:var(--danger,#a52834)}
 #import-pdf-field-confirm{margin-top:8px}
+#import-pdf-schema-json{max-height:260px;overflow:auto;padding:8px;background:var(--bg);font-size:.8125rem;white-space:pre-wrap;overflow-wrap:anywhere}
 @media(max-width:640px){.import-pdf-review{grid-template-columns:minmax(0,1fr);gap:10px}}
 @media(max-width:640px){
   .is-reviewing .import-pdf-review{grid-template-columns:minmax(0,1fr)}
   .is-reviewing #import-pdf-preview{position:sticky;top:0;z-index:1;max-height:36dvh}
   .is-reviewing .import-pdf-paper{--pdf-paper-height:clamp(115px,25dvh,240px)}
-  #import-pdf-field-list{display:none}
-  #import-pdf-field-picker:not([hidden]){display:block}
-  #import-pdf-field-select{display:block;width:100%}
 }
 .library-gallery .cards{gap:22px;margin-top:21px}
 .library-gallery .thumbnail{height:var(--cover-height);overflow:hidden;align-items:start;padding-top:26px;background:var(--workspace)}

@@ -49,21 +49,37 @@
           <h3 id="import-pdf-fields-title" tabindex="-1">ตรวจตัวแปร</h3>
           <p id="import-pdf-field-count" role="status"></p>
           <p id="import-pdf-field-note"></p>
-          <label id="import-pdf-field-picker">เลือกตัวแปร
+          <div id="import-pdf-field-picker">
+            <label for="import-pdf-field-select">เลือกตัวแปร</label>
             <select id="import-pdf-field-select"></select>
-          </label>
-          <ul id="import-pdf-field-list" aria-label="ชุดตัวแปร"></ul>
+          </div>
           <section id="import-pdf-field-detail" aria-label="รายละเอียดตัวแปร" hidden>
-            <p><code id="import-pdf-field-key"></code></p>
+            <div class="import-pdf-field-meta">
+              <code id="import-pdf-field-key"></code>
+              <span id="import-pdf-field-status"></span>
+            </div>
+            <p id="import-pdf-field-type"></p>
+            <p id="import-pdf-field-help"></p>
             <label for="import-pdf-field-name">ชื่อที่แสดง</label>
             <input id="import-pdf-field-name" type="text" autocomplete="off">
-            <label for="import-pdf-field-page">ตำแหน่งที่พบ</label>
-            <select id="import-pdf-field-page"></select>
-            <p id="import-pdf-field-source"></p>
-            <label for="import-pdf-field-value">ค่าตัวอย่าง</label>
-            <textarea id="import-pdf-field-value" rows="3"></textarea>
-            <button id="import-pdf-field-confirm" type="button" class="primary">ยืนยันตัวแปร</button>
+            <div id="import-pdf-field-evidence">
+              <label for="import-pdf-field-page">ตำแหน่งที่พบ</label>
+              <select id="import-pdf-field-page"></select>
+              <p id="import-pdf-field-source"></p>
+              <label for="import-pdf-field-value">ค่าตัวอย่าง</label>
+              <textarea id="import-pdf-field-value" rows="2"></textarea>
+              <p id="import-pdf-field-value-error" role="status" hidden></p>
+            </div>
+            <button id="import-pdf-field-confirm" type="button" class="primary">ยืนยันนิยาม</button>
           </section>
+          <details id="import-pdf-field-catalog">
+            <summary>ดูบัญชีตัวแปรทั้งหมด</summary>
+            <div id="import-pdf-field-list"></div>
+          </details>
+          <details id="import-pdf-field-schema">
+            <summary>ดูนิยาม Section · inputSchema</summary>
+            <pre id="import-pdf-schema-json"></pre>
+          </details>
         </section>
       </div>
     </div>

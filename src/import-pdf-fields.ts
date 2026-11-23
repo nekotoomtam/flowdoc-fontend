@@ -1,19 +1,14 @@
 import type {PDFDocumentProxy} from 'pdfjs-dist';
+import {maerskFields, type MaerskField} from './import-pdf-maersk-schema';
 
 export type PdfBox = {left: number; top: number; width: number; height: number};
-export type FieldOccurrence = {page: number; value: string; box: PdfBox};
-export type ImportField = {
-  key: string;
-  label: string;
-  sourceLabel: string;
-  occurrences: FieldOccurrence[];
-};
+export type FieldOccurrence = {page: number; value: string; box: PdfBox; sourceText?: string; blank?: boolean};
+export type ImportField = MaerskField & {occurrences: FieldOccurrence[]};
 type PageRange = {start: number; end: number};
 
 type FieldRule = {
   key: string;
-  label: string;
-  sourceLabel: string;
+  anchor?: string;
   // Window below the source label, in points on the 595 × 841 reference layout.
   window: [left: number, right: number, firstLine: number, lastLine: number];
   fits?: RegExp;
@@ -21,21 +16,24 @@ type FieldRule = {
 };
 
 const fields: FieldRule[] = [
-  {key: 'bl_number', label: 'เลข B/L', sourceLabel: 'BL No.', window: [-5, 105, 8, 37]},
-  {key: 'vessel_name', label: 'ชื่อเรือ', sourceLabel: 'Vessel', window: [-5, 150, 5, 23]},
-  {key: 'voyage_number', label: 'เลขเที่ยวเรือ', sourceLabel: 'Voy No.', window: [-5, 150, 5, 23]},
-  {key: 'port_of_loading', label: 'ท่าต้นทาง', sourceLabel: 'Port of Loading', window: [-5, 150, 5, 23]},
-  {key: 'port_of_discharge', label: 'ท่าปลายทาง', sourceLabel: 'Port of Discharge', window: [-5, 150, 5, 23]},
-  {key: 'place_of_delivery', label: 'สถานที่ส่งมอบ', sourceLabel: 'Place of delivery', window: [-5, 150, 5, 24]},
-  {key: 'estimated_arrival_date', label: 'วันถึงตามต้นฉบับ', sourceLabel: 'Estimate Time Arrival', window: [-5, 105, 5, 25], fits: /^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$/},
-  {key: 'consignee_details', label: 'ข้อมูลผู้รับสินค้า', sourceLabel: 'Consignee (Complete Name and Address)', window: [-5, 278, 8, 132], multiline: true},
-  {key: 'notify_party_details', label: 'ข้อมูลผู้รับแจ้ง', sourceLabel: 'Notify Party (Complete Name and Address)', window: [-5, 278, 8, 79], multiline: true},
-  {key: 'shipper_exporter_details', label: 'ข้อมูลผู้ส่งสินค้า', sourceLabel: 'Shipper/Exporter (Complete Name and Address)', window: [-5, 265, 8, 79], multiline: true},
-  {key: 'container_numbers', label: 'เลขตู้สินค้า', sourceLabel: 'Container No.', window: [-26, 78, 21, 172], fits: /^[A-Z]{4}\s?\d{7}$/, multiline: true},
-  {key: 'package_count', label: 'จำนวนหีบห่อ', sourceLabel: 'No. of Containers', window: [-12, 60, 22, 49], fits: /^[\d,]+$/},
-  {key: 'package_type', label: 'หน่วยบรรจุ', sourceLabel: 'No. of Containers', window: [-12, 60, 48, 70], fits: /^[A-Za-z][A-Za-z ]+$/},
-  {key: 'gross_weight_kg', label: 'น้ำหนักรวม (กก.)', sourceLabel: 'Gross Weight', window: [-15, 72, 21, 49], fits: /^[\d,.]+$/},
-  {key: 'cargo_volume_cbm', label: 'ปริมาตร (ลบ.ม.)', sourceLabel: 'Measurement', window: [-10, 64, 21, 49], fits: /^[\d,.]+$/},
+  {key: 'bl_number', window: [-5, 105, 8, 37]},
+  {key: 'vessel_name', window: [-5, 150, 5, 23]},
+  {key: 'voyage_number', window: [-5, 150, 5, 23]},
+  {key: 'port_of_loading', window: [-5, 150, 5, 23]},
+  {key: 'port_of_discharge', window: [-5, 150, 5, 23]},
+  {key: 'place_of_delivery', window: [-5, 150, 5, 24]},
+  {key: 'estimated_arrival_date', window: [-5, 105, 5, 25], fits: /^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$/},
+  {key: 'consignee_details', window: [-5, 278, 8, 132], multiline: true},
+  {key: 'notify_party_details', window: [-5, 278, 8, 79], multiline: true},
+  {key: 'shipper_exporter_details', window: [-5, 265, 8, 79], multiline: true},
+  {key: 'shipping_marks', window: [-22, 84, 10, 188], fits: /^(?![A-Z]{4}\s?\d{7}$).+/, multiline: true},
+  {key: 'container_numbers', window: [-26, 78, 21, 188], fits: /^[A-Z]{4}\s?\d{7}$/, multiline: true},
+  {key: 'package_count', anchor: 'No. of Containers', window: [-12, 60, 22, 49], fits: /^[\d,]+$/},
+  {key: 'package_type', anchor: 'No. of Containers', window: [-12, 60, 48, 70], fits: /^[A-Za-z][A-Za-z ]+$/},
+  {key: 'goods_description', window: [-62, 180, 19, 227], multiline: true},
+  {key: 'gross_weight_kg', window: [-15, 72, 21, 49], fits: /^[\d,.]+$/},
+  {key: 'cargo_volume_cbm', window: [-10, 64, 21, 49], fits: /^[\d,.]+$/},
+  {key: 'demurrage_expiry_date', window: [-5, 105, 4, 34], fits: /^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$/},
 ];
 
 type TextLine = {value: string; x: number; y: number; right: number; top: number; bottom: number};
@@ -49,20 +47,25 @@ function readField(rule: FieldRule, anchor: TextLine, lines: TextLine[], page: n
   ).sort((a, b) => Math.abs(a.y - b.y) < 2 ? a.x - b.x : a.y - b.y);
   if (!candidates.length) return;
   const matches = rule.multiline ? candidates : [candidates[0]];
+  return occurrenceFromLines(matches, page);
+}
+
+function occurrenceFromLines(matches: TextLine[], page: number): FieldOccurrence {
   const x = Math.min(...matches.map(line => line.x));
   const y = Math.min(...matches.map(line => line.top));
   const rightEdge = Math.max(...matches.map(line => line.right));
   const bottom = Math.max(...matches.map(line => line.bottom));
   return {
     page,
-    value: matches.map(line => line.value).join(rule.multiline ? '\n' : ''),
+    value: matches.map(line => line.value).join('\n'),
     box: {left: x / 595, top: y / 841, width: (rightEdge - x) / 595, height: (bottom - y) / 841},
   };
 }
 
 export async function readImportFields(source: PDFDocumentProxy, selection: readonly PageRange[], signal: AbortSignal) {
-  const results = new Map<string, ImportField>();
+  const results = new Map(maerskFields.map(field => [field.key, {...field, occurrences: []} as ImportField]));
   const unreadablePages: number[] = [];
+  let recognizedPages = 0;
   for (const {start, end} of selection) {
     for (let number = start; number <= end; number++) {
       signal.throwIfAborted();
@@ -92,19 +95,46 @@ export async function readImportFields(source: PDFDocumentProxy, selection: read
         unreadablePages.push(number);
         continue;
       }
+      recognizedPages++;
       for (const rule of fields) {
-        const anchor = labels.get(rule.sourceLabel);
+        const field = results.get(rule.key)!;
+        const anchor = labels.get(rule.anchor ?? field.sourceLabel);
         if (!anchor) continue;
-        const occurrence = readField(rule, anchor, lines, number);
-        if (!occurrence) continue;
-        let field = results.get(rule.key);
-        if (!field) {
-          field = {key: rule.key, label: rule.label, sourceLabel: rule.sourceLabel, occurrences: []};
-          results.set(rule.key, field);
+        let occurrence = readField(rule, anchor, lines, number);
+        if (!occurrence && field.disposition === 'blank') {
+          occurrence = {...occurrenceFromLines([anchor], number), value: '', blank: true};
         }
-        field.occurrences.push(occurrence);
+        if (occurrence) field.occurrences.push(occurrence);
+      }
+
+      const container = results.get('container_numbers')!.occurrences.at(-1);
+      if (container?.page === number) {
+        results.get('listed_container_count')!.occurrences.push({
+          ...container, sourceText: container.value, value: String(container.value.split('\n').length),
+        });
+      }
+      const description = lines.filter(line => line.x >= 195 && line.x < 440 && line.y >= 370 && line.y < 575);
+      const hs = description.filter(line => /HS\s*CODE\s*:?\s*\d/i.test(line.value));
+      if (hs.length) {
+        const occurrence = occurrenceFromLines(hs, number);
+        const codes = [...occurrence.value.matchAll(/HS\s*CODE\s*:?\s*(\d[\d. ]*)/gi)];
+        results.get('hs_codes')!.occurrences.push({
+          ...occurrence, sourceText: occurrence.value, value: codes.map(match => match[1].trim()).join('\n'),
+        });
+      }
+      const transit = lines.filter(line => line.y >= 370 && line.y < 575 &&
+        /TO LAOS VIA|CARGO IN TRANSIT|IN[- ]TRANSIT SHIPMENT/i.test(line.value));
+      if (transit.length) results.get('onward_transit_text')!.occurrences.push(occurrenceFromLines(transit, number));
+      const say = lines.find(line => /^SAY\s*:/i.test(line.value) && line.y >= 570 && line.y < 610);
+      if (say) {
+        const continuation = lines.filter(line => line.x >= say.x - 8 && line.x < 425 && line.y > say.y + 3 && line.y < say.y + 20);
+        results.get('package_count_in_words')!.occurrences.push(occurrenceFromLines([say, ...continuation], number));
+      }
+      const printed = lines.find(line => /^Page \d+ of \d+$/i.test(line.value) && line.x >= 440 && line.y < 300);
+      if (printed) {
+        results.get('printed_page_counter')!.occurrences.push(occurrenceFromLines([printed], number));
       }
     }
   }
-  return {fields: Array.from(results.values()), unreadablePages};
+  return {fields: recognizedPages ? Array.from(results.values()) : [], unreadablePages};
 }

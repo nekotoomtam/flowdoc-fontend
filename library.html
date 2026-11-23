@@ -18,9 +18,12 @@
         <h2 id="catalog-title">แม่แบบในคลัง <span id="count"></span></h2>
         <div class="controls">
           <button id="create-draft" class="primary" type="button" disabled>＋ สร้างแม่แบบ</button>
+          <button id="import-pdf" type="button">Import PDF</button>
+          <input id="import-pdf-file" type="file" accept=".pdf,application/pdf" hidden>
           <button id="refresh" type="button">รีเฟรช</button>
         </div>
       </div>
+      <p id="import-pdf-status" role="status"></p>
       <p id="status" role="status"></p>
       <div class="cards" id="cards"></div>
     </section>

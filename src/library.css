@@ -92,6 +92,9 @@ dialog{background:var(--surface)}
 .library-gallery h1{font-size:clamp(32px,4vw,56px);line-height:1.18;letter-spacing:-.045em}
 .library-gallery #search{width:min(270px,100%);padding:10px 14px}
 .library-gallery .toolbar{border-bottom:1px solid var(--line);padding:8px 0 12px}
+.library-gallery .toolbar .controls{flex-wrap:wrap}
+#import-pdf-status{color:var(--muted);overflow-wrap:anywhere}
+#import-pdf-status:empty{margin:0}
 .library-gallery .cards{gap:22px;margin-top:21px}
 .library-gallery .thumbnail{height:var(--cover-height);overflow:hidden;align-items:start;padding-top:26px;background:var(--workspace)}
 .library-gallery .cover-image,.library-gallery .thumbnail>svg{width:66%;max-width:75%;height:auto;max-height:none;background:white}

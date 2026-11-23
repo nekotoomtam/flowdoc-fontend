@@ -26,6 +26,20 @@ const cards = document.querySelector('#cards')!;
 const count = document.querySelector('#count')!;
 const status = document.querySelector('#status')!;
 const detail = document.querySelector<HTMLDialogElement>('#detail')!;
+const importPdf = document.querySelector<HTMLButtonElement>('#import-pdf')!;
+const importPdfFile = document.querySelector<HTMLInputElement>('#import-pdf-file')!;
+const importPdfStatus = document.querySelector('#import-pdf-status')!;
+
+importPdf.addEventListener('click', () => importPdfFile.click());
+importPdfFile.addEventListener('change', () => {
+  const file = importPdfFile.files?.[0];
+  if (!file) return;
+
+  importPdfStatus.textContent = /[.]pdf$/i.test(file.name) && file.size > 0
+    ? 'เลือกไฟล์ ' + file.name + ' แล้ว'
+    : 'กรุณาเลือกไฟล์ PDF ที่มีข้อมูล';
+  importPdfFile.value = '';
+});
 const date = new Intl.DateTimeFormat('th-TH', {dateStyle: 'medium'});
 const paperIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
   <path d="M6 3h8l4 4v14H6z M14 3v5h4 M9 12h6m-6 4h6"/>

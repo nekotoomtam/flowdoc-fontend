@@ -14,7 +14,7 @@ import type {Trial} from './editor-trial';
 import {FormatBindingRequired,reorderTargets, canMoveBetweenCells, applyStructureChange, canAddPlainRows, defaultCellPadding, groupSources, lengthInPoints, paddingSides, refKey, structureOrder} from './editor-structure';
 import type {MoveBinding, Band, Change, Definition, DocNode, Format, Fragment, Host, Inline, Length, Ref, Schema, Section} from './editor-structure';
 
-type Draft = {readOnly?:boolean;canSharePreview?:boolean;templateId:string;docKey?:string;name:string;revision:number;fingerprint:string;definition:Definition};
+type Draft = {readOnly?:boolean;canSharePreview?:boolean;importSourcePages?:number[];templateId:string;docKey?:string;name:string;revision:number;fingerprint:string;definition:Definition};
 type Outline = {id:string;ref:Ref;label:string;type:string;section:Section;format?:Format;children:Outline[];parent?:Outline;node?:DocNode;band?:Band;inline?:Inline;detail?:string};
 type FieldMark={keys:string[];xPt:number;yPt:number;widthPt:number;heightPt:number};
 type DrawPage = {
@@ -63,7 +63,7 @@ if(!sharedPreview&&!paperOnly&&fromTemplate&&/^[a-f0-9-]{36}$/.test(fromTemplate
 }
 let endpoint=sharedPreview?'/shared-preview/api':editorApi+'/'+encodeURIComponent(templateId??'');
 let createKey:string|undefined;
-const creationMode=()=>newMode||Boolean(draft?.docKey?.startsWith('editor-draft-'));
+const creationMode=()=>newMode||Boolean(draft?.importSourcePages||draft?.docKey?.startsWith('editor-draft-'));
 const kinds: Record<string,string> = {section:'Section',area:'Area',format:'Format',table:'ตาราง','table-row':'แถว','table-cell':'เซลล์','text-block':'ข้อความ','page-break':'ขึ้นหน้าใหม่',image:'ภาพ',line:'เส้น','table-of-contents':'สารบัญ',header:'หัวกระดาษ',footer:'ท้ายกระดาษ',columns:'ชุดคอลัมน์',column:'คอลัมน์','field-ref':'ตัวแปร',text:'ข้อความคงที่','system-page-field':'เลขหน้า','row-group':'กลุ่มแถว',repeat:'วนซ้ำ'};
 const treeNodes = new Map<Outline, HTMLButtonElement>();
 const rootRows=new Map<Outline,HTMLLIElement>();
@@ -2208,6 +2208,7 @@ async function load() {
     }
     await readSectionBackgrounds().catch(()=>{sectionBackgroundEnabled=false;sectionBackgrounds={};});
     showDraft(data);void readDraftContext();
+    if(data.importSourcePages)q<HTMLDetailsElement>('variable-panel').open=true;
     const fromCard=Number(sessionStorage.getItem('flowdoc:open:'+templateId));
     sessionStorage.removeItem('flowdoc:open:'+templateId);
     afterPaint('flowdoc:open-definition',started,{revision:data.revision});
@@ -2854,7 +2855,50 @@ installTrialExport(trialExport,q('trial-export-status'),()=>{
   return {url:endpoint+'/export',docKey:draft.docKey,revision:draft.revision,fingerprint:draft.fingerprint,
     headers:sharedPreviewHeaders,snapshot:trialForm.exportSnapshot};
 });
+let importedPdf: {key:string; url:string}|undefined;
+let importedPdfRequest: AbortController|undefined;
+function stopImportedPreview(){
+  importedPdfRequest?.abort();
+  importedPdfRequest=undefined;
+}
+async function openImportedPreview(){
+  const key=endpoint+'/'+draft.revision+'/'+draft.fingerprint;
+  const feedback=q('maersk-preview-feedback');
+  const frame=q<HTMLIFrameElement>('maersk-preview-frame');
+  const download=q<HTMLAnchorElement>('maersk-preview-download');
+  const retry=q<HTMLButtonElement>('maersk-preview-retry');
+  q('maersk-preview-source').textContent='หน้าต้นฉบับ '+draft.importSourcePages!.join(', ')+' · Revision '+draft.revision;
+  if(importedPdf?.key===key){
+    frame.hidden=false;download.hidden=false;return;
+  }
+  stopImportedPreview();
+  if(importedPdf)URL.revokeObjectURL(importedPdf.url);
+  importedPdf=undefined;frame.removeAttribute('src');frame.hidden=true;download.hidden=true;retry.hidden=true;
+  const controller=new AbortController();
+  importedPdfRequest=controller;
+  feedback.textContent='กำลังออก PDF จากร่างที่บันทึกผ่าน FlowDocMake…';
+  try{
+    const response=await fetch(endpoint+'/maersk-preview',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({expectedRevision:draft.revision}),signal:AbortSignal.any([controller.signal,AbortSignal.timeout(90000)])});
+    if(!response.ok || !response.headers.get('Content-Type')?.includes('application/pdf')){
+      const result=await response.json();
+      throw Error(result.issues?.[0]?.code??'PREVIEW_FAILED');
+    }
+    const pdf=await response.blob();
+    if(controller.signal.aborted)return;
+    const url=URL.createObjectURL(pdf);
+    importedPdf={key,url};frame.src=url;download.href=url;frame.hidden=false;download.hidden=false;
+    feedback.textContent='';
+  }catch(error){
+    if(controller.signal.aborted)return;
+    const code=error instanceof Error?error.message:'';
+    feedback.textContent='ออก PDF ไม่สำเร็จ'+(/^[A-Z_]+$/.test(code)?' · '+code:'');
+    retry.hidden=false;
+  }finally{if(importedPdfRequest===controller)importedPdfRequest=undefined;}
+}
+q('maersk-preview-retry').addEventListener('click',()=>void openImportedPreview());
 function openPreview(){
+  if(draft.importSourcePages){void openImportedPreview();return;}
   const custom=!benchmark;
   trialExport.hidden=!custom;
   printLayout.hidden=!custom||sharedPreview||!!draft.readOnly;
@@ -2921,11 +2965,13 @@ function showPreviewIssue(){
 }
 function changeMode(mode:'define'|'preview') {
   const toPreview=mode==='preview';
-  showingPreview=toPreview;previewPanel.hidden=!toPreview;editor.hidden=mode!=='define';
+  const imported=!!draft.importSourcePages;
+  showingPreview=toPreview;previewPanel.hidden=!toPreview||imported;editor.hidden=mode!=='define';
+  q('maersk-import-preview').hidden=!toPreview||!imported;
   defineTab.setAttribute('aria-pressed',String(mode==='define'));previewTab.setAttribute('aria-pressed',String(toPreview));
   updateDraftHeader();
-  if(toPreview){openPreview();positionPaperEditor();pumpPages();showPreviewIssue();}
-  else clearPreviewIssue();
+  if(toPreview){openPreview();if(!imported){positionPaperEditor();pumpPages();showPreviewIssue();}}
+  else {clearPreviewIssue();if(imported)stopImportedPreview();}
   if(!toPreview)closePaperEdit();
   if(!toPreview&&pendingPreview){
     cancelPreview();refreshPreview.disabled=false;

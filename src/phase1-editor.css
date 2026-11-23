@@ -543,3 +543,6 @@ body:not(.library-paper):has(#editor)>.topbar{display:flex}
 
 /* Authored content keeps its own default ink even when the interface palette changes. */
 .definition-sheet{--ink:#172d2b;color:var(--ink)}
+#maersk-import-preview{margin:16px auto;max-width:1120px;padding:16px}
+#maersk-import-preview h2{margin:0 0 8px}
+#maersk-preview-frame{width:100%;height:70dvh;margin-top:12px;border:1px solid var(--line);background:var(--surface)}

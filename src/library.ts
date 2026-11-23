@@ -36,7 +36,8 @@ const paperIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 const phase1 = new URLSearchParams(location.search).get('phase1') === '1';
 if (phase1) {
   document.querySelector<HTMLAnchorElement>('.brand')!.href='/library.html?phase1=1';
-  document.querySelector('.badge')!.textContent = 'Oracle Lab';
+  document.querySelector('.badge')!.textContent = document.querySelector('meta[name="flowdoc-maersk-import-trial"]')
+    ? 'ทดลอง Import · Model 20' : 'Oracle Lab';
   document.querySelector('.hero p')!.textContent = 'เลือกแม่แบบเพื่อดูกระดาษและรุ่นที่เผยแพร่';
   const create = document.querySelector<HTMLButtonElement>('#create-draft')!;
   create.disabled=false;

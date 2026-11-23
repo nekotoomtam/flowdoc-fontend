@@ -69,6 +69,7 @@ async function openPdf(file: File, signal: AbortSignal): Promise<PDFDocumentProx
 }
 
 export function setupPdfImportDialog() {
+  const connectedTrial = !!document.querySelector('meta[name="flowdoc-maersk-import-trial"]');
   const open = document.querySelector<HTMLButtonElement>('#import-pdf')!;
   const dialog = document.querySelector<HTMLDialogElement>('#import-pdf-dialog')!;
   const dropZone = dialog.querySelector<HTMLDivElement>('#import-pdf-drop')!;
@@ -87,7 +88,11 @@ export function setupPdfImportDialog() {
   const total = dialog.querySelector<HTMLElement>('#import-pdf-total')!;
   const clear = dialog.querySelector<HTMLButtonElement>('#import-pdf-clear')!;
   const confirm = dialog.querySelector<HTMLButtonElement>('#import-pdf-confirm')!;
+  const closeButton = dialog.querySelector<HTMLButtonElement>('button[type="submit"]')!;
   let source: PDFDocumentProxy | undefined;
+  let sourceHash = '';
+  let request: {pages: string; id: string} | undefined;
+  let creating = false;
   let fileSession: AbortController | undefined;
   let view: ReturnType<typeof mountPdfPreview> | undefined;
 
@@ -97,6 +102,8 @@ export function setupPdfImportDialog() {
     fileSession?.abort();
     fileSession = undefined;
     source = undefined;
+    sourceHash = '';
+    request = undefined;
     dialog.classList.remove('is-reviewing');
     selection.hidden = false;
     review.hidden = true;
@@ -149,6 +156,12 @@ export function setupPdfImportDialog() {
     const controller = new AbortController();
     fileSession = controller;
     try {
+      if (connectedTrial) {
+        const bytes = await file.arrayBuffer();
+        const digest = await crypto.subtle.digest('SHA-256', bytes);
+        if (controller.signal.aborted) return;
+        sourceHash = Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, '0')).join('');
+      }
       const pdf = await openPdf(file, controller.signal);
       if (controller.signal.aborted) return;
       const count = pdf.numPages;
@@ -176,6 +189,11 @@ export function setupPdfImportDialog() {
     reset();
     dialog.showModal();
   });
+  if (connectedTrial) {
+    confirm.textContent = 'สร้างร่าง Model 20';
+    dropZone.querySelector('p')!.textContent = 'ลากไฟล์ Maersk ตัวอย่างมาวางที่นี่';
+  }
+  dialog.addEventListener('cancel', event => {if (creating) event.preventDefault();});
   dialog.addEventListener('close', () => {
     if (!dialog.open) reset();
   });
@@ -199,6 +217,41 @@ export function setupPdfImportDialog() {
     pages.value = selected.map(({start, end}) => start === end ? String(start) : start + '-' + end).join(', ');
     updateQuote();
   }
+  async function createConnectedDraft(ranges: PageRange[]) {
+    const selected: number[] = [];
+    for (const {start, end} of ranges) {
+      for (let page = start; page <= end; page++) selected.push(page);
+    }
+    const pageKey = selected.join(',');
+    if (request?.pages !== pageKey) request = {pages: pageKey, id: crypto.randomUUID()};
+    creating = true;
+    choose.disabled = true;
+    closeButton.disabled = true;
+    status.textContent = 'กำลังสร้างร่างผ่าน FlowDocMake…';
+    try {
+      const response = await fetch('/api/editor-phase1/import/maersk', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({requestId: request.id, sha256: sourceHash, pages: selected}),
+        signal: AbortSignal.timeout(120000),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok || !result.value?.templateId)
+        throw Error(result.issues?.[0]?.code ?? 'IMPORT_FAILED');
+      location.assign('/phase1-editor.html?id=' + encodeURIComponent(result.value.templateId));
+    } catch (error) {
+      const code = error instanceof Error ? error.message : '';
+      pages.readOnly = false;
+      updateQuote();
+      status.textContent = code === 'MAERSK_PDF_NOT_MATCHED'
+        ? 'ชุดทดลองนี้ใช้ไฟล์ Maersk ตัวอย่างเดิม กรุณาเลือกไฟล์นั้น'
+        : 'ยังเปิดร่างไม่ได้ ลองกดสร้างร่างอีกครั้ง' + (/^[A-Z_]+$/.test(code) ? ' · ' + code : '');
+    } finally {
+      creating = false;
+      closeButton.disabled = false;
+      choose.disabled = false;
+    }
+  }
   confirm.addEventListener('click', async () => {
     if (!source || !fileSession || !view) return;
     const ranges = parseRanges(pages.value, source.numPages);
@@ -206,6 +259,10 @@ export function setupPdfImportDialog() {
     const {signal} = fileSession;
     pages.readOnly = true;
     updateQuote();
+    if (connectedTrial) {
+      await createConnectedDraft(ranges);
+      return;
+    }
     status.textContent = 'กำลังอ่านตัวแปรจากหน้าที่เลือก…';
     try {
       const result = await readImportFields(source, ranges, signal);
@@ -242,7 +299,7 @@ export function setupPdfImportDialog() {
   dialog.addEventListener('drop', event => {
     event.preventDefault();
     dropZone.classList.remove('is-dragging');
-    if (event.composedPath().includes(dropZone)) {
+    if (!creating && event.composedPath().includes(dropZone)) {
       void selectFile(event.dataTransfer?.files);
     }
   });

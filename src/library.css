@@ -98,9 +98,14 @@ dialog{background:var(--surface)}
 #import-pdf-drop{display:grid;justify-items:center;gap:12px;border:2px dashed var(--line);border-radius:12px;background:var(--bg);padding:24px 12px;text-align:center}
 #import-pdf-drop p{margin:0}
 #import-pdf-drop.is-dragging{border-color:var(--action);background:var(--surface)}
-#import-pdf-status{overflow-wrap:anywhere}
+#import-pdf-status,#import-pdf-name{overflow-wrap:anywhere}
 #import-pdf-status:empty{display:none}
-#import-pdf-dialog form{display:flex;justify-content:flex-end}
+#import-pdf-name{margin:16px 0 8px;color:var(--ink);font-weight:650}
+#import-pdf-pages{display:block;width:100%;margin-top:4px}
+#import-pdf-page-hint{font-size:.875rem}
+#import-pdf-page-error{color:var(--danger,#a52834)}
+.import-pdf-total{display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px 12px;border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
+#import-pdf-dialog form{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px}
 .library-gallery .cards{gap:22px;margin-top:21px}
 .library-gallery .thumbnail{height:var(--cover-height);overflow:hidden;align-items:start;padding-top:26px;background:var(--workspace)}
 .library-gallery .cover-image,.library-gallery .thumbnail>svg{width:66%;max-width:75%;height:auto;max-height:none;background:white}

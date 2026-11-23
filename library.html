@@ -34,7 +34,22 @@
       <input id="import-pdf-file" type="file" accept=".pdf,application/pdf" hidden>
     </div>
     <p id="import-pdf-status" role="status"></p>
-    <form method="dialog"><button type="submit">ปิด</button></form>
+    <div id="import-pdf-quote" hidden>
+      <p id="import-pdf-name"></p>
+      <label for="import-pdf-pages">หน้าที่ต้องการอ่าน</label>
+      <input id="import-pdf-pages" type="text" autocomplete="off" spellcheck="false" aria-describedby="import-pdf-page-hint import-pdf-page-error">
+      <p id="import-pdf-page-hint">ระบุเลขหน้าหรือช่วงหน้า เช่น 1, 3-5</p>
+      <p id="import-pdf-page-error" role="status" hidden></p>
+      <div class="import-pdf-total" role="status">
+        <span id="import-pdf-page-count"></span>
+        <strong id="import-pdf-credits"></strong>
+      </div>
+      <p>ราคาทดลอง ระบบยังไม่หักเครดิต</p>
+    </div>
+    <form method="dialog">
+      <button type="submit">ปิด</button>
+      <button type="button" id="import-pdf-confirm" class="primary" disabled>ยืนยันการทดลอง</button>
+    </form>
   </dialog>
   <dialog id="detail" aria-labelledby="detail-name">
     <nav class="detail-crumb"><button id="return-library" type="button">← คลังแม่แบบ</button></nav>

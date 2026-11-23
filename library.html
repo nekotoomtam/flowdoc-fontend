@@ -38,13 +38,33 @@
       <p id="import-pdf-name"></p>
       <div class="import-pdf-review">
         <section id="import-pdf-preview" aria-label="เลื่อนดูและเลือกหน้า PDF" tabindex="0"></section>
-        <div>
+        <div id="import-pdf-selection">
           <label for="import-pdf-pages">หน้าที่ต้องการอ่าน</label>
           <input id="import-pdf-pages" type="text" autocomplete="off" spellcheck="false" aria-describedby="import-pdf-page-hint import-pdf-page-error">
           <p id="import-pdf-page-hint">ระบุเลขหน้าหรือช่วงหน้า เช่น 1, 3-5</p>
           <p id="import-pdf-page-error" role="status" hidden></p>
           <button id="import-pdf-clear" type="button">ล้างการเลือก</button>
         </div>
+        <section id="import-pdf-fields" aria-labelledby="import-pdf-fields-title" hidden>
+          <h3 id="import-pdf-fields-title" tabindex="-1">ตรวจตัวแปร</h3>
+          <p id="import-pdf-field-count" role="status"></p>
+          <p id="import-pdf-field-note"></p>
+          <label id="import-pdf-field-picker">เลือกตัวแปร
+            <select id="import-pdf-field-select"></select>
+          </label>
+          <ul id="import-pdf-field-list" aria-label="ชุดตัวแปร"></ul>
+          <section id="import-pdf-field-detail" aria-label="รายละเอียดตัวแปร" hidden>
+            <p><code id="import-pdf-field-key"></code></p>
+            <label for="import-pdf-field-name">ชื่อที่แสดง</label>
+            <input id="import-pdf-field-name" type="text" autocomplete="off">
+            <label for="import-pdf-field-page">ตำแหน่งที่พบ</label>
+            <select id="import-pdf-field-page"></select>
+            <p id="import-pdf-field-source"></p>
+            <label for="import-pdf-field-value">ค่าตัวอย่าง</label>
+            <textarea id="import-pdf-field-value" rows="3"></textarea>
+            <button id="import-pdf-field-confirm" type="button" class="primary">ยืนยันตัวแปร</button>
+          </section>
+        </section>
       </div>
     </div>
     <form method="dialog">

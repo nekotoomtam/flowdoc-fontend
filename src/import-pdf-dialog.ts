@@ -1,4 +1,6 @@
 import type {PDFDocumentProxy} from 'pdfjs-dist';
+import {readImportFields} from './import-pdf-fields';
+import {showImportFieldReview} from './import-pdf-field-review';
 import {mountPdfPreview} from './import-pdf-preview';
 
 const MOCK_BASE_CREDITS = 100;
@@ -80,6 +82,8 @@ export function setupPdfImportDialog() {
   const pageCount = dialog.querySelector('#import-pdf-page-count')!;
   const credits = dialog.querySelector('#import-pdf-credits')!;
   const preview = dialog.querySelector<HTMLElement>('#import-pdf-preview')!;
+  const selection = dialog.querySelector<HTMLElement>('#import-pdf-selection')!;
+  const review = dialog.querySelector<HTMLElement>('#import-pdf-fields')!;
   const total = dialog.querySelector<HTMLElement>('#import-pdf-total')!;
   const clear = dialog.querySelector<HTMLButtonElement>('#import-pdf-clear')!;
   const confirm = dialog.querySelector<HTMLButtonElement>('#import-pdf-confirm')!;
@@ -93,6 +97,10 @@ export function setupPdfImportDialog() {
     fileSession?.abort();
     fileSession = undefined;
     source = undefined;
+    dialog.classList.remove('is-reviewing');
+    selection.hidden = false;
+    review.hidden = true;
+    review.querySelector('#import-pdf-field-list')!.replaceChildren();
     status.textContent = '';
     quote.hidden = true;
     total.hidden = true;
@@ -110,7 +118,7 @@ export function setupPdfImportDialog() {
     pageError.hidden = ranges !== null;
     pageError.textContent = ranges === null ? 'ระบุเลขหน้าตั้งแต่ 1 ถึง ' + totalPages : '';
     clear.disabled = pages.readOnly || pages.value === '';
-    view?.update(ranges ?? [], ranges === null || pages.readOnly);
+    view?.update(ranges ?? [], ranges === null || pages.readOnly, pages.readOnly);
     confirm.disabled = count === 0 || pages.readOnly;
     if (count === 0) {
       pageCount.textContent = ranges ? 'เลือกอย่างน้อย 1 หน้า' : '';
@@ -191,10 +199,30 @@ export function setupPdfImportDialog() {
     pages.value = selected.map(({start, end}) => start === end ? String(start) : start + '-' + end).join(', ');
     updateQuote();
   }
-  confirm.addEventListener('click', () => {
+  confirm.addEventListener('click', async () => {
+    if (!source || !fileSession || !view) return;
+    const ranges = parseRanges(pages.value, source.numPages);
+    if (!ranges?.length) return;
+    const {signal} = fileSession;
     pages.readOnly = true;
     updateQuote();
-    status.textContent = 'ยืนยันการทดลองแล้ว ยังไม่ได้หักเครดิต';
+    status.textContent = 'กำลังอ่านตัวแปรจากหน้าที่เลือก…';
+    try {
+      const result = await readImportFields(source, ranges, signal);
+      if (signal.aborted) return;
+      status.textContent = '';
+      selection.hidden = true;
+      dialog.classList.add('is-reviewing');
+      showImportFieldReview(review, result.fields, result.unreadablePages, occurrence => view?.showEvidence(occurrence));
+    } catch {
+      if (signal.aborted) return;
+      pages.readOnly = false;
+      selection.hidden = false;
+      review.hidden = true;
+      dialog.classList.remove('is-reviewing');
+      updateQuote();
+      status.textContent = 'อ่านตัวแปรไม่สำเร็จ กรุณาลองอีกครั้ง';
+    }
   });
 
   dialog.addEventListener('dragover', event => {

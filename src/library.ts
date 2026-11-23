@@ -27,18 +27,54 @@ const count = document.querySelector('#count')!;
 const status = document.querySelector('#status')!;
 const detail = document.querySelector<HTMLDialogElement>('#detail')!;
 const importPdf = document.querySelector<HTMLButtonElement>('#import-pdf')!;
+const importPdfDialog = document.querySelector<HTMLDialogElement>('#import-pdf-dialog')!;
+const importPdfDrop = document.querySelector<HTMLDivElement>('#import-pdf-drop')!;
+const importPdfChoose = document.querySelector('#import-pdf-choose')!;
 const importPdfFile = document.querySelector<HTMLInputElement>('#import-pdf-file')!;
 const importPdfStatus = document.querySelector('#import-pdf-status')!;
 
-importPdf.addEventListener('click', () => importPdfFile.click());
-importPdfFile.addEventListener('change', () => {
-  const file = importPdfFile.files?.[0];
-  if (!file) return;
+function showImportSelection(files: FileList | null | undefined) {
+  if (!files?.length) return;
+  const [file] = files;
 
+  if (files.length !== 1) {
+    importPdfStatus.textContent = 'กรุณาเลือก PDF ครั้งละหนึ่งไฟล์';
+    return;
+  }
   importPdfStatus.textContent = /[.]pdf$/i.test(file.name) && file.size > 0
-    ? 'เลือกไฟล์ ' + file.name + ' แล้ว'
+    ? `เลือกไฟล์ ${file.name} แล้ว`
     : 'กรุณาเลือกไฟล์ PDF ที่มีข้อมูล';
+}
+
+importPdf.addEventListener('click', () => {
+  importPdfStatus.textContent = '';
+  importPdfDrop.classList.remove('is-dragging');
+  importPdfDialog.showModal();
+});
+importPdfChoose.addEventListener('click', () => importPdfFile.click());
+importPdfFile.addEventListener('change', () => {
+  showImportSelection(importPdfFile.files);
   importPdfFile.value = '';
+});
+importPdfDialog.addEventListener('dragover', event => {
+  event.preventDefault();
+  if (!event.dataTransfer?.types.includes('Files')) return;
+  const overDropZone = event.composedPath().includes(importPdfDrop);
+  event.dataTransfer.dropEffect = overDropZone ? 'copy' : 'none';
+  importPdfDrop.classList.toggle('is-dragging', overDropZone);
+});
+importPdfDrop.addEventListener('dragleave', event => {
+  const nextTarget = event.relatedTarget;
+  if (!(nextTarget instanceof Node) || !importPdfDrop.contains(nextTarget)) {
+    importPdfDrop.classList.remove('is-dragging');
+  }
+});
+importPdfDialog.addEventListener('drop', event => {
+  event.preventDefault();
+  importPdfDrop.classList.remove('is-dragging');
+  if (event.composedPath().includes(importPdfDrop)) {
+    showImportSelection(event.dataTransfer?.files);
+  }
 });
 const date = new Intl.DateTimeFormat('th-TH', {dateStyle: 'medium'});
 const paperIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">

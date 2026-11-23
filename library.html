@@ -18,16 +18,24 @@
         <h2 id="catalog-title">แม่แบบในคลัง <span id="count"></span></h2>
         <div class="controls">
           <button id="create-draft" class="primary" type="button" disabled>＋ สร้างแม่แบบ</button>
-          <button id="import-pdf" type="button">Import PDF</button>
-          <input id="import-pdf-file" type="file" accept=".pdf,application/pdf" hidden>
+          <button id="import-pdf" type="button" aria-haspopup="dialog">Import PDF</button>
           <button id="refresh" type="button">รีเฟรช</button>
         </div>
       </div>
-      <p id="import-pdf-status" role="status"></p>
       <p id="status" role="status"></p>
       <div class="cards" id="cards"></div>
     </section>
   </main>
+  <dialog id="import-pdf-dialog" aria-labelledby="import-pdf-title">
+    <h2 id="import-pdf-title">นำเข้า PDF</h2>
+    <div id="import-pdf-drop">
+      <p>ลากไฟล์ PDF มาวางที่นี่</p>
+      <button id="import-pdf-choose" class="primary" type="button" autofocus>เลือกไฟล์ PDF</button>
+      <input id="import-pdf-file" type="file" accept=".pdf,application/pdf" hidden>
+    </div>
+    <p id="import-pdf-status" role="status"></p>
+    <form method="dialog"><button type="submit">ปิด</button></form>
+  </dialog>
   <dialog id="detail" aria-labelledby="detail-name">
     <nav class="detail-crumb"><button id="return-library" type="button">← คลังแม่แบบ</button></nav>
     <h2 id="detail-name"></h2>

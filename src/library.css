@@ -93,8 +93,14 @@ dialog{background:var(--surface)}
 .library-gallery #search{width:min(270px,100%);padding:10px 14px}
 .library-gallery .toolbar{border-bottom:1px solid var(--line);padding:8px 0 12px}
 .library-gallery .toolbar .controls{flex-wrap:wrap}
-#import-pdf-status{color:var(--muted);overflow-wrap:anywhere}
-#import-pdf-status:empty{margin:0}
+#import-pdf-dialog{box-sizing:border-box;width:min(480px,calc(100% - 28px));max-height:calc(100dvh - 28px);padding:clamp(16px,4vw,24px)}
+#import-pdf-title{margin:0 0 14px}
+#import-pdf-drop{display:grid;justify-items:center;gap:12px;border:2px dashed var(--line);border-radius:12px;background:var(--bg);padding:24px 12px;text-align:center}
+#import-pdf-drop p{margin:0}
+#import-pdf-drop.is-dragging{border-color:var(--action);background:var(--surface)}
+#import-pdf-status{overflow-wrap:anywhere}
+#import-pdf-status:empty{display:none}
+#import-pdf-dialog form{display:flex;justify-content:flex-end}
 .library-gallery .cards{gap:22px;margin-top:21px}
 .library-gallery .thumbnail{height:var(--cover-height);overflow:hidden;align-items:start;padding-top:26px;background:var(--workspace)}
 .library-gallery .cover-image,.library-gallery .thumbnail>svg{width:66%;max-width:75%;height:auto;max-height:none;background:white}

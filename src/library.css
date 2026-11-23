@@ -94,10 +94,12 @@ dialog{background:var(--surface)}
 .library-gallery .toolbar{border-bottom:1px solid var(--line);padding:8px 0 12px}
 .library-gallery .toolbar .controls{flex-wrap:wrap}
 #import-pdf-dialog{box-sizing:border-box;width:min(480px,calc(100% - 28px));max-height:calc(100dvh - 28px);padding:clamp(16px,4vw,24px)}
+#import-pdf-dialog:has(#import-pdf-quote:not([hidden])){width:min(840px,calc(100% - 28px))}
 #import-pdf-title{margin:0 0 14px}
 #import-pdf-drop{display:grid;justify-items:center;gap:12px;border:2px dashed var(--line);border-radius:12px;background:var(--bg);padding:24px 12px;text-align:center}
 #import-pdf-drop p{margin:0}
 #import-pdf-drop.is-dragging{border-color:var(--action);background:var(--surface)}
+#import-pdf-dialog:has(#import-pdf-quote:not([hidden])) #import-pdf-drop{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;padding:8px 12px}
 #import-pdf-status,#import-pdf-name{overflow-wrap:anywhere}
 #import-pdf-status:empty{display:none}
 #import-pdf-name{margin:16px 0 8px;color:var(--ink);font-weight:650}
@@ -105,6 +107,16 @@ dialog{background:var(--surface)}
 #import-pdf-page-hint{font-size:.875rem}
 #import-pdf-page-error{color:var(--danger,#a52834)}
 .import-pdf-total{display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px 12px;border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
+.import-pdf-review{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:20px}
+.import-pdf-preview-controls{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:8px}
+#import-pdf-preview-page{text-align:center}
+#import-pdf-preview{display:grid;place-items:center;min-height:112px;background:var(--workspace);border:1px solid var(--line);border-radius:8px;padding:10px}
+#import-pdf-preview-status{padding-inline:8px;text-align:center}
+#import-pdf-preview-status:empty,#import-pdf-paper:empty{display:none}
+#import-pdf-paper{display:flex;justify-content:center;width:100%}
+#import-pdf-paper canvas{display:block;background:white;max-width:100%;height:auto;max-height:min(43dvh,440px);object-fit:contain}
+.import-pdf-include{display:inline-flex;align-items:center;gap:8px;min-height:40px;cursor:pointer}
+@media(max-width:640px){.import-pdf-review{grid-template-columns:minmax(0,1fr);gap:10px}}
 #import-pdf-dialog form{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px}
 .library-gallery .cards{gap:22px;margin-top:21px}
 .library-gallery .thumbnail{height:var(--cover-height);overflow:hidden;align-items:start;padding-top:26px;background:var(--workspace)}

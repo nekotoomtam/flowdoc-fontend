@@ -1,9 +1,27 @@
+import type {PDFDocumentProxy, RenderTask} from 'pdfjs-dist';
+
 const MOCK_BASE_CREDITS = 100;
 const MOCK_INCLUDED_PAGES = 3;
 const MOCK_EXTRA_PAGE_CREDITS = 20;
 
-function selectedPageCount(selection: string, totalPages: number): number | null {
-  const ranges: Array<{start: number; end: number}> = [];
+type PageRange = {start: number; end: number};
+
+function mergeRanges(ranges: PageRange[]): PageRange[] {
+  const merged: PageRange[] = [];
+  for (const range of ranges.sort((left, right) => left.start - right.start)) {
+    const previous = merged.at(-1);
+    if (previous && range.start <= previous.end + 1) {
+      previous.end = Math.max(previous.end, range.end);
+    } else {
+      merged.push({...range});
+    }
+  }
+  return merged;
+}
+
+function parseRanges(selection: string, totalPages: number): PageRange[] | null {
+  if (!selection.trim()) return [];
+  const ranges: PageRange[] = [];
   for (const part of selection.split(',')) {
     const match = /^(\d+)(?:\s*[-–]\s*(\d+))?$/.exec(part.trim());
     if (!match) return null;
@@ -13,16 +31,20 @@ function selectedPageCount(selection: string, totalPages: number): number | null
     ranges.push({start, end});
   }
 
-  let count = 0;
-  let countedThrough = 0;
-  for (const {start, end} of ranges.sort((left, right) => left.start - right.start)) {
-    count += Math.max(0, end - Math.max(start - 1, countedThrough));
-    countedThrough = Math.max(countedThrough, end);
-  }
-  return count;
+  return mergeRanges(ranges);
 }
 
-async function countPdfPages(file: File, signal: AbortSignal): Promise<number> {
+function removePage(ranges: PageRange[], page: number): PageRange[] {
+  return ranges.flatMap(range => {
+    if (page < range.start || page > range.end) return [range];
+    return [
+      {start: range.start, end: page - 1},
+      {start: page + 1, end: range.end},
+    ].filter(range => range.start <= range.end);
+  });
+}
+
+async function openPdf(file: File, signal: AbortSignal): Promise<PDFDocumentProxy> {
   const [pdf, worker, data] = await Promise.all([
     import('pdfjs-dist'),
     import('pdfjs-dist/build/pdf.worker.min.mjs?worker&url'),
@@ -35,11 +57,11 @@ async function countPdfPages(file: File, signal: AbortSignal): Promise<number> {
   const abort = () => { void destroy(); };
   signal.addEventListener('abort', abort, {once: true});
   try {
-    const document = await task.promise;
-    return document.numPages;
-  } finally {
+    return await task.promise;
+  } catch (error) {
     signal.removeEventListener('abort', abort);
     if (!signal.aborted) await destroy();
+    throw error;
   }
 }
 
@@ -56,29 +78,50 @@ export function setupPdfImportDialog() {
   const pageError = dialog.querySelector<HTMLElement>('#import-pdf-page-error')!;
   const pageCount = dialog.querySelector('#import-pdf-page-count')!;
   const credits = dialog.querySelector('#import-pdf-credits')!;
+  const previous = dialog.querySelector<HTMLButtonElement>('#import-pdf-prev')!;
+  const next = dialog.querySelector<HTMLButtonElement>('#import-pdf-next')!;
+  const previewPage = dialog.querySelector('#import-pdf-preview-page')!;
+  const preview = dialog.querySelector('#import-pdf-preview')!;
+  const paper = dialog.querySelector('#import-pdf-paper')!;
+  const previewStatus = dialog.querySelector('#import-pdf-preview-status')!;
+  const include = dialog.querySelector<HTMLInputElement>('#import-pdf-include')!;
   const confirm = dialog.querySelector<HTMLButtonElement>('#import-pdf-confirm')!;
-  let totalPages = 0;
-  let reading: AbortController | undefined;
+  let source: PDFDocumentProxy | undefined;
+  let fileSession: AbortController | undefined;
+  let currentPage = 1;
+  let renderRevision = 0;
+  let renderTask: RenderTask | undefined;
 
   function reset() {
-    reading?.abort();
-    reading = undefined;
+    renderRevision++;
+    renderTask?.cancel();
+    renderTask = undefined;
+    fileSession?.abort();
+    fileSession = undefined;
+    source = undefined;
+    currentPage = 1;
+    paper.replaceChildren();
+    previewStatus.textContent = '';
     status.textContent = '';
     quote.hidden = true;
     confirm.disabled = true;
     pages.readOnly = false;
-    totalPages = 0;
     dropZone.classList.remove('is-dragging');
   }
 
   function updateQuote() {
-    const count = selectedPageCount(pages.value, totalPages);
-    pages.setAttribute('aria-invalid', String(count === null));
-    pageError.hidden = count !== null;
-    pageError.textContent = count === null ? 'ระบุเลขหน้าตั้งแต่ 1 ถึง ' + totalPages + ' เช่น 1 หรือ 1-3' : '';
-    confirm.disabled = count === null;
-    if (count === null) {
-      pageCount.textContent = '';
+    if (!source) return;
+    const totalPages = source.numPages;
+    const ranges = parseRanges(pages.value, totalPages);
+    const count = ranges?.reduce((sum, {start, end}) => sum + end - start + 1, 0) ?? 0;
+    pages.setAttribute('aria-invalid', String(ranges === null));
+    pageError.hidden = ranges !== null;
+    pageError.textContent = ranges === null ? 'ระบุเลขหน้าตั้งแต่ 1 ถึง ' + totalPages : '';
+    include.disabled = ranges === null || pages.readOnly;
+    include.checked = ranges?.some(({start, end}) => start <= currentPage && currentPage <= end) ?? false;
+    confirm.disabled = count === 0 || pages.readOnly;
+    if (count === 0) {
+      pageCount.textContent = ranges ? 'เลือกอย่างน้อย 1 หน้า' : '';
       credits.textContent = '';
       return;
     }
@@ -86,6 +129,45 @@ export function setupPdfImportDialog() {
     const price = MOCK_BASE_CREDITS + MOCK_EXTRA_PAGE_CREDITS * Math.max(0, count - MOCK_INCLUDED_PAGES);
     pageCount.textContent = 'อ่าน ' + count + ' จาก ' + totalPages + ' หน้า';
     credits.textContent = price.toLocaleString('th-TH') + ' เครดิต';
+  }
+
+  async function showPage(pageNumber: number) {
+    if (!source || pageNumber < 1 || pageNumber > source.numPages) return;
+    const revision = ++renderRevision;
+    renderTask?.cancel();
+    renderTask = undefined;
+    currentPage = pageNumber;
+    previous.disabled = pageNumber === 1;
+    next.disabled = pageNumber === source.numPages;
+    previewPage.textContent = 'หน้า ' + pageNumber + ' จาก ' + source.numPages;
+    updateQuote();
+    paper.replaceChildren();
+    preview.setAttribute('aria-busy', 'true');
+    previewStatus.textContent = 'กำลังเปิดตัวอย่าง…';
+
+    try {
+      const page = await source.getPage(pageNumber);
+      if (revision !== renderRevision) return;
+      const bounds = page.getViewport({scale: 1});
+      const viewport = page.getViewport({scale: Math.min(1150 / bounds.width, 1350 / bounds.height)});
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+      canvas.setAttribute('role', 'img');
+      canvas.setAttribute('aria-label', 'ตัวอย่าง PDF หน้า ' + pageNumber);
+      renderTask = page.render({canvas, viewport});
+      await renderTask.promise;
+      if (revision !== renderRevision) return;
+      paper.replaceChildren(canvas);
+      previewStatus.textContent = '';
+    } catch {
+      if (revision === renderRevision) previewStatus.textContent = 'เปิดตัวอย่างหน้านี้ไม่ได้';
+    } finally {
+      if (revision === renderRevision) {
+        preview.setAttribute('aria-busy', 'false');
+        renderTask = undefined;
+      }
+    }
   }
 
   async function selectFile(files: FileList | null | undefined) {
@@ -104,25 +186,26 @@ export function setupPdfImportDialog() {
 
     status.textContent = 'กำลังนับหน้า PDF…';
     const controller = new AbortController();
-    reading = controller;
+    fileSession = controller;
     try {
-      const count = await countPdfPages(file, controller.signal);
+      const pdf = await openPdf(file, controller.signal);
       if (controller.signal.aborted) return;
+      const count = pdf.numPages;
       if (count < 1) throw new Error('PDF has no pages');
 
-      totalPages = count;
+      source = pdf;
       fileName.textContent = file.name;
       pages.value = count === 1 ? '1' : '1-' + count;
       quote.hidden = false;
       status.textContent = '';
-      updateQuote();
+      void showPage(1);
     } catch (error) {
       if (controller.signal.aborted) return;
+      controller.abort();
+      fileSession = undefined;
       status.textContent = error instanceof Error && error.name === 'PasswordException'
         ? 'ไฟล์ PDF มีรหัสผ่าน กรุณาเลือกไฟล์ที่เปิดได้โดยไม่ใช้รหัส'
         : 'เปิด PDF ไม่ได้ กรุณาเลือกไฟล์อื่น';
-    } finally {
-      if (reading === controller) reading = undefined;
     }
   }
 
@@ -139,9 +222,21 @@ export function setupPdfImportDialog() {
     fileInput.value = '';
   });
   pages.addEventListener('input', updateQuote);
+  previous.addEventListener('click', () => { void showPage(currentPage - 1); });
+  next.addEventListener('click', () => { void showPage(currentPage + 1); });
+  include.addEventListener('change', () => {
+    if (!source) return;
+    const ranges = parseRanges(pages.value, source.numPages);
+    if (!ranges) return;
+    const selected = include.checked
+      ? mergeRanges([...ranges, {start: currentPage, end: currentPage}])
+      : removePage(ranges, currentPage);
+    pages.value = selected.map(({start, end}) => start === end ? String(start) : start + '-' + end).join(', ');
+    updateQuote();
+  });
   confirm.addEventListener('click', () => {
     pages.readOnly = true;
-    confirm.disabled = true;
+    updateQuote();
     status.textContent = 'ยืนยันการทดลองแล้ว ยังไม่ได้หักเครดิต';
   });
 

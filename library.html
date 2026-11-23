@@ -37,34 +37,22 @@
     <div id="import-pdf-quote" hidden>
       <p id="import-pdf-name"></p>
       <div class="import-pdf-review">
-        <section aria-label="ตัวอย่าง PDF">
-          <div class="import-pdf-preview-controls">
-            <button id="import-pdf-prev" type="button">ก่อนหน้า</button>
-            <span id="import-pdf-preview-page" aria-live="polite"></span>
-            <button id="import-pdf-next" type="button">ถัดไป</button>
-          </div>
-          <div id="import-pdf-preview" aria-busy="false">
-            <p id="import-pdf-preview-status" role="status"></p>
-            <div id="import-pdf-paper"></div>
-          </div>
-          <label class="import-pdf-include">
-            <input id="import-pdf-include" type="checkbox"> รวมหน้านี้
-          </label>
-        </section>
+        <section id="import-pdf-preview" aria-label="เลื่อนดูและเลือกหน้า PDF" tabindex="0"></section>
         <div>
           <label for="import-pdf-pages">หน้าที่ต้องการอ่าน</label>
           <input id="import-pdf-pages" type="text" autocomplete="off" spellcheck="false" aria-describedby="import-pdf-page-hint import-pdf-page-error">
           <p id="import-pdf-page-hint">ระบุเลขหน้าหรือช่วงหน้า เช่น 1, 3-5</p>
           <p id="import-pdf-page-error" role="status" hidden></p>
-          <div class="import-pdf-total" role="status">
-            <span id="import-pdf-page-count"></span>
-            <strong id="import-pdf-credits"></strong>
-          </div>
-          <p>ราคาทดลอง ระบบยังไม่หักเครดิต</p>
+          <button id="import-pdf-clear" type="button">ล้างการเลือก</button>
         </div>
       </div>
     </div>
     <form method="dialog">
+      <div id="import-pdf-total" role="status" hidden>
+        <span id="import-pdf-page-count"></span>
+        <strong id="import-pdf-credits"></strong>
+        <span class="import-pdf-trial-note">ราคาทดลอง ระบบยังไม่หักเครดิต</span>
+      </div>
       <button type="submit">ปิด</button>
       <button type="button" id="import-pdf-confirm" class="primary" disabled>ยืนยันการทดลอง</button>
     </form>

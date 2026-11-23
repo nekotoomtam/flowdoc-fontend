@@ -1,4 +1,5 @@
-import type {PDFDocumentProxy, RenderTask} from 'pdfjs-dist';
+import type {PDFDocumentProxy} from 'pdfjs-dist';
+import {mountPdfPreview} from './import-pdf-preview';
 
 const MOCK_BASE_CREDITS = 100;
 const MOCK_INCLUDED_PAGES = 3;
@@ -78,32 +79,23 @@ export function setupPdfImportDialog() {
   const pageError = dialog.querySelector<HTMLElement>('#import-pdf-page-error')!;
   const pageCount = dialog.querySelector('#import-pdf-page-count')!;
   const credits = dialog.querySelector('#import-pdf-credits')!;
-  const previous = dialog.querySelector<HTMLButtonElement>('#import-pdf-prev')!;
-  const next = dialog.querySelector<HTMLButtonElement>('#import-pdf-next')!;
-  const previewPage = dialog.querySelector('#import-pdf-preview-page')!;
-  const preview = dialog.querySelector('#import-pdf-preview')!;
-  const paper = dialog.querySelector('#import-pdf-paper')!;
-  const previewStatus = dialog.querySelector('#import-pdf-preview-status')!;
-  const include = dialog.querySelector<HTMLInputElement>('#import-pdf-include')!;
+  const preview = dialog.querySelector<HTMLElement>('#import-pdf-preview')!;
+  const total = dialog.querySelector<HTMLElement>('#import-pdf-total')!;
+  const clear = dialog.querySelector<HTMLButtonElement>('#import-pdf-clear')!;
   const confirm = dialog.querySelector<HTMLButtonElement>('#import-pdf-confirm')!;
   let source: PDFDocumentProxy | undefined;
   let fileSession: AbortController | undefined;
-  let currentPage = 1;
-  let renderRevision = 0;
-  let renderTask: RenderTask | undefined;
+  let view: ReturnType<typeof mountPdfPreview> | undefined;
 
   function reset() {
-    renderRevision++;
-    renderTask?.cancel();
-    renderTask = undefined;
+    view?.dispose();
+    view = undefined;
     fileSession?.abort();
     fileSession = undefined;
     source = undefined;
-    currentPage = 1;
-    paper.replaceChildren();
-    previewStatus.textContent = '';
     status.textContent = '';
     quote.hidden = true;
+    total.hidden = true;
     confirm.disabled = true;
     pages.readOnly = false;
     dropZone.classList.remove('is-dragging');
@@ -117,8 +109,8 @@ export function setupPdfImportDialog() {
     pages.setAttribute('aria-invalid', String(ranges === null));
     pageError.hidden = ranges !== null;
     pageError.textContent = ranges === null ? 'ระบุเลขหน้าตั้งแต่ 1 ถึง ' + totalPages : '';
-    include.disabled = ranges === null || pages.readOnly;
-    include.checked = ranges?.some(({start, end}) => start <= currentPage && currentPage <= end) ?? false;
+    clear.disabled = pages.readOnly || pages.value === '';
+    view?.update(ranges ?? [], ranges === null || pages.readOnly);
     confirm.disabled = count === 0 || pages.readOnly;
     if (count === 0) {
       pageCount.textContent = ranges ? 'เลือกอย่างน้อย 1 หน้า' : '';
@@ -129,45 +121,6 @@ export function setupPdfImportDialog() {
     const price = MOCK_BASE_CREDITS + MOCK_EXTRA_PAGE_CREDITS * Math.max(0, count - MOCK_INCLUDED_PAGES);
     pageCount.textContent = 'อ่าน ' + count + ' จาก ' + totalPages + ' หน้า';
     credits.textContent = price.toLocaleString('th-TH') + ' เครดิต';
-  }
-
-  async function showPage(pageNumber: number) {
-    if (!source || pageNumber < 1 || pageNumber > source.numPages) return;
-    const revision = ++renderRevision;
-    renderTask?.cancel();
-    renderTask = undefined;
-    currentPage = pageNumber;
-    previous.disabled = pageNumber === 1;
-    next.disabled = pageNumber === source.numPages;
-    previewPage.textContent = 'หน้า ' + pageNumber + ' จาก ' + source.numPages;
-    updateQuote();
-    paper.replaceChildren();
-    preview.setAttribute('aria-busy', 'true');
-    previewStatus.textContent = 'กำลังเปิดตัวอย่าง…';
-
-    try {
-      const page = await source.getPage(pageNumber);
-      if (revision !== renderRevision) return;
-      const bounds = page.getViewport({scale: 1});
-      const viewport = page.getViewport({scale: Math.min(1150 / bounds.width, 1350 / bounds.height)});
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.ceil(viewport.width);
-      canvas.height = Math.ceil(viewport.height);
-      canvas.setAttribute('role', 'img');
-      canvas.setAttribute('aria-label', 'ตัวอย่าง PDF หน้า ' + pageNumber);
-      renderTask = page.render({canvas, viewport});
-      await renderTask.promise;
-      if (revision !== renderRevision) return;
-      paper.replaceChildren(canvas);
-      previewStatus.textContent = '';
-    } catch {
-      if (revision === renderRevision) previewStatus.textContent = 'เปิดตัวอย่างหน้านี้ไม่ได้';
-    } finally {
-      if (revision === renderRevision) {
-        preview.setAttribute('aria-busy', 'false');
-        renderTask = undefined;
-      }
-    }
   }
 
   async function selectFile(files: FileList | null | undefined) {
@@ -197,8 +150,10 @@ export function setupPdfImportDialog() {
       fileName.textContent = file.name;
       pages.value = count === 1 ? '1' : '1-' + count;
       quote.hidden = false;
+      total.hidden = false;
       status.textContent = '';
-      void showPage(1);
+      view = mountPdfPreview(preview, pdf, togglePage);
+      updateQuote();
     } catch (error) {
       if (controller.signal.aborted) return;
       controller.abort();
@@ -222,18 +177,20 @@ export function setupPdfImportDialog() {
     fileInput.value = '';
   });
   pages.addEventListener('input', updateQuote);
-  previous.addEventListener('click', () => { void showPage(currentPage - 1); });
-  next.addEventListener('click', () => { void showPage(currentPage + 1); });
-  include.addEventListener('change', () => {
-    if (!source) return;
-    const ranges = parseRanges(pages.value, source.numPages);
-    if (!ranges) return;
-    const selected = include.checked
-      ? mergeRanges([...ranges, {start: currentPage, end: currentPage}])
-      : removePage(ranges, currentPage);
-    pages.value = selected.map(({start, end}) => start === end ? String(start) : start + '-' + end).join(', ');
+  clear.addEventListener('click', () => {
+    pages.value = '';
     updateQuote();
   });
+  function togglePage(page: number, included: boolean) {
+    if (!source || pages.readOnly) return;
+    const ranges = parseRanges(pages.value, source.numPages);
+    if (!ranges) return;
+    const selected = included
+      ? mergeRanges([...ranges, {start: page, end: page}])
+      : removePage(ranges, page);
+    pages.value = selected.map(({start, end}) => start === end ? String(start) : start + '-' + end).join(', ');
+    updateQuote();
+  }
   confirm.addEventListener('click', () => {
     pages.readOnly = true;
     updateQuote();

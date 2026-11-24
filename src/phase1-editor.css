@@ -553,3 +553,7 @@ body:not(.library-paper):has(#editor)>.topbar{display:flex}
 #paper button.tag-slot:hover,#paper button.tag-slot:focus-visible{color:#155a49;background:#ddf2e9;cursor:pointer}
 #paper.show-guides .tag-slot.between-text{color:#25745b;background:#e5f3eb;border-radius:3px;width:1em}
 #paper.show-tag-values .tag-slot{display:none}
+.word-editor{width:min(42em,92vw);border:1px solid #a1b5aa;border-radius:8px;padding:16px}
+.word-editor h2{font-size:1rem;margin:0 0 8px}.word-editor footer{display:flex;justify-content:flex-end;gap:8px}
+.word-input .ProseMirror{white-space:pre-wrap;min-height:3em;padding:8px;border:1px solid #9caea5;margin:8px 0}
+.word-input p{margin:0}.word-field{background:#e4f3e9;color:#14563e;border-radius:3px}.word-editor [aria-pressed=true],.word-field.ProseMirror-selectednode{outline:2px solid #236da2}

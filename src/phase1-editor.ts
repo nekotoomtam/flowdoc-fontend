@@ -289,9 +289,24 @@ function insertAt(item:Outline,offset:number){
     stage({kind:'insert-tag',at:item.ref,offset,scope,key});
   });
 }
+function editableParagraph(item?:Outline){
+  const parent=item?.inline?item.parent:item;
+  if(parent?.type==='text-block'&&!parent.ref.band&&parent.node?.props?.heightMode!=='fixed'&&parent.node?.children?.every(p=>['text','line-break','field-ref'].includes(p.type)&&!p.textStyleId))return parent;
+}
+async function openWordParagraph(item:Outline){
+  if(!creationMode()||draft.readOnly||isSaving||hasConflict)return;
+  const parent=editableParagraph(item);
+  if(!parent)return;
+  const {editParagraph}=await import('./editor-word-paragraph');
+  const fields=variableScopes(parent).flatMap(s=>Object.entries(s.schema.fields).filter(([,f])=>['string','number'].includes(f.type)).map(([key])=>({key,scope:s.scope})));
+  const style=draft.definition.styles[parent.node!.props?.textStyleId??''] as {fontSize?:Length;fontWeight?:string;font?:{weight:number}}|undefined;
+  editParagraph(parent.node!.children!,fields,(style?.font?.weight??0)>=700||style?.fontWeight==='bold',style?.fontSize?lengthInPoints(style.fontSize):16,children=>stage({kind:'paragraph-parts',at:parent.ref,parts:children}));
+}
+q('word-open').onclick=()=>{if(selection)void openWordParagraph(selection);};
 function updateTagTools(item:Outline){
   q('tag-tools').hidden=!creationMode()||!!draft.readOnly;
   const editable=!isSaving&&!hasConflict&&!draft.readOnly;
+  q<HTMLButtonElement>('word-open').disabled=!editable||!editableParagraph(item);
   const field=item.inline;
   const styled=editable&&field?.type==='field-ref'&&!field.textStyleId&&!item.ref.band&&item.parent?.node?.props?.heightMode!=='fixed'&&item.parent?.node?.children?.every(c=>['text','field-ref','line-break'].includes(c.type));
   const base=draft.definition.styles[item.parent?.node?.props?.textStyleId??''] as {font?:{weight:number};fontWeight?:string;fontSize?:Length}|undefined;
@@ -337,7 +352,7 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
     const control=button(label,()=>{if(item.ref.band)paperNodes.set(item,control);select(item,false);});control.className=className;
     control.dataset.paperRef=refKey(item.ref);
     control.dataset.kind=item.type;
-    if(item.inline?.type==='text')control.addEventListener('dblclick',()=>openInlineEditor(item));
+    if(item.inline?.type==='text')control.addEventListener('dblclick',()=>{if(creationMode()&&editableParagraph(item))void openWordParagraph(item);else openInlineEditor(item);});
     if(registerControl)paperNodes.set(item,control);
     return control;
   };

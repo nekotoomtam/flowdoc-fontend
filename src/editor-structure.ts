@@ -35,6 +35,7 @@ export type Ref = {sectionId:string;formatId?:string;band?:'header'|'footer';nod
 export type Change = {kind:'section';label:string} | {kind:'area';at:Ref;key:string;format:string}
   | {kind:'format';at:Ref;key:string} | {kind:'node';at:Ref;type:string;source?:{scope:string;key:string};pageField?:'current'|'total';position?:{anchor:string;side:'before'|'after'}}
   | {kind:'tag-style';at:Ref;style:InlineStyle} | {kind:'remove-tag';at:Ref}
+  | {kind:'paragraph-parts';at:Ref;parts:Inline[]}
   | {kind:'inline-text';at:Ref;text:string}
   | {kind:'column-boundary';at:Ref;left:number;fraction:number}
   | {kind:'layout-column';at:Ref;action:'add-before'|'add-after'|'remove'|'weight';weight?:number}
@@ -617,6 +618,10 @@ export function applyStructureChange(source:Definition,change:Change):{definitio
       else delete field.styleOverride;
       selection=change.at;
     }
+  }else if(change.kind==='paragraph-parts'){
+    const {node}=resolve(def,change.at);
+    if(node?.type!=='text-block')return fail('เลือกย่อหน้าก่อน');
+    node.children=change.parts;selection=change.at;
   }else if(change.kind==='inline-text'){
     const {node}=resolve(def,change.at);
     const index=node?.children?.findIndex((inline,i)=>'inline:'+(inline.id??i)===change.at.part)??-1;

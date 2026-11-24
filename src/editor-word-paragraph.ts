@@ -10,7 +10,7 @@ const schema=new Schema({
   nodes:{
     doc:{content:'paragraph'}, paragraph:{content:'inline*',toDOM:()=>['p',0]},
     text:{group:'inline'},
-    field:{inline:true,group:'inline',atom:true,attrs:{part:{}},toDOM:n=>['span',{class:'word-field',contenteditable:'false'},'{{'+n.attrs.part.key+'}}']},
+    field:{inline:true,group:'inline',atom:true,attrs:{part:{}},toDOM:n=>['span',{class:'word-field','data-field-id':n.attrs.part.id,contenteditable:'false'},'{{'+n.attrs.part.key+'}}']},
     br:{inline:true,group:'inline',selectable:false,attrs:{id:{default:null}},toDOM:()=>['br']},
   },
   marks:{format:{attrs:{id:{default:null},style:{default:null},originalField:{default:null}},toDOM:mark=>{
@@ -104,7 +104,18 @@ export function mountWordParagraph(editor:HTMLElement,bold:HTMLButtonElement,siz
   size.onchange=()=>{if(size.value&&size.reportValidity())setStyle({fontSizePt:size.valueAsNumber});};
   size.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();size.blur();view.focus();}};
   sync();
-  return {view,sync,changed:()=>!view.state.doc.eq(state.doc),parts:()=>{
+  function selectField(id:string){
+    let found=false;
+    view.state.doc.firstChild!.forEach((node,offset)=>{
+      if(node.type===schema.nodes.field&&node.attrs.part.id===id){
+        view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc,offset+1)));
+        found=true;
+      }
+    });
+    if(found)view.focus();
+    return found;
+  }
+  return {view,sync,selectField,changed:()=>!view.state.doc.eq(state.doc),parts:()=>{
       const seen=new Set<string>(),result:Inline[]=[];
       view.state.doc.firstChild!.forEach(n=>{
         const a=format.isInSet(n.marks)?.attrs;

@@ -1,3 +1,4 @@
+import {mountWordParagraph} from './editor-word-paragraph';
 import './phase1-editor.css';
 import {mountColumnEdges} from './editor-column-edges';
 import {treeIcon} from './editor-tree-icon';
@@ -293,6 +294,46 @@ function insertAt(item:Outline,offset:number){
     stage({kind:'insert-tag',at:item.ref,offset,scope,key});
   });
 }
+// The integrated trial is limited to an authored document with one flowing paragraph.
+const treePaperTrial=new URLSearchParams(location.search).get('trial')==='tree-paper';
+let liveLine:ReturnType<typeof mountWordParagraph>|undefined;
+let liveRef:Ref|undefined;
+let liveParts:Inline[]|undefined;
+function renderTreePaper(root:Outline|undefined){
+  if(!treePaperTrial||!root||draft.readOnly||roots.length!==1||root.children.length!==1)return false;
+  const item=root.children[0];
+  if(!editableParagraph(item))return false;
+  const parts=item.node!.children!;
+  q('word-open').hidden=q('tag-view').hidden=q('insert-at').hidden=true;
+  if(!liveLine||liveParts!==parts){
+    liveLine?.view.destroy();
+    const sheet=drawSectionPaper(root);
+    paper.replaceChildren(sheet);
+    const marker=paperNodes.get(item)!;
+    const block=marker.closest<HTMLElement>('.definition-text')!;
+    const host=element('div');host.className='word-input tree-paper-line';block.replaceChildren(host);
+    liveRef=item.ref;liveParts=parts;
+    const style=draft.definition.styles[item.node!.props!.textStyleId!] as {fontSize:Length;font:{weight:number}};
+    const fields=variableScopes(item).flatMap(s=>Object.entries(s.schema.fields).filter(([,f])=>['number','string'].includes(f.type)).map(([key])=>({key,scope:s.scope})));
+    liveLine=mountWordParagraph(host,q<HTMLButtonElement>('tag-bold'),tagSize,parts,fields,style.font.weight>=700,lengthInPoints(style.fontSize),()=>{
+      const updated=liveLine!.parts();
+      const result=applyStructureChange(draft.definition,{kind:'paragraph-parts',at:liveRef!,parts:updated});
+      liveParts=updated;
+      stageDefinition(result.definition,liveRef!,'paragraph-parts');
+    });
+    host.addEventListener('focusin',()=>{
+      const current=outlines.get(refKey(liveRef!));
+      if(current&&selection!==current&&selection?.parent!==current)select(current,false);
+    });
+  }
+  paperNodes.set(item,liveLine.view.dom);
+  for(const part of item.children){
+    if(part.type!=='field-ref')continue;
+    const chip=liveLine.view.dom.querySelector<HTMLElement>('[data-field-id="'+CSS.escape(part.inline!.id!)+'"]');
+    if(chip)paperNodes.set(part,chip);
+  }
+  return true;
+}
 function editableParagraph(item?:Outline){
   const parent=item?.inline?item.parent:item;
   if(parent?.type==='text-block'&&!parent.ref.band&&parent.node?.props?.heightMode!=='fixed'&&parent.node?.children?.every(p=>['text','line-break','field-ref'].includes(p.type)&&!p.textStyleId))return parent;
@@ -317,6 +358,9 @@ function updateTagTools(item:Outline){
   const bold=q<HTMLButtonElement>('tag-bold'),size=q<HTMLInputElement>('tag-size');
   bold.disabled=size.disabled=!styled;
   bold.setAttribute('aria-pressed',String(!!styled&&(field?.styleOverride?.bold??((base?.font?.weight??0)>=700||base?.fontWeight==='bold'))));
+  if(liveLine&&liveRef&&(item.ref.nodeId===liveRef.nodeId)){
+    bold.disabled=size.disabled=!editable;liveLine.sync();q<HTMLButtonElement>('insert-at').disabled=true;return;
+  }
   size.value=styled?String(field?.styleOverride?.fontSizePt??(base?.fontSize?lengthInPoints(base.fontSize):'')):'';
   q<HTMLButtonElement>('insert-at').disabled=!editable||caret?.item!==item;
 }
@@ -744,6 +788,7 @@ function focusPaper(item:Outline){
   select(item,true);
   const target=paperNodes.get(item);
   if(!target)return;
+  if(liveLine&&item.type==='field-ref'&&item.ref.nodeId===liveRef?.nodeId&&liveLine.selectField(item.inline!.id!)){target.scrollIntoView({block:'nearest'});return;}
   target.focus({preventScroll:true});
   scrollWithin(paper.parentElement!,target);
   const bounds=target.getBoundingClientRect();
@@ -893,6 +938,7 @@ function updateDraftHeader(){
 }
 function refreshButtons(){
   const dirty=isDirty();
+  if(liveLine)liveLine.view.setProps({editable:()=>!isSaving&&!hasConflict&&!draft.readOnly});
   updateDraftHeader();
   q('structure-pending').hidden=!dirty;
   if(dirty)window.addEventListener('beforeunload',confirmNavigation);
@@ -937,12 +983,14 @@ function showDraft(data: Draft, keep?: Ref) {
   const viewport=paper.parentElement!,paperScroll=viewport.scrollTop;
   for(const [root] of sectionSheets)if(!roots.includes(root))sectionSheets.delete(root);
   for(const [item] of paperNodes)if(outlines.get(refKey(item.ref))!==item)paperNodes.delete(item);
-  const sheets=roots.map(root=>{
-    let sheet=sectionSheets.get(root);
-    if(!sheet){sheet=drawSectionPaper(root,root.section===selected.section?selected.format:undefined);sectionSheets.set(root,sheet);}
-    return sheet;
-  });
-  paper.replaceChildren(...sheets);viewport.scrollTop=paperScroll;
+  if(!renderTreePaper(roots[0])){
+    const sheets=roots.map(root=>{
+      let sheet=sectionSheets.get(root);
+      if(!sheet){sheet=drawSectionPaper(root,root.section===selected.section?selected.format:undefined);sectionSheets.set(root,sheet);}
+      return sheet;
+    });
+    paper.replaceChildren(...sheets);viewport.scrollTop=paperScroll;
+  }
   drawDefinitionVariables();
   select(selected,false);
   refreshButtons();

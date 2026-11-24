@@ -314,7 +314,7 @@ tagSize.onchange=()=>{
 };
 tagSize.onkeydown=event=>{if(event.key==='Enter')tagSize.blur();};
 q('tag-view').onclick=()=>{
-  sampleView=!sampleView;q('tag-view').setAttribute('aria-pressed',String(sampleView));
+  sampleView=!sampleView;paper.classList.toggle('show-tag-values',sampleView);q('tag-view').setAttribute('aria-pressed',String(sampleView));
   q('tag-view').textContent=sampleView?'กลับไปดูชื่อแท็ก':'ค่าตัวอย่าง';
   for(const control of paper.querySelectorAll<HTMLElement>('.definition-token[data-paper-ref]')){
     const item=outlines.get(control.dataset.paperRef!);if(item)control.textContent=tagLabel(item);
@@ -440,7 +440,7 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
         const previous=item.children[index-1];
         if(previous&&creationMode()&&!draft.readOnly&&previous.type!=='line-break'&&part.type!=='line-break'){
           const slot=button('+',()=>insertAt(previous,previous.inline?.text?.length??0));
-          slot.className='tag-slot';slot.title='แทรกตัวแปรตรงนี้';slot.setAttribute('aria-label',slot.title);
+          slot.className=previous.type==='text'&&part.type==='text'?'tag-slot between-text':'tag-slot';slot.title='แทรกตัวแปรตรงนี้';slot.setAttribute('aria-label',slot.title);
           block.append(slot);
         }
         if(part.type==='line-break')block.append(choose(part,'↵','definition-inline'),element('br'));

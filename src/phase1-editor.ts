@@ -272,6 +272,7 @@ function drawBranch(items: Outline[], depth = 0) {
   return list;
 }
 const paperSizes:Record<string,[number,number]>={A4:[595.276,841.89],A3:[841.89,1190.551],Letter:[612,792],Legal:[612,1008]};
+const tagSamples=new Map<string,string>();
 function drawSectionPaper(root: Outline, preferred?: Format) {
   const sheet=element('div');sheet.className='definition-sheet';sheet.dataset.sectionId=root.id;
   const background=sectionBackgroundImage(root.section.id);
@@ -390,7 +391,19 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
       if(props?.textAlign)block.style.textAlign=props.textAlign;
       for(const part of item.children){
         if(part.type==='line-break')block.append(choose(part,'↵','definition-inline'),element('br'));
-        else block.append(choose(part,part.label,'definition-inline'+(part.type==='field-ref'?' definition-token':'')));
+        else {
+          const tag=part.type==='field-ref';
+          const sample=tag?tagSamples.get(refKey(part.ref)):undefined;
+          const control=choose(part,sample??part.label,'definition-inline'+(tag?' definition-token':''));
+          if(tag)control.title=part.label;
+          const style=part.inline?.styleOverride;
+          if(style?.bold!==undefined)control.style.fontWeight=style.bold?'bold':'normal';
+          if(style?.italic!==undefined)control.style.fontStyle=style.italic?'italic':'normal';
+          if(style?.underline!==undefined)control.style.textDecoration=style.underline?'underline':'none';
+          if(style?.fontSizePt)control.style.fontSize=unit(style.fontSizePt);
+          if(style?.color)control.style.color='#'+style.color;
+          block.append(control);
+        }
       }
     }else if(item.type==='image'){
       const image=choose(item,props?.source?'ภาพ · {{'+props.source.key+'}}':'ภาพ','definition-image');
@@ -1518,6 +1531,30 @@ function showActions(item:Outline){
   }
   if(item.inline?.type==='field-ref'&&creationMode()){
     add('เปลี่ยนตัวแปรที่ผูก',()=>askBinding(item));
+    const field=item.inline, current=field.styleOverride??{};
+    const allowed=!item.ref.band&&!field.textStyleId&&item.parent?.node?.props?.heightMode!=='fixed'&&item.parent?.node?.children?.every(c=>['text','field-ref','line-break'].includes(c.type));
+    if(allowed)add('รูปแบบแท็ก',()=>ask('รูปแบบแท็ก '+field.key,[
+      {key:'weight',label:'น้ำหนัก',options:[['inherit','ตามย่อหน้า'],['bold','หนา'],['normal','ปกติ']],value:current.bold===undefined?'inherit':current.bold?'bold':'normal'},
+      {key:'size',label:'ขนาด (pt) · เว้นว่างเพื่อตามย่อหน้า',numeric:true,value:String(current.fontSizePt??'')}
+    ],v=>{
+      const style={...current};
+      if(v.weight==='inherit')delete style.bold;else style.bold=v.weight==='bold';
+      if(v.size)style.fontSizePt=Number(v.size);else delete style.fontSizePt;
+      stage({kind:'tag-style',at:item.ref,style});
+    },undefined,controls=>{controls.get('size')!.required=false;}));
+    const sampleKey=refKey(item.ref);
+    const toggleSample=(value?:string)=>{
+      if(value===undefined)tagSamples.delete(sampleKey);else tagSamples.set(sampleKey,value);
+      const control=paperNodes.get(item);
+      if(control)control.textContent=value??item.label;
+      select(item,false);
+    };
+    if(tagSamples.has(sampleKey))add('ดูชื่อแท็ก',()=>toggleSample());
+    else add('ดูค่าตัวอย่าง',()=>{
+      const fieldDefault=variableScopes(item).find(s=>s.scope===field.scope)?.schema.fields[field.key!]?.default;
+      ask('ค่าตัวอย่างของ '+field.key,[{key:'value',label:'แสดงบนกระดาษ',value:String(fieldDefault??'')}],v=>toggleSample(v.value),'ใช้ดูในรอบนี้เท่านั้น');
+    });
+    add('ลบแท็กนี้',()=>stage({kind:'remove-tag',at:item.ref}),'more');
     addInlineContentEditor();
     finish();return;
   }

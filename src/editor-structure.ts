@@ -1,6 +1,7 @@
 export type Field = {type:string; label?:string; default?:unknown; allowEmpty?:boolean; items?:Schema; areaId?:string; required?:boolean; computed?:{inputs:{quantity:string;unit:string}}; formula?:{operation:"sum";source:{areaId:string;formatKey:string;arrayField:string;valueField:string};lookup?:{arrayField:string;keyField:string;valueField:string}}};
 export type Schema = {type?:'object'; fields:Record<string,Field>};
-export type Inline = {id?:string; type:string; text?:string; key?:string; scope?:string; field?:string;value?:unknown;target?:unknown;url?:unknown};
+export type InlineStyle = {bold?:boolean;italic?:boolean;underline?:boolean;fontSizePt?:number;color?:string};
+export type Inline = {id?:string; type:string; textStyleId?:string;styleOverride?:InlineStyle;text?:string; key?:string; scope?:string; field?:string;value?:unknown;target?:unknown;url?:unknown};
 export type Length = {unit:'pt'|'mm';value:number};
 export const paddingSides=['top','right','bottom','left'] as const;
 type CellPadding=Partial<Record<typeof paddingSides[number],Length>>;
@@ -33,6 +34,7 @@ export type Definition = {nodeModelVersion:number;book:{defaultPageLayoutId:stri
 export type Ref = {sectionId:string;formatId?:string;band?:'header'|'footer';nodeId?:string;part?:string};
 export type Change = {kind:'section';label:string} | {kind:'area';at:Ref;key:string;format:string}
   | {kind:'format';at:Ref;key:string} | {kind:'node';at:Ref;type:string;source?:{scope:string;key:string};pageField?:'current'|'total';position?:{anchor:string;side:'before'|'after'}}
+  | {kind:'tag-style';at:Ref;style:InlineStyle} | {kind:'remove-tag';at:Ref}
   | {kind:'inline-text';at:Ref;text:string}
   | {kind:'column-boundary';at:Ref;left:number;fraction:number}
   | {kind:'layout-column';at:Ref;action:'add-before'|'add-after'|'remove'|'weight';weight?:number}
@@ -599,6 +601,21 @@ export function applyStructureChange(source:Definition,change:Change):{definitio
     props.padding={...props.padding,...change.padding};
     ensureCellContentWidth(table,fragment);
     selection=change.at;
+  }else if(change.kind==='tag-style'||change.kind==='remove-tag'){
+    const {node}=resolve(def,change.at);
+    const index=node?.children?.findIndex((part,i)=>'inline:'+(part.id??i)===change.at.part)??-1;
+    const field=node?.children?.[index];
+    if(!node?.children||field?.type!=='field-ref')return fail('เลือกแท็กตัวแปรก่อน');
+    if(change.kind==='remove-tag'){
+      node.children.splice(index,1);
+      selection={...change.at,part:undefined};
+    }else{
+      if(field.textStyleId||change.at.band)return fail('แท็กนี้ใช้รูปแบบที่กำหนดไว้แล้ว');
+      if(change.style.fontSizePt!==undefined&&(!Number.isFinite(change.style.fontSizePt)||change.style.fontSizePt<=0))return fail('ขนาดต้องมากกว่า 0');
+      if(Object.keys(change.style).length)field.styleOverride={...change.style};
+      else delete field.styleOverride;
+      selection=change.at;
+    }
   }else if(change.kind==='inline-text'){
     const {node}=resolve(def,change.at);
     const index=node?.children?.findIndex((inline,i)=>'inline:'+(inline.id??i)===change.at.part)??-1;

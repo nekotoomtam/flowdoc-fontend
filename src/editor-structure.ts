@@ -47,6 +47,7 @@ export type Change = {kind:'section';label:string} | {kind:'area';at:Ref;key:str
   | {kind:'column-width';at:Ref;column:number;length:Length}
   | {kind:'cell-padding';at:Ref;padding:CellPadding}
   | {kind:'band-item-pages';at:Ref;mode:'all'|'first'}
+  | {kind:'insert-tag';at:Ref;offset:number;scope:string;key:string}
   | {kind:'binding';at:Ref;scope:string;key:string}
   | {kind:'group';at:Ref;scope:'global'|'section'|'local';key:string;member:string}
   | {kind:'merge'|'split';at:Ref}
@@ -633,6 +634,20 @@ export function applyStructureChange(source:Definition,change:Change):{definitio
     if(change.mode==='first')first.push(node.id);
     setBandFirstPageItems(band,first);
     selection=change.at;
+  }else if(change.kind==='insert-tag'){
+    const {node}=resolve(def,change.at);
+    const parts=node?.children;
+    const i=parts?.findIndex((part,index)=>'inline:'+(part.id??index)===change.at.part)??-1;
+    if(!parts||i<0)return fail('เลือกตำแหน่งแทรกอีกครั้ง');
+    const source=parts[i],text=source.text??'',offset=change.offset;
+    const tag={id:uid(),type:'field-ref',scope:change.scope,key:change.key};
+    if(source.type!=='text'||offset===text.length)parts.splice(i+1,0,tag);
+    else if(offset===0)parts.splice(i,0,tag);
+    else {
+      if(![...new Intl.Segmenter('th',{granularity:'grapheme'}).segment(text)].some(g=>g.index===offset))return fail('เลือกตำแหน่งระหว่างอักษร');
+      parts.splice(i,1,{...source,text:text.slice(0,offset)},tag,{...source,id:uid(),text:text.slice(offset)});
+    }
+    selection={...change.at,part:'inline:'+tag.id};
   }else if(change.kind==='binding'){
     const {node}=resolve(def,change.at);
     if(node?.type!=='text-block'||!node.children)return fail('เลือกข้อความที่จะผูกตัวแปร');

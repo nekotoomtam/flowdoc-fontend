@@ -37,6 +37,12 @@
     <section class="panel" aria-label="Tree โครงสร้าง"><h2>โครงสร้างเอกสาร</h2><div class="structure-tools"><button id="add-section" type="button">+ เพิ่ม Section</button></div><div id="tree"></div></section>
     <section class="panel workspace" aria-label="กระดาษนิยาม"><div class="paper-toolbar"><div><h2>กระดาษนิยาม</h2></div><div class="paper-controls"><button id="zoom-fit" type="button" aria-pressed="false">พอดีหน้า</button><button id="zoom-width" type="button" aria-pressed="false" title="ขยายกระดาษให้เต็มความกว้างของพื้นที่แก้โครง">พอดีกว้าง</button><button id="zoom-out" type="button" aria-label="ย่อกระดาษ">−</button><span id="paper-zoom" title="Ctrl + ล้อเมาส์เพื่อซูมกระดาษ">75%</span><button id="zoom-in" type="button" aria-label="ขยายกระดาษ">+</button><button id="zoom-selection" type="button" disabled>ขยายจุดที่เลือก</button><button id="show-guides" type="button" aria-pressed="true">เส้นช่วยดูโครง</button><details class="paper-view-options"><summary>มุมมอง</summary><div class="paper-view-menu"><button id="show-handles" type="button" aria-pressed="false">แสดงจุดเลือก</button><p id="paper-zoom-help">Ctrl + ล้อเมาส์ ซูมตรงจุดที่ชี้<br>เมื่อโฟกัสกระดาษ Ctrl +/− ซูม · Ctrl 0 กลับ 100%</p><p id="guide-legend"><i class="legend-grid" aria-hidden="true"></i> ตาราง <i class="legend-spacing" aria-hidden="true"></i> ระยะเว้น</p></div></details></div></div>
 
+      <div id="tag-tools" class="tag-tools" role="group" aria-label="เครื่องมือข้อความ" hidden>
+        <button id="insert-at" type="button" disabled>แทรกตัวแปร</button>
+        <button id="tag-bold" type="button" aria-label="ตัวหนา" aria-pressed="false" disabled><b>B</b></button>
+        <label>ขนาด <input id="tag-size" type="number" min="0.5" max="819" step="0.5" aria-label="ขนาดแท็ก" disabled> pt</label>
+        <button id="tag-view" type="button" aria-pressed="false">ค่าตัวอย่าง</button>
+      </div>
       <div class="definition-viewport" tabindex="0" role="region" aria-label="พื้นที่กระดาษแก้โครง" aria-describedby="paper-zoom-help"><article id="paper" class="show-guides"></article></div></section>
     <aside class="selection-inspector" aria-label="รายละเอียดชิ้นที่เลือก">
       <div id="paper-edit-tools" class="paper-edit-tools" role="group" aria-label="แก้ไขบนกระดาษ">

@@ -272,7 +272,54 @@ function drawBranch(items: Outline[], depth = 0) {
   return list;
 }
 const paperSizes:Record<string,[number,number]>={A4:[595.276,841.89],A3:[841.89,1190.551],Letter:[612,792],Legal:[612,1008]};
-const tagSamples=new Map<string,string>();
+let sampleView=false;
+let caret:{item:Outline;offset:number}|undefined;
+function tagLabel(part:Outline){
+  if(!sampleView)return part.label;
+  const field=part.inline!;
+  const value=variableScopes(part).find(s=>s.scope===field.scope)?.schema.fields[field.key!]?.default;
+  return value===undefined||value===null?'ไม่มีค่าตัวอย่าง':String(value);
+}
+function insertAt(item:Outline,offset:number){
+  const options=variableScopes(item).flatMap(s=>Object.entries(s.schema.fields)
+    .filter(([,f])=>['number','string'].includes(f.type)).map(([key])=>[JSON.stringify([s.scope,key]),s.label+' › '+key] as [string,string]));
+  if(!options.length){status.textContent='ประกาศตัวแปรในขอบเขตนี้ก่อน';return;}
+  ask('แทรกตัวแปร',[{key:'field',label:'ตัวแปร',options}],v=>{
+    const [scope,key]=JSON.parse(v.field);
+    stage({kind:'insert-tag',at:item.ref,offset,scope,key});
+  });
+}
+function updateTagTools(item:Outline){
+  q('tag-tools').hidden=!creationMode()||!!draft.readOnly;
+  const editable=!isSaving&&!hasConflict&&!draft.readOnly;
+  const field=item.inline;
+  const styled=editable&&field?.type==='field-ref'&&!field.textStyleId&&!item.ref.band&&item.parent?.node?.props?.heightMode!=='fixed'&&item.parent?.node?.children?.every(c=>['text','field-ref','line-break'].includes(c.type));
+  const base=draft.definition.styles[item.parent?.node?.props?.textStyleId??''] as {font?:{weight:number};fontWeight?:string;fontSize?:Length}|undefined;
+  const bold=q<HTMLButtonElement>('tag-bold'),size=q<HTMLInputElement>('tag-size');
+  bold.disabled=size.disabled=!styled;
+  bold.setAttribute('aria-pressed',String(!!styled&&(field?.styleOverride?.bold??((base?.font?.weight??0)>=700||base?.fontWeight==='bold'))));
+  size.value=styled?String(field?.styleOverride?.fontSizePt??(base?.fontSize?lengthInPoints(base.fontSize):'')):'';
+  q<HTMLButtonElement>('insert-at').disabled=!editable||caret?.item!==item;
+}
+q('insert-at').onclick=()=>{if(caret)insertAt(caret.item,caret.offset);};
+q('tag-bold').onclick=()=>{
+  if(selection)stage({kind:'tag-style',at:selection.ref,style:{...selection.inline?.styleOverride,bold:q('tag-bold').getAttribute('aria-pressed')!=='true'}});
+};
+const tagSize=q<HTMLInputElement>('tag-size');
+tagSize.onchange=()=>{
+  if(!selection||!tagSize.reportValidity())return;
+  const style={...selection.inline?.styleOverride};
+  if(tagSize.value)style.fontSizePt=tagSize.valueAsNumber;else delete style.fontSizePt;
+  stage({kind:'tag-style',at:selection.ref,style});
+};
+tagSize.onkeydown=event=>{if(event.key==='Enter')tagSize.blur();};
+q('tag-view').onclick=()=>{
+  sampleView=!sampleView;q('tag-view').setAttribute('aria-pressed',String(sampleView));
+  q('tag-view').textContent=sampleView?'กลับไปดูชื่อแท็ก':'ค่าตัวอย่าง';
+  for(const control of paper.querySelectorAll<HTMLElement>('.definition-token[data-paper-ref]')){
+    const item=outlines.get(control.dataset.paperRef!);if(item)control.textContent=tagLabel(item);
+  }
+};
 function drawSectionPaper(root: Outline, preferred?: Format) {
   const sheet=element('div');sheet.className='definition-sheet';sheet.dataset.sectionId=root.id;
   const background=sectionBackgroundImage(root.section.id);
@@ -389,13 +436,28 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
         }
       }
       if(props?.textAlign)block.style.textAlign=props.textAlign;
-      for(const part of item.children){
+      for(const [index,part] of item.children.entries()){
+        const previous=item.children[index-1];
+        if(previous&&creationMode()&&!draft.readOnly&&previous.type!=='line-break'&&part.type!=='line-break'){
+          const slot=button('+',()=>insertAt(previous,previous.inline?.text?.length??0));
+          slot.className='tag-slot';slot.title='แทรกตัวแปรตรงนี้';slot.setAttribute('aria-label',slot.title);
+          block.append(slot);
+        }
         if(part.type==='line-break')block.append(choose(part,'↵','definition-inline'),element('br'));
         else {
           const tag=part.type==='field-ref';
-          const sample=tag?tagSamples.get(refKey(part.ref)):undefined;
+          const sample=tag?tagLabel(part):undefined;
           const control=choose(part,sample??part.label,'definition-inline'+(tag?' definition-token':''));
           if(tag)control.title=part.label;
+          if(part.type==='text')control.addEventListener('click',event=>{
+            const doc=document as Document & {caretRangeFromPoint?:(x:number,y:number)=>Range|null};
+            const range=doc.caretRangeFromPoint?.(event.clientX,event.clientY);
+            const text=part.inline?.text??'';
+            const hit=range&&control.contains(range.startContainer)&&range.startContainer.nodeType===Node.TEXT_NODE?range.startOffset:text.length;
+            const ends=[0,...Array.from(new Intl.Segmenter('th',{granularity:'grapheme'}).segment(text),g=>g.index+g.segment.length)];
+            caret={item:part,offset:ends.reduce((a,b)=>Math.abs(a-hit)<=Math.abs(b-hit)?a:b)};
+            updateTagTools(part);
+          });
           const style=part.inline?.styleOverride;
           if(style?.bold!==undefined)control.style.fontWeight=style.bold?'bold':'normal';
           if(style?.italic!==undefined)control.style.fontStyle=style.italic?'italic':'normal';
@@ -1426,6 +1488,8 @@ function showPaperLocation(item:Outline){
   order.append(controls);
 }
 function showActions(item:Outline){
+  if(caret?.item!==item)caret=undefined;
+  updateTagTools(item);
   const actions=q('actions'),paperActions=q('paper-actions');
   actions.replaceChildren();paperActions.replaceChildren();
   showPaperLocation(item);
@@ -1531,29 +1595,6 @@ function showActions(item:Outline){
   }
   if(item.inline?.type==='field-ref'&&creationMode()){
     add('เปลี่ยนตัวแปรที่ผูก',()=>askBinding(item));
-    const field=item.inline, current=field.styleOverride??{};
-    const allowed=!item.ref.band&&!field.textStyleId&&item.parent?.node?.props?.heightMode!=='fixed'&&item.parent?.node?.children?.every(c=>['text','field-ref','line-break'].includes(c.type));
-    if(allowed)add('รูปแบบแท็ก',()=>ask('รูปแบบแท็ก '+field.key,[
-      {key:'weight',label:'น้ำหนัก',options:[['inherit','ตามย่อหน้า'],['bold','หนา'],['normal','ปกติ']],value:current.bold===undefined?'inherit':current.bold?'bold':'normal'},
-      {key:'size',label:'ขนาด (pt) · เว้นว่างเพื่อตามย่อหน้า',numeric:true,value:String(current.fontSizePt??'')}
-    ],v=>{
-      const style={...current};
-      if(v.weight==='inherit')delete style.bold;else style.bold=v.weight==='bold';
-      if(v.size)style.fontSizePt=Number(v.size);else delete style.fontSizePt;
-      stage({kind:'tag-style',at:item.ref,style});
-    },undefined,controls=>{controls.get('size')!.required=false;}));
-    const sampleKey=refKey(item.ref);
-    const toggleSample=(value?:string)=>{
-      if(value===undefined)tagSamples.delete(sampleKey);else tagSamples.set(sampleKey,value);
-      const control=paperNodes.get(item);
-      if(control)control.textContent=value??item.label;
-      select(item,false);
-    };
-    if(tagSamples.has(sampleKey))add('ดูชื่อแท็ก',()=>toggleSample());
-    else add('ดูค่าตัวอย่าง',()=>{
-      const fieldDefault=variableScopes(item).find(s=>s.scope===field.scope)?.schema.fields[field.key!]?.default;
-      ask('ค่าตัวอย่างของ '+field.key,[{key:'value',label:'แสดงบนกระดาษ',value:String(fieldDefault??'')}],v=>toggleSample(v.value),'ใช้ดูในรอบนี้เท่านั้น');
-    });
     add('ลบแท็กนี้',()=>stage({kind:'remove-tag',at:item.ref}),'more');
     addInlineContentEditor();
     finish();return;

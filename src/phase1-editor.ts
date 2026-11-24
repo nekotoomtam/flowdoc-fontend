@@ -222,6 +222,9 @@ function outline(section: Section): Outline {
   if(section.footer)root.children.push(makeBand(section.footer,'footer','ท้ายกระดาษ'));
   return root;
 }
+function treeItem(item:Outline):Outline {
+  return item.inline&&item.parent?.type==='text-block'&&item.inline.type!=='field-ref' ? item.parent : item;
+}
 function drawBranch(items: Outline[], depth = 0) {
   const list = element('ul');
   list.className='tree';
@@ -245,25 +248,26 @@ function drawBranch(items: Outline[], depth = 0) {
     itemButton.dataset.ref=refKey(item.ref);
     treeNodes.set(item,itemButton);
 
+    const children=item.type==='text-block'?item.children.filter(child=>treeItem(child)===child):item.children;
     const toggle=button('▸',()=>{
-      if (!branch) branch=li.appendChild(drawBranch(item.children,depth+1));
+      if (!branch) branch=li.appendChild(drawBranch(children,depth+1));
       branch.hidden=toggle.getAttribute('aria-expanded')==='true';
       toggle.setAttribute('aria-expanded',String(!branch.hidden));
       expanded.set(refKey(item.ref),!branch.hidden);
       toggle.textContent=branch.hidden?'▸':'▾';
-      if(selection)treeNodes.get(selection)?.setAttribute('aria-current','true');
+      if(selection)treeNodes.get(treeItem(selection))?.setAttribute('aria-current','true');
     });
     toggle.className='toggle';
     toggle.setAttribute('aria-label','ขยายหรือยุบ '+item.label);
-    const open=item.children.length>0&&(expanded.get(refKey(item.ref))??(depth<2&&(item.type!=='area'||item.children.length<=4)));
+    const open=children.length>0&&(expanded.get(refKey(item.ref))??(depth<2&&item.type!=='text-block'&&(item.type!=='area'||children.length<=4)));
     toggle.setAttribute('aria-expanded',String(open));
-    toggle.hidden=!item.children.length;
+    toggle.hidden=!children.length;
     row.append(toggle,itemButton);
-    if(item.type==='area')row.append(element('small',item.children.length+' รูปแบบ'));
+    if(item.type==='area')row.append(element('small',children.length+' รูปแบบ'));
     li.append(row);
     let branch: HTMLUListElement|undefined;
     if(open){
-      branch=li.appendChild(drawBranch(item.children,depth+1));
+      branch=li.appendChild(drawBranch(children,depth+1));
       toggle.textContent='▾';
     }
     if(depth===0)rootRows.set(item,li);
@@ -800,7 +804,7 @@ function select(item: Outline, measure: boolean, spacing?:'before'|'after') {
     paper.classList.remove('has-column-highlight');
   }
   if(selection) {
-    treeNodes.get(selection)?.removeAttribute('aria-current');
+    treeNodes.get(treeItem(selection))?.removeAttribute('aria-current');
     if(selection.ref.band){
       const key=CSS.escape(refKey(selection.ref));
       for(const control of paper.querySelectorAll('[data-paper-ref="'+key+'"]'))control.removeAttribute('aria-current');
@@ -808,9 +812,9 @@ function select(item: Outline, measure: boolean, spacing?:'before'|'after') {
   }
   if(inlineTarget&&inlineTarget!==item)closeInlineEditor();
   selection=item;
-  const currentControl=treeNodes.get(item);
+  const currentControl=treeNodes.get(treeItem(item));
   if(!currentControl||currentControl.closest("[hidden]")){
-    reveal(item);
+    reveal(treeItem(item));
     const scroll=tree.scrollTop;
     treeNodes.clear();rootRows.clear();tree.replaceChildren(drawBranch(roots));tree.scrollTop=scroll;
   }
@@ -826,7 +830,7 @@ function select(item: Outline, measure: boolean, spacing?:'before'|'after') {
     currentSheet?.replaceWith(nextSheet);sectionSheets.set(root,nextSheet);
     if(!measure){const target=paperNodes.get(item);if(target)scrollWithin(paper.parentElement!,target);}
   }
-  const treeTarget=treeNodes.get(item);
+  const treeTarget=treeNodes.get(treeItem(item));
   treeTarget?.setAttribute('aria-current','true');
   if(!measure&&treeTarget)scrollWithin(tree,treeTarget);
   if(item.ref.band){
@@ -919,10 +923,10 @@ function showDraft(data: Draft, keep?: Ref) {
   const selected=(keep&&outlines.get(refKey(keep)))??roots[0];
   const availableFormats=new Set(data.definition.areaFormats?Object.values(data.definition.areaFormats):[]);
   for(const [key,format] of activeFormats)if(!availableFormats.has(format))activeFormats.delete(key);
-  reveal(selected);
+  reveal(treeItem(selected));
   const scroll=tree.scrollTop;
   if(selection){
-    treeNodes.get(selection)?.removeAttribute('aria-current');
+    treeNodes.get(treeItem(selection))?.removeAttribute('aria-current');
     paperNodes.get(selection)?.removeAttribute('aria-current');
   }
   selection=undefined;

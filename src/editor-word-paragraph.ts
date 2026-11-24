@@ -33,13 +33,22 @@ export function editParagraph(parts:Inline[],fields:{key:string;scope:string}[],
   dialog.innerHTML='<form method="dialog"><h2>แก้ย่อหน้า</h2><div class="tag-tools"><button type="button" aria-label="ตัวหนา"><b>B</b></button><label>ขนาด <input aria-label="ขนาดข้อความ" type="number" min=".5" max="819" step=".5"> pt</label></div><div class="word-input"></div><footer><button value="cancel">ยกเลิก</button><button value="apply">ใช้กับกระดาษ</button></footer></form>';
   document.body.append(dialog);
   const bold=dialog.querySelector<HTMLButtonElement>('[aria-label="ตัวหนา"]')!,size=dialog.querySelector('input')!;
+  const editor=dialog.querySelector<HTMLElement>('.word-input')!;
+  const mounted=mountWordParagraph(editor,bold,size,parts,fields,baseBold,baseSize);
+  dialog.addEventListener('close',()=>{
+    if(dialog.returnValue==='apply'&&mounted.changed())apply(mounted.parts());
+    mounted.view.destroy();dialog.remove();
+  },{once:true});
+  dialog.showModal();mounted.view.focus();mounted.sync();
+}
+
+export function mountWordParagraph(editor:HTMLElement,bold:HTMLButtonElement,size:HTMLInputElement,parts:Inline[],fields:{key:string;scope:string}[],baseBold:boolean,baseSize:number,onChange?:()=>void){
   const content:PNode[]=[];
   for(const p of parts){
     if(p.type==='line-break')content.push(schema.node('br',{id:p.id}));
     else if(p.type==='field-ref')content.push(schema.node('field',{part:p},undefined,marks(undefined,p.styleOverride)));
     else if(p.text)content.push(schema.text(p.text,marks(p.id,p.styleOverride)));
   }
-  const editor=dialog.querySelector<HTMLElement>('.word-input')!;
   editor.style.fontSize=baseSize+'pt';editor.style.fontWeight=baseBold?'bold':'normal';
   const state=EditorState.create({schema,doc:schema.node('doc',null,[schema.node('paragraph',null,content)]),plugins:[
     history(),keymap({'Mod-z':undo,'Mod-y':redo,'Mod-Shift-z':redo,Enter:(s,dispatch)=>{dispatch?.(s.tr.replaceSelectionWith(schema.node('br')));return true;}}),keymap(baseKeymap)
@@ -67,7 +76,7 @@ export function editParagraph(parts:Inline[],fields:{key:string;scope:string}[],
     const p=previous.attrs.part,style=format.isInSet(previous.marks)?.attrs.style;
     const raw=schema.text('{{'+p.key+'}',marks(undefined,style,p));
     event.preventDefault();v.dispatch(closeHistory(v.state.tr).replaceWith(pos-1,pos,raw));return true;
-  },dispatchTransaction(tr){view.updateState(view.state.apply(tr));sync();}});
+  },dispatchTransaction(tr){view.updateState(view.state.apply(tr));sync();if(tr.docChanged)onChange?.();}});
   function sync(){
     const sel=view.state.selection;
     const sample=sel instanceof NodeSelection?sel.node:sel.$from.nodeAfter??sel.$from.nodeBefore;
@@ -94,8 +103,8 @@ export function editParagraph(parts:Inline[],fields:{key:string;scope:string}[],
   bold.onmousedown=e=>e.preventDefault();bold.onclick=()=>setStyle({bold:bold.getAttribute('aria-pressed')!=='true'});
   size.onchange=()=>{if(size.value&&size.reportValidity())setStyle({fontSizePt:size.valueAsNumber});};
   size.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();size.blur();view.focus();}};
-  dialog.addEventListener('close',()=>{
-    if(dialog.returnValue==='apply'&&!view.state.doc.eq(state.doc)){
+  sync();
+  return {view,sync,changed:()=>!view.state.doc.eq(state.doc),parts:()=>{
       const seen=new Set<string>(),result:Inline[]=[];
       view.state.doc.firstChild!.forEach(n=>{
         const a=format.isInSet(n.marks)?.attrs;
@@ -104,10 +113,6 @@ export function editParagraph(parts:Inline[],fields:{key:string;scope:string}[],
         if(a?.style)part.styleOverride=a.style;else delete part.styleOverride;
         result.push(part);
       });
-      apply(result);
-    }
-    view.destroy();dialog.remove();
-  },{once:true});
-  dialog.showModal();view.focus();sync();
+      return result;
+  }};
 }
-

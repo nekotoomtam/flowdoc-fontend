@@ -65,7 +65,7 @@ export function mountWordParagraph(editor:HTMLElement,bold:HTMLButtonElement,siz
     const matches=fields.filter(f=>f.key===hit[1]);
     const field=original?.key===hit[1]&&matches.some(f=>f.scope===original?.scope)?original:matches.length===1?matches[0]:undefined;
     if(!field)return false;
-    const part={id:crypto.randomUUID(),type:'field-ref',...field};
+    const part=field===original ? {...original,type:'field-ref'} : {id:crypto.randomUUID(),type:'field-ref',scope:field.scope,key:field.key};
     const atom=schema.node('field',{part},undefined,marks(undefined,attrs?.style));
     const tr=closeHistory(v.state.tr).insertText(text,from,to);
     v.dispatch(tr.replaceWith(start,from+text.length,atom));return true;

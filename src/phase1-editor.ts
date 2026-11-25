@@ -336,8 +336,14 @@ function activateParagraph(item:Outline,block:HTMLElement){
   const fields=variableScopes(item).flatMap(s=>Object.entries(s.schema.fields).filter(([,f])=>['number','string'].includes(f.type)).map(([key])=>({key,scope:s.scope})));
   liveLine=mountWordParagraph(host,bold,tagSize,item.node!.children!,fields,(style?.font?.weight??0)>=700||style?.fontWeight==='bold',style?.fontSize?lengthInPoints(style.fontSize):16,()=>{
     const result=applyStructureChange(draft.definition,{kind:'paragraph-parts',at:item.ref,parts:liveLine!.parts()});
+    const view=liveLine!.view;
+    const selectionBeforeRender=view.state.selection;
     editingTransaction=true;
     try{stageDefinition(result.definition,item.ref,'paragraph-parts');}finally{editingTransaction=false;}
+    if(view.hasFocus() && selectionBeforeRender instanceof TextSelection){
+      const anchor=view.domAtPos(selectionBeforeRender.anchor),head=view.domAtPos(selectionBeforeRender.head);
+      window.getSelection()?.setBaseAndExtent(anchor.node,anchor.offset,head.node,head.offset);
+    }
   });
   mapLiveParagraph(item);updateTagTools(item);
 }

@@ -2,7 +2,7 @@ import type {Definition} from './editor-structure';
 
 type Face={releaseId:string;familyName:string;version:number;faces:{weight:number;style:string}[]};
 type LibraryFace={kind:'library';releaseId:string;weight:number;style:string}|{kind:'unselected'};
-type TextStyle={fontFamilyKey?:string;fontWeight?:string;fontStyle?:string;font?:LibraryFace;fontSize:{unit:'pt';value:number};lineHeightPt:number};
+type TextStyle={color?:string;underline?:boolean;fontFamilyKey?:string;fontWeight?:string;fontStyle?:string;font?:LibraryFace;fontSize:{unit:'pt';value:number};lineHeightPt:number};
 type Context={definition:()=>Definition;styleId:()=>string|undefined;locked:()=>boolean;
   assign:(key:string)=>void;apply:(styles:Record<string,unknown>)=>void;fonts:()=>Promise<Face[]>};
 const titles:Record<string,string>={body:'เนื้อหา',emphasis:'ข้อความเน้น',footer:'ท้ายกระดาษ',gap:'ระยะเว้น'};
@@ -43,12 +43,15 @@ export function installTemplateStyles(ctx:Context){
       ??faces.find(c=>c.weight===400&&c.style==='normal')??faces[0];
     paintFace();
   };
+  const ink=get<HTMLInputElement>('style-color'),line=get<HTMLButtonElement>('style-underline');
+  line.onclick=()=>line.setAttribute('aria-pressed',String(line.getAttribute('aria-pressed')!=='true'));
   function selectStyle(id:string){
     const style=ctx.definition().styles[id] as TextStyle;
     active=id;optionsFor=style;
     for(const entry of list.querySelectorAll('button'))entry.setAttribute('aria-pressed',String(entry.dataset.styleId===id));
     get('style-title').textContent=title(id);
     size.value=String(style.fontSize.value);leading.value=String(style.lineHeightPt);
+    ink.value="#"+(style.color??"000000");line.setAttribute("aria-pressed",String(!!style.underline));
     family.replaceChildren();families.clear();
     if(style.fontFamilyKey==='sarabun'){
       const choices:Choice[]=[];
@@ -98,6 +101,8 @@ export function installTemplateStyles(ctx:Context){
         sample.textContent=title(key);sample.style.fontSize=style.fontSize.value+'pt';
         sample.style.fontWeight=style.font?.kind==='library'?String(style.font.weight):style.fontWeight??'normal';
         sample.style.fontStyle=style.font?.kind==='library'?style.font.style:style.fontStyle??'normal';
+        if(style.color)sample.style.color='#'+style.color;
+        if(style.underline)sample.style.textDecoration='underline';
         count.textContent=(counts.get(key)??0)+' กล่อง';
         entry.setAttribute('aria-label',title(key)+' · '+count.textContent);
         entry.append(sample,count);entry.onclick=()=>selectStyle(key);list.append(entry);
@@ -127,6 +132,8 @@ export function installTemplateStyles(ctx:Context){
     const updated={...def.styles[active] as TextStyle};
     delete updated.font;delete updated.fontFamilyKey;delete updated.fontWeight;delete updated.fontStyle;
     Object.assign(updated,picked.props,{fontSize:{value:size.valueAsNumber,unit:'pt'},lineHeightPt:leading.valueAsNumber});
+    if(ink.value!=='#000000')updated.color=ink.value.slice(1).toUpperCase();else delete updated.color;
+    if(line.getAttribute('aria-pressed')==='true')updated.underline=true;else delete updated.underline;
     ctx.apply({...def.styles,[active]:updated});
   };
   return refresh;

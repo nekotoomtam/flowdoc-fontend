@@ -605,3 +605,10 @@ body:not(.library-paper):has(#editor)>.topbar{display:flex}
 .style-switches button{min-width:32px}
 .style-switches [aria-pressed=true]{background:var(--selection);border-color:var(--selection-edge)}
 #shared-style-form [hidden]{display:none}
+
+#paper .tree-paper-line p>span,#paper .tree-paper-line .word-field,#paper .definition-inline{
+  text-decoration-line:var(--run-decoration,var(--paragraph-decoration,none));
+}
+
+#tag-tools [hidden]{display:none}
+#tag-underline[aria-pressed=true]{background:var(--selection);border-color:var(--selection-edge)}

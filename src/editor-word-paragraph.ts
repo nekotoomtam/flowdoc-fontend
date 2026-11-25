@@ -19,7 +19,7 @@ const schema=new Schema({
       s.bold===undefined?'':'font-weight:'+(s.bold?'bold':'normal'),
       s.italic===undefined?'':'font-style:'+(s.italic?'italic':'normal'),
       s.fontSizePt?'font-size:calc('+s.fontSizePt+' * var(--inline-pt, 1pt))':'',s.color?'color:#'+s.color:'',
-      s.underline===undefined?'':'text-decoration:'+(s.underline?'underline':'none')
+      s.underline===undefined?'':'--run-decoration:'+(s.underline?'underline':'none')+';text-decoration:'+(s.underline?'underline':'none')
     ].join(';')},0];
   }}}
 });
@@ -56,7 +56,7 @@ export function editParagraph(parts:Inline[],fields:{key:string;scope:string}[],
   dialog.showModal();mounted.view.focus();mounted.sync();
 }
 
-export function mountWordParagraph(editor:HTMLElement,bold:HTMLButtonElement,size:HTMLInputElement,parts:Inline[],fields:{key:string;scope:string}[],baseBold:boolean,baseSize:number,onChange?:()=>void){
+export function mountWordParagraph(editor:HTMLElement,bold:HTMLButtonElement,size:HTMLInputElement,parts:Inline[],fields:{key:string;scope:string}[],baseBold:boolean,baseSize:number,onChange?:()=>void,paint?:{color:HTMLInputElement;underline:HTMLButtonElement;baseColor?:string;baseUnderline?:boolean}){
   const content=parts.flatMap(part=>paragraphNode(part)??[]);
   editor.style.fontSize=baseSize+'pt';editor.style.fontWeight=baseBold?'bold':'normal';
   const state=EditorState.create({schema,doc:schema.node('doc',null,[schema.node('paragraph',null,content)]),plugins:[
@@ -91,6 +91,11 @@ export function mountWordParagraph(editor:HTMLElement,bold:HTMLButtonElement,siz
     const sample=sel instanceof NodeSelection?sel.node:sel.$from.nodeAfter??sel.$from.nodeBefore;
     const style=format.isInSet(sample?.marks??[])?.attrs.style;
     bold.setAttribute('aria-pressed',String(style?.bold??baseBold));
+    if(paint){
+      paint.color.value='#'+(style?.color??paint.baseColor??'000000');
+      paint.underline.setAttribute('aria-pressed',String(style?.underline??paint.baseUnderline??false));
+      paint.color.disabled=paint.underline.disabled=sel.empty||!view.editable;
+    }
     if(document.activeElement!==size)size.value=String(style?.fontSizePt??baseSize);
   }
   function setStyle(patch:InlineStyle){
@@ -108,6 +113,11 @@ export function mountWordParagraph(editor:HTMLElement,bold:HTMLButtonElement,siz
       tr.addMark(a,b,format.create({...old,style:{...old?.style,...patch}}));
     });
     view.dispatch(tr);view.focus();
+  }
+  if(paint){
+    paint.underline.onmousedown=e=>e.preventDefault();
+    paint.underline.onclick=()=>setStyle({underline:paint.underline.getAttribute('aria-pressed')!=='true'});
+    paint.color.onchange=()=>setStyle({color:paint.color.value.slice(1).toUpperCase()});
   }
   bold.onmousedown=e=>e.preventDefault();bold.onclick=()=>setStyle({bold:bold.getAttribute('aria-pressed')!=='true'});
   size.onchange=()=>{if(size.value&&size.reportValidity())setStyle({fontSizePt:size.valueAsNumber});};

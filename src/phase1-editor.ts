@@ -332,8 +332,10 @@ function activateParagraph(item:Outline,block:HTMLElement){
   block.append(host);liveHost=host;liveRef=item.ref;
   const bold=q<HTMLButtonElement>('tag-bold');
   const old=[bold.onclick,bold.onmousedown,tagSize.onchange,tagSize.onkeydown] as const;
-  restoreTools=()=>{[bold.onclick,bold.onmousedown,tagSize.onchange,tagSize.onkeydown]=old;};
-  const style=draft.definition.styles[item.node!.props?.textStyleId??''] as {fontSize?:Length;font?:{weight:number};fontWeight?:string}|undefined;
+  const color=q<HTMLInputElement>('tag-color'),underline=q<HTMLButtonElement>('tag-underline');
+  color.hidden=underline.hidden=false;
+  restoreTools=()=>{color.hidden=underline.hidden=true;color.onchange=underline.onclick=underline.onmousedown=null;[bold.onclick,bold.onmousedown,tagSize.onchange,tagSize.onkeydown]=old;};
+  const style=draft.definition.styles[item.node!.props?.textStyleId??''] as {fontSize?:Length;font?:{weight:number};fontWeight?:string;color?:string;underline?:boolean}|undefined;
   const fields=variableScopes(item).flatMap(s=>Object.entries(s.schema.fields).filter(([,f])=>['number','string'].includes(f.type)).map(([key])=>({key,scope:s.scope})));
   liveLine=mountWordParagraph(host,bold,tagSize,item.node!.children!,fields,(style?.font?.weight??0)>=700||style?.fontWeight==='bold',style?.fontSize?lengthInPoints(style.fontSize):16,()=>{
     const result=applyStructureChange(draft.definition,{kind:'paragraph-parts',at:item.ref,parts:liveLine!.parts()});
@@ -345,7 +347,7 @@ function activateParagraph(item:Outline,block:HTMLElement){
       const anchor=view.domAtPos(selectionBeforeRender.anchor),head=view.domAtPos(selectionBeforeRender.head);
       window.getSelection()?.setBaseAndExtent(anchor.node,anchor.offset,head.node,head.offset);
     }
-  });
+  },{color,underline,baseColor:style?.color,baseUnderline:style?.underline});
   mapLiveParagraph(item);updateTagTools(item);
 }
 function editableParagraph(item?:Outline){
@@ -534,6 +536,9 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
           block.style.alignContent=props.verticalAlign==='bottom'?'end':props.verticalAlign==='center'?'center':'start';
         }
       }
+      const decoration=style as {color?:string;underline?:boolean}|undefined;
+      if(decoration?.color)block.style.color='#'+decoration.color;
+      if(decoration?.underline)block.style.setProperty('--paragraph-decoration','underline');
       const face=style as {fontStyle?:string;font?:{style?:string}}|undefined;
       if(face?.fontStyle==='italic'||face?.font?.style==='italic')block.style.fontStyle='italic';
       if(props?.textAlign)block.style.textAlign=props.textAlign;

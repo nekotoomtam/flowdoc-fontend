@@ -1,5 +1,5 @@
-import {DOMSerializer,Schema, type Mark, type Node as PNode} from 'prosemirror-model';
-import {EditorState,NodeSelection} from 'prosemirror-state';
+import {DOMSerializer,Schema, Mark, type Node as PNode} from 'prosemirror-model';
+import {EditorState,NodeSelection,Plugin} from 'prosemirror-state';
 import {EditorView} from 'prosemirror-view';
 import {history,undo,redo,closeHistory} from 'prosemirror-history';
 import {keymap} from 'prosemirror-keymap';
@@ -57,10 +57,18 @@ export function editParagraph(parts:Inline[],fields:{key:string;scope:string}[],
   dialog.showModal();mounted.view.focus();mounted.sync();
 }
 
-export function mountWordParagraph(editor:HTMLElement,bold:HTMLButtonElement,size:HTMLInputElement,parts:Inline[],fields:{key:string;scope:string}[],baseBold:boolean,baseSize:number,onChange?:()=>void,paint?:{color:HTMLInputElement;underline:HTMLButtonElement;baseColor?:string;baseUnderline?:boolean;family?:HTMLSelectElement;baseFamily?:string}){
+export function mountWordParagraph(editor:HTMLElement,bold:HTMLButtonElement,size:HTMLInputElement,parts:Inline[],fields:{key:string;scope:string}[],baseBold:boolean,baseSize:number,onChange?:()=>void,paint?:{color:HTMLInputElement;underline:HTMLButtonElement;baseColor?:string;baseUnderline?:boolean;family?:HTMLSelectElement;baseFamily?:string;supportsFace?:(family:string|undefined,style:InlineStyle)=>boolean}){
   const content=parts.flatMap(part=>paragraphNode(part)??[]);
   editor.style.fontSize=baseSize+'pt';editor.style.fontWeight=baseBold?'bold':'normal';
   const state=EditorState.create({schema,doc:schema.node('doc',null,[schema.node('paragraph',null,content)]),plugins:[
+    new Plugin({appendTransaction(_transactions,_old,state){
+      const {empty,$from}=state.selection;
+      if(!empty||$from.nodeBefore?.type!==schema.nodes.field)return null;
+      const following=$from.nodeAfter;
+      const marks=following?.isText?following.marks:[];
+      return state.storedMarks&&Mark.sameSet(state.storedMarks,marks)
+        ?null:state.tr.setStoredMarks(marks);
+    }}),
     history(),keymap({'Mod-z':undo,'Mod-y':redo,'Mod-Shift-z':redo,Enter:(s,dispatch)=>{dispatch?.(s.tr.replaceSelectionWith(schema.node('br')));return true;}}),keymap(baseKeymap)
   ]});
   const view=new EditorView(editor,{state,attributes:{'aria-label':'ข้อความในย่อหน้า',role:'textbox'},handleTextInput(v,from,to,text){
@@ -90,13 +98,15 @@ export function mountWordParagraph(editor:HTMLElement,bold:HTMLButtonElement,siz
   function sync(){
     const sel=view.state.selection;
     const sample=sel instanceof NodeSelection?sel.node:sel.$from.nodeAfter??sel.$from.nodeBefore;
-    const style=format.isInSet(sample?.marks??[])?.attrs.style;
+    const style=format.isInSet((sel.empty?view.state.storedMarks:null)??sample?.marks??[])?.attrs.style;
     bold.setAttribute('aria-pressed',String(style?.bold??baseBold));
     if(paint){
       const families=new Set<string>();
+      const selectedStyles:InlineStyle[]=[];
       const colors=new Set<string>(),underlines=new Set<boolean>();
       const collect=(inline?:InlineStyle)=>{
         families.add(inline?.familyStyleId??'');
+        selectedStyles.push(inline??{});
         colors.add((inline?.color??paint.baseColor??'000000').toUpperCase());
         underlines.add(inline?.underline??paint.baseUnderline??false);
       };
@@ -110,6 +120,14 @@ export function mountWordParagraph(editor:HTMLElement,bold:HTMLButtonElement,siz
         option.hidden=effective.size<=1;
         paint.family.value=effective.size>1?'~mixed':families.has('')?'':[...families][0]!;
         paint.family.disabled=sel.empty||!view.editable;
+        if(paint.supportsFace){
+          for(const choice of paint.family.options){
+            if(choice.value==='~mixed')continue;
+            choice.disabled=!selectedStyles.every(s=>paint.supportsFace!(choice.value||paint.baseFamily,s));
+          }
+          const makeBold=bold.getAttribute('aria-pressed')!=='true';
+          bold.hidden=!selectedStyles.every(s=>paint.supportsFace!(s.familyStyleId??paint.baseFamily,{...s,bold:makeBold}));
+        }
       }
       paint.color.value='#'+colors.values().next().value;
       paint.color.toggleAttribute('data-mixed',colors.size>1);

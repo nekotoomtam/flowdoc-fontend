@@ -11,33 +11,72 @@ const get=<T extends HTMLElement>(id:string)=>document.getElementById(id)! as T;
 
 export function installTemplateStyles(ctx:Context){
   const pane=get('shared-styles'),panel=pane.parentElement!,list=get('shared-style-list');
-  const local=get<HTMLSelectElement>('paragraph-style'),face=get<HTMLSelectElement>('style-face');
+  const local=get<HTMLSelectElement>('paragraph-style');
   const form=get<HTMLFormElement>('shared-style-form'),size=get<HTMLInputElement>('style-size'),leading=get<HTMLInputElement>('style-leading');
   const btn=get<HTMLButtonElement>('styles-view'),item=get<HTMLButtonElement>('item-view');
   let active='',rendered:Definition|undefined,optionsFor:unknown,open=false,generation=0;
+  const family=get<HTMLSelectElement>('style-family'),weight=get<HTMLSelectElement>('style-weight');
+  const bold=get<HTMLButtonElement>('style-bold'),italic=get<HTMLButtonElement>('style-italic');
+  type Choice={weight:number;style:string;props:Partial<TextStyle>};
+  const families=new Map<string,Choice[]>();
+  let picked:Choice;
+  function paintFace(){
+    const choices=families.get(family.value)??[];
+    const weights=choices.filter(c=>c.style===picked.style).sort((a,b)=>a.weight-b.weight);
+    const alternative=picked.weight>=700
+      ?weights.find(c=>c.weight===400)??weights.filter(c=>c.weight<700).at(-1)
+      :weights.find(c=>c.weight>=700);
+    const slant=choices.find(c=>c.weight===picked.weight&&c.style!==picked.style);
+    bold.hidden=!alternative;italic.hidden=!slant;
+    bold.setAttribute('aria-pressed',String(picked.weight>=700));
+    italic.setAttribute('aria-pressed',String(picked.style==='italic'));
+    bold.onclick=()=>{if(alternative){picked=alternative;paintFace();}};
+    italic.onclick=()=>{if(slant){picked=slant;paintFace();}};
+    weight.replaceChildren(...weights.map(c=>new Option(String(c.weight),String(c.weight))));
+    weight.value=String(picked.weight);
+    get('style-weight-label').hidden=weights.length<2||weights.every(c=>c.weight===400||c.weight===700);
+    weight.onchange=()=>{picked=weights.find(c=>String(c.weight)===weight.value)!;paintFace();};
+  }
+  family.onchange=()=>{
+    const faces=families.get(family.value)!;
+    picked=faces.find(c=>c.weight===picked.weight&&c.style===picked.style)
+      ??faces.find(c=>c.weight===400&&c.style==='normal')??faces[0];
+    paintFace();
+  };
   function selectStyle(id:string){
     const style=ctx.definition().styles[id] as TextStyle;
     active=id;optionsFor=style;
     for(const entry of list.querySelectorAll('button'))entry.setAttribute('aria-pressed',String(entry.dataset.styleId===id));
     get('style-title').textContent=title(id);
     size.value=String(style.fontSize.value);leading.value=String(style.lineHeightPt);
-    face.replaceChildren();
-    const add=(label:string,value:Partial<TextStyle>)=>{
-      const option=new Option(label,JSON.stringify(value));face.add(option);return option;
-    };
+    family.replaceChildren();families.clear();
     if(style.fontFamilyKey==='sarabun'){
+      const choices:Choice[]=[];
       for(const weight of ['normal','bold'])for(const slant of ['normal','italic']){
-        const op=add('Sarabun · '+(weight==='bold'?'หนา':'ปกติ')+(slant==='italic'?' เอียง':''),{fontFamilyKey:'sarabun',fontWeight:weight,fontStyle:slant});
-        op.selected=weight===style.fontWeight&&slant===(style.fontStyle??'normal');
+        choices.push({weight:weight==='bold'?700:400,style:slant,props:{fontFamilyKey:'sarabun',fontWeight:weight,fontStyle:slant}});
       }
-    }else add(style.font?.kind==='library'?'ฟอนต์ที่ใช้อยู่ · '+style.font.weight:'ยังไม่เลือกฟอนต์',{font:style.font});
+      family.add(new Option('Sarabun','legacy'));families.set('legacy',choices);
+      picked=choices.find(c=>c.props.fontWeight===style.fontWeight&&c.style===(style.fontStyle??'normal'))!;
+    }else{
+      const f=style.font;
+      const key=f?.kind==='library'?f.releaseId:'unselected';
+      picked={weight:f?.kind==='library'?f.weight:400,style:f?.kind==='library'?f.style:'normal',props:{font:f}};
+      family.add(new Option(f?.kind==='library'?'ฟอนต์ที่ใช้อยู่':'ยังไม่เลือกฟอนต์',key));
+      families.set(key,[picked]);
+    }
+    paintFace();
     const token=++generation;
     void ctx.fonts().then(fonts=>{
       if(token!==generation)return;
-      for(const f of fonts)for(const v of f.faces){
-        const op=add(f.familyName+' · '+v.weight+(v.style==='italic'?' เอียง':''),{font:{kind:'library',releaseId:f.releaseId,...v}});
-        if(style.font?.kind==='library'&&style.font.releaseId===f.releaseId&&style.font.weight===v.weight&&style.font.style===v.style)op.selected=true;
+      for(const f of fonts){
+        if(!f.faces.length)continue;
+        const choices=f.faces.map(v=>({...v,props:{font:{kind:'library' as const,releaseId:f.releaseId,...v}}}));
+        const option=[...family.options].find(o=>o.value===f.releaseId)??new Option('',f.releaseId);
+        option.text=f.familyName+' · '+f.version;
+        if(!option.parentElement)family.add(option);
+        families.set(f.releaseId,choices);
       }
+      paintFace();
     });
   }
   function refresh(){
@@ -87,7 +126,7 @@ export function installTemplateStyles(ctx:Context){
     const def=ctx.definition();
     const updated={...def.styles[active] as TextStyle};
     delete updated.font;delete updated.fontFamilyKey;delete updated.fontWeight;delete updated.fontStyle;
-    Object.assign(updated,JSON.parse(face.value),{fontSize:{value:size.valueAsNumber,unit:'pt'},lineHeightPt:leading.valueAsNumber});
+    Object.assign(updated,picked.props,{fontSize:{value:size.valueAsNumber,unit:'pt'},lineHeightPt:leading.valueAsNumber});
     ctx.apply({...def.styles,[active]:updated});
   };
   return refresh;

@@ -54,7 +54,12 @@
         <h2>ข้อความ</h2><div id="shared-style-list"></div>
         <form id="shared-style-form"><fieldset>
           <legend id="style-title"></legend>
-          <label>ฟอนต์และน้ำหนัก <select id="style-face"></select></label>
+          <label>ฟอนต์ <select id="style-family"></select></label>
+          <label id="style-weight-label" hidden>น้ำหนัก <select id="style-weight"></select></label>
+          <div class="style-switches" role="group" aria-label="รูปแบบตัวอักษร">
+            <button hidden type="button" id="style-bold" aria-label="ตัวหนา" title="ตัวหนา" aria-pressed="false"><b>B</b></button>
+            <button hidden type="button" id="style-italic" aria-label="ตัวเอียง" title="ตัวเอียง" aria-pressed="false"><i>I</i></button>
+          </div>
           <label>ขนาด (pt) <input id="style-size" type="number" min="0.01" step="any" required></label>
           <label>ระยะบรรทัด (pt) <input id="style-leading" type="number" min="0.01" step="any" required></label>
           <button type="submit">ใช้กับร่าง</button>

@@ -600,3 +600,8 @@ body:not(.library-paper):has(#editor)>.topbar{display:flex}
 #shared-style-form label,#paragraph-style-choice label{display:grid;gap:3px;margin-bottom:8px}
 #shared-style-form select,#shared-style-form input{max-width:100%;min-width:0}
 #paragraph-style-choice{padding:8px}
+
+.style-switches{display:flex;gap:4px;margin-block:6px}
+.style-switches button{min-width:32px}
+.style-switches [aria-pressed=true]{background:var(--selection);border-color:var(--selection-edge)}
+#shared-style-form [hidden]{display:none}

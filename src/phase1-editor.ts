@@ -2030,6 +2030,16 @@ function paperFrame(control:HTMLElement){
 }
 function positionNodeTools(){
   if(!anchor?.isConnected||!workspace.offsetWidth){layerTools.hidden=true;return;}
+  // In a table, the space beside a paragraph belongs to another cell or row.
+  const docked=!!anchor.closest('td')&&!!editableParagraph(selection);
+  const parent=docked?q('paper-edit-tools'):workspace;
+  if(layerTools.parentElement!==parent)parent.append(layerTools);
+  layerTools.classList.toggle('docked',docked);
+  if(docked){
+    layerTools.hidden=false;
+    layerMenu.style.maxHeight='min(45vh, 320px)';
+    return;
+  }
   const r=anchor.getBoundingClientRect(),v=paperViewport.getBoundingClientRect(),w=workspace.getBoundingClientRect();
   layerTools.hidden=r.bottom<=v.top||r.top>=v.bottom||r.right<=v.left||r.left>=v.right;
   if(layerTools.hidden)return;
@@ -2044,7 +2054,7 @@ function positionNodeTools(){
   const table=anchor.closest('table');
   if(table){
     const sheet=table.closest('.definition-sheet')??table;
-    const obstacles=[r,...Array.from(sheet.querySelectorAll('.definition-inline,.definition-area-tools,.definition-image,.definition-rule'),el=>el.getBoundingClientRect())];
+    const obstacles=[r,...Array.from(sheet.querySelectorAll('.definition-inline,.paper-paragraph-display,.tree-paper-line .ProseMirror,.definition-area-tools,.definition-image,.definition-rule'),el=>el.getBoundingClientRect())];
     const candidates=[[left,top],[left,r.bottom+4],[clampLeft(r.right+5),r.top],[clampLeft(r.left-width-5),r.top]];
     for(const y of [above,r.bottom+4])for(const x of [r.right-width,table.getBoundingClientRect().left,v.left+3,v.right-width-6])
       candidates.push([clampLeft(x),y]);

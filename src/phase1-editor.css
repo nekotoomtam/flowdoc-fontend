@@ -569,3 +569,6 @@ body:not(.library-paper):has(#editor)>.topbar{display:flex}
 #paper .tree-paper-line :is(.paper-paragraph-display,.ProseMirror){white-space:pre-wrap;overflow-wrap:break-word;min-height:1.4em}
 #paper .tree-paper-line p{font:inherit;color:inherit;line-height:inherit;margin:0;padding:0}
 #paper .definition-text>[hidden]{display:none!important}
+
+.node-tools.docked{position:relative;inset:auto!important;flex-wrap:wrap;max-width:100%;box-shadow:none}
+.node-tools.docked .node-layer-menu{position:relative;inset:auto;flex-basis:100%;max-width:100%}

@@ -1,3 +1,4 @@
+import {TextSelection} from 'prosemirror-state';
 import {mountWordParagraph} from './editor-word-paragraph';
 import './phase1-editor.css';
 import {mountColumnEdges} from './editor-column-edges';
@@ -294,45 +295,51 @@ function insertAt(item:Outline,offset:number){
     stage({kind:'insert-tag',at:item.ref,offset,scope,key});
   });
 }
-// The integrated trial is limited to an authored document with one flowing paragraph.
-const treePaperTrial=new URLSearchParams(location.search).get('trial')==='tree-paper';
 let liveLine:ReturnType<typeof mountWordParagraph>|undefined;
 let liveRef:Ref|undefined;
-let liveParts:Inline[]|undefined;
-function renderTreePaper(root:Outline|undefined){
-  if(!treePaperTrial||!root||draft.readOnly||roots.length!==1||root.children.length!==1)return false;
-  const item=root.children[0];
-  if(!editableParagraph(item))return false;
-  const parts=item.node!.children!;
-  q('word-open').hidden=q('tag-view').hidden=q('insert-at').hidden=true;
-  if(!liveLine||liveParts!==parts){
-    liveLine?.view.destroy();
-    const sheet=drawSectionPaper(root);
-    paper.replaceChildren(sheet);
-    const marker=paperNodes.get(item)!;
-    const block=marker.closest<HTMLElement>('.definition-text')!;
-    const host=element('div');host.className='word-input tree-paper-line';block.replaceChildren(host);
-    liveRef=item.ref;liveParts=parts;
-    const style=draft.definition.styles[item.node!.props!.textStyleId!] as {fontSize:Length;font:{weight:number}};
-    const fields=variableScopes(item).flatMap(s=>Object.entries(s.schema.fields).filter(([,f])=>['number','string'].includes(f.type)).map(([key])=>({key,scope:s.scope})));
-    liveLine=mountWordParagraph(host,q<HTMLButtonElement>('tag-bold'),tagSize,parts,fields,style.font.weight>=700,lengthInPoints(style.fontSize),()=>{
-      const updated=liveLine!.parts();
-      const result=applyStructureChange(draft.definition,{kind:'paragraph-parts',at:liveRef!,parts:updated});
-      liveParts=updated;
-      stageDefinition(result.definition,liveRef!,'paragraph-parts');
-    });
-    host.addEventListener('focusin',()=>{
-      const current=outlines.get(refKey(liveRef!));
-      if(current&&selection!==current&&selection?.parent!==current)select(current,false);
-    });
+let liveHost:HTMLElement|undefined;
+let editingTransaction=false;
+let restoreTools:(()=>void)|undefined;
+function closePaperParagraph(){
+  const block=liveHost?.parentElement;
+  liveLine?.view.destroy();liveHost?.remove();
+  liveLine=undefined;liveRef=undefined;liveHost=undefined;
+  if(block){
+    for(const child of block.children)(child as HTMLElement).hidden=false;
+    for(const control of block.querySelectorAll<HTMLElement>('[data-paper-ref]')){
+      const target=outlines.get(control.dataset.paperRef!);if(target)paperNodes.set(target,control);
+    }
   }
+  restoreTools?.();restoreTools=undefined;
+}
+function mapLiveParagraph(item:Outline){
+  if(!liveLine)return;
   paperNodes.set(item,liveLine.view.dom);
   for(const part of item.children){
     if(part.type!=='field-ref')continue;
     const chip=liveLine.view.dom.querySelector<HTMLElement>('[data-field-id="'+CSS.escape(part.inline!.id!)+'"]');
     if(chip)paperNodes.set(part,chip);
   }
-  return true;
+}
+function activateParagraph(item:Outline,block:HTMLElement){
+  if(isSaving||hasConflict||draft.readOnly||sampleView)return;
+  if(liveHost&&block.contains(liveHost))return;
+  closePaperParagraph();
+  select(item,false);
+  const host=element('div');host.className='word-input tree-paper-line';
+  for(const child of block.children)(child as HTMLElement).hidden=true;
+  block.append(host);liveHost=host;liveRef=item.ref;
+  const bold=q<HTMLButtonElement>('tag-bold');
+  const old=[bold.onclick,bold.onmousedown,tagSize.onchange,tagSize.onkeydown] as const;
+  restoreTools=()=>{[bold.onclick,bold.onmousedown,tagSize.onchange,tagSize.onkeydown]=old;};
+  const style=draft.definition.styles[item.node!.props?.textStyleId??''] as {fontSize?:Length;font?:{weight:number};fontWeight?:string}|undefined;
+  const fields=variableScopes(item).flatMap(s=>Object.entries(s.schema.fields).filter(([,f])=>['number','string'].includes(f.type)).map(([key])=>({key,scope:s.scope})));
+  liveLine=mountWordParagraph(host,bold,tagSize,item.node!.children!,fields,(style?.font?.weight??0)>=700||style?.fontWeight==='bold',style?.fontSize?lengthInPoints(style.fontSize):16,()=>{
+    const result=applyStructureChange(draft.definition,{kind:'paragraph-parts',at:item.ref,parts:liveLine!.parts()});
+    editingTransaction=true;
+    try{stageDefinition(result.definition,item.ref,'paragraph-parts');}finally{editingTransaction=false;}
+  });
+  mapLiveParagraph(item);updateTagTools(item);
 }
 function editableParagraph(item?:Outline){
   const parent=item?.inline?item.parent:item;
@@ -358,7 +365,7 @@ function updateTagTools(item:Outline){
   const bold=q<HTMLButtonElement>('tag-bold'),size=q<HTMLInputElement>('tag-size');
   bold.disabled=size.disabled=!styled;
   bold.setAttribute('aria-pressed',String(!!styled&&(field?.styleOverride?.bold??((base?.font?.weight??0)>=700||base?.fontWeight==='bold'))));
-  if(liveLine&&liveRef&&(item.ref.nodeId===liveRef.nodeId)){
+  if(liveLine&&liveRef&&refKey(item.parent?.type==='text-block'?item.parent.ref:item.ref)===refKey(liveRef)){
     bold.disabled=size.disabled=!editable;liveLine.sync();q<HTMLButtonElement>('insert-at').disabled=true;return;
   }
   size.value=styled?String(field?.styleOverride?.fontSizePt??(base?.fontSize?lengthInPoints(base.fontSize):'')):'';
@@ -481,6 +488,24 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
       }
     }else if(item.type==='text-block'){
       block.classList.add('definition-text');
+      if(creationMode()&&!draft.readOnly&&editableParagraph(item)){
+        block.addEventListener('mousedown',event=>{
+          if(event.button!==0||isSaving||hasConflict||sampleView||liveHost?.contains(event.target as Node))return;
+          const guard=new AbortController();
+          document.addEventListener('click',e=>{e.stopImmediatePropagation();guard.abort();},{capture:true,once:true,signal:guard.signal});
+          document.addEventListener('pointerdown',()=>guard.abort(),{capture:true,once:true,signal:guard.signal});
+          activateParagraph(item,block);
+          if(!liveLine)return;
+          event.preventDefault();event.stopPropagation();
+          liveLine.view.focus();
+          const at=liveLine.view.posAtCoords({left:event.clientX,top:event.clientY});
+          if(at)liveLine.view.dispatch(liveLine.view.state.tr.setSelection(TextSelection.near(liveLine.view.state.doc.resolve(at.pos))));
+          const hit=document.elementFromPoint(event.clientX,event.clientY);
+          const target=hit&&liveLine.view.dom.contains(hit)?hit:liveLine.view.dom;
+          target.dispatchEvent(new MouseEvent('mousedown',event));
+        });
+        block.addEventListener('click',event=>{if(liveHost&&block.contains(liveHost))event.stopPropagation();});
+      }
       const spacer=props?.heightMode==='fixed'&&props.height&&!item.children.length;
       const blockControl=choose(item,spacer?item.label:'ข้อความ','definition-marker'+(spacer?' fixed-spacer':''));
       block.append(blockControl);
@@ -788,7 +813,7 @@ function focusPaper(item:Outline){
   select(item,true);
   const target=paperNodes.get(item);
   if(!target)return;
-  if(liveLine&&item.type==='field-ref'&&item.ref.nodeId===liveRef?.nodeId&&liveLine.selectField(item.inline!.id!)){target.scrollIntoView({block:'nearest'});return;}
+  if(liveLine&&item.type==='field-ref'&&liveRef&&item.parent&&refKey(item.parent.ref)===refKey(liveRef)&&liveLine.selectField(item.inline!.id!)){target.scrollIntoView({block:'nearest'});return;}
   target.focus({preventScroll:true});
   scrollWithin(paper.parentElement!,target);
   const bounds=target.getBoundingClientRect();
@@ -856,6 +881,7 @@ function select(item: Outline, measure: boolean, spacing?:'before'|'after') {
     }else paperNodes.get(selection)?.removeAttribute('aria-current');
   }
   if(inlineTarget&&inlineTarget!==item)closeInlineEditor();
+  if(liveRef&&refKey(item.parent?.type==='text-block'?item.parent.ref:item.ref)!==refKey(liveRef))closePaperParagraph();
   selection=item;
   const currentControl=treeNodes.get(treeItem(item));
   if(!currentControl||currentControl.closest("[hidden]")){
@@ -983,13 +1009,27 @@ function showDraft(data: Draft, keep?: Ref) {
   const viewport=paper.parentElement!,paperScroll=viewport.scrollTop;
   for(const [root] of sectionSheets)if(!roots.includes(root))sectionSheets.delete(root);
   for(const [item] of paperNodes)if(outlines.get(refKey(item.ref))!==item)paperNodes.delete(item);
-  if(!renderTreePaper(roots[0])){
+  {
+    if(!editingTransaction)closePaperParagraph();
     const sheets=roots.map(root=>{
       let sheet=sectionSheets.get(root);
       if(!sheet){sheet=drawSectionPaper(root,root.section===selected.section?selected.format:undefined);sectionSheets.set(root,sheet);}
       return sheet;
     });
-    paper.replaceChildren(...sheets);viewport.scrollTop=paperScroll;
+    if(editingTransaction&&liveHost&&liveRef){
+      const active=outlines.get(refKey(liveRef));
+      const block=active&&paperNodes.get(active)?.closest<HTMLElement>('.definition-text');
+      const oldSheets=[...paper.children];
+      for(const sheet of sheets)if(!sheet.isConnected)paper.append(sheet);
+      if(active&&block&&liveHost.parentElement!==block){
+        for(const child of block.children)(child as HTMLElement).hidden=true;
+        if('moveBefore' in Element.prototype)(block as HTMLElement & {moveBefore:(n:Node,b:Node|null)=>void}).moveBefore(liveHost,null);
+        else{block.append(liveHost);liveLine?.view.focus();}
+      }
+      for(const sheet of oldSheets)if(!sheets.includes(sheet as HTMLElement))sheet.remove();
+      if(active)mapLiveParagraph(active);
+    }else paper.replaceChildren(...sheets);
+    viewport.scrollTop=paperScroll;
   }
   drawDefinitionVariables();
   select(selected,false);

@@ -2,12 +2,16 @@ export function installInkPicker(prefix:'tag'|'style'){
   const button=document.getElementById(prefix+'-ink') as HTMLButtonElement;
   const palette=document.getElementById(prefix+'-palette')!;
   const input=document.getElementById(prefix+'-color') as HTMLInputElement;
+  const label=button.getAttribute('aria-label')!;
   function refresh(){
-    button.style.color=input.value;
+    const mixed=input.hasAttribute('data-mixed');
+    button.textContent=mixed?'Aa · ผสม':'Aa';
+    button.setAttribute('aria-label',mixed?label+' ผสม':label);
+    button.style.color=mixed?'':input.value;
     button.disabled=input.disabled;
-    button.title=button.getAttribute('aria-label')+' '+input.value.toUpperCase();
+    button.title=mixed?label+' ผสม':label+' '+input.value.toUpperCase();
     for(const swatch of palette.querySelectorAll('button')){
-      swatch.setAttribute('aria-pressed',String(swatch.dataset.color===input.value));
+      swatch.setAttribute('aria-pressed',String(!mixed&&swatch.dataset.color===input.value));
     }
   }
   for(const [name,color] of Object.entries({ดำ:'#000000',แดง:'#ba2433',ส้ม:'#a74a10',เขียว:'#166549',น้ำเงิน:'#2459aa',ม่วง:'#753a87'})){

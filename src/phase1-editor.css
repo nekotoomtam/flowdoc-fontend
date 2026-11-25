@@ -618,3 +618,5 @@ body:not(.library-paper):has(#editor)>.topbar{display:flex}
 .ink-palette:popover-open{position:fixed;inset:auto;margin:0;display:flex;align-items:center;gap:4px;padding:6px;border:1px solid #a8b3b8;border-radius:6px;background:white}
 .ink-palette button[data-color],.ink-palette input[type=color]{width:27px;height:27px;min-width:0;padding:2px;border:1px solid #777;border-radius:4px;cursor:pointer}
 .ink-palette button[aria-pressed=true]{outline:2px solid #303b44;outline-offset:1px}
+
+#tag-underline[aria-pressed=mixed]::after{content:' · ผสม'}

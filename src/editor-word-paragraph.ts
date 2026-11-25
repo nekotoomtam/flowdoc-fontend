@@ -92,8 +92,20 @@ export function mountWordParagraph(editor:HTMLElement,bold:HTMLButtonElement,siz
     const style=format.isInSet(sample?.marks??[])?.attrs.style;
     bold.setAttribute('aria-pressed',String(style?.bold??baseBold));
     if(paint){
-      paint.color.value='#'+(style?.color??paint.baseColor??'000000');
-      paint.underline.setAttribute('aria-pressed',String(style?.underline??paint.baseUnderline??false));
+      const colors=new Set<string>(),underlines=new Set<boolean>();
+      const collect=(inline?:InlineStyle)=>{
+        colors.add((inline?.color??paint.baseColor??'000000').toUpperCase());
+        underlines.add(inline?.underline??paint.baseUnderline??false);
+      };
+      if(!sel.empty)view.state.doc.nodesBetween(sel.from,sel.to,node=>{
+        if(node.isInline&&node.type!==schema.nodes.br)collect(format.isInSet(node.marks)?.attrs.style);
+      });
+      if(!colors.size)collect(style);
+      paint.color.value='#'+colors.values().next().value;
+      paint.color.toggleAttribute('data-mixed',colors.size>1);
+      const underlineState=underlines.size>1?'mixed':String(underlines.has(true));
+      paint.underline.setAttribute('aria-pressed',underlineState);
+      paint.underline.title=underlineState==='mixed'?'ขีดเส้นใต้บางส่วน · กดเพื่อขีดทั้งช่วง':'ขีดเส้นใต้';
       paint.color.disabled=paint.underline.disabled=sel.empty||!view.editable;
       paint.color.dispatchEvent(new Event('ink-sync'));
     }

@@ -566,7 +566,7 @@ body:not(.library-paper):has(#editor)>.topbar{display:flex}
 #paper .tree-paper-line .word-field[aria-current=true],#paper .tree-paper-line .ProseMirror-selectednode{outline:2px solid #236da2}
 
 #paper .tree-paper-line{--inline-pt:var(--sheet-pt);font-size:inherit!important;font-weight:inherit!important}
-#paper .tree-paper-line :is(.paper-paragraph-display,.ProseMirror){white-space:pre-wrap;overflow-wrap:break-word;min-height:1.4em}
+#paper .tree-paper-line :is(.paper-paragraph-display,.ProseMirror){white-space:pre-wrap;overflow-wrap:break-word;min-height:1.4em;align-content:center}
 #paper .tree-paper-line p{font:inherit;color:inherit;line-height:inherit;margin:0;padding:0}
 #paper .definition-text>[hidden]{display:none!important}
 

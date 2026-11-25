@@ -1,3 +1,4 @@
+import {installTemplateStyles} from './template-styles';
 import {TextSelection} from 'prosemirror-state';
 import {displayParagraphPart,mountWordParagraph} from './editor-word-paragraph';
 import './phase1-editor.css';
@@ -533,6 +534,8 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
           block.style.alignContent=props.verticalAlign==='bottom'?'end':props.verticalAlign==='center'?'center':'start';
         }
       }
+      const face=style as {fontStyle?:string;font?:{style?:string}}|undefined;
+      if(face?.fontStyle==='italic'||face?.font?.style==='italic')block.style.fontStyle='italic';
       if(props?.textAlign)block.style.textAlign=props.textAlign;
       if(direct){
         const host=element('div');host.className='word-input tree-paper-line';
@@ -950,6 +953,7 @@ function select(item: Outline, measure: boolean, spacing?:'before'|'after') {
   showLayoutFacts(item,spacing);
   showActions(item);
   updatePaperTools(item);
+  refreshStylePanel();
   if(measure)afterPaint('flowdoc:tree-selection',started,{type:item.type});
 }
 function reveal(item:Outline){
@@ -1003,7 +1007,7 @@ function refreshButtons(){
   previewTab.title=previewTab.disabled?'บันทึกโครงก่อนลองข้อมูล':'ลองค่าตัวแปรบนกระดาษเสมือน';
   save.disabled=dirty||isSaving||hasConflict||!templateId||!!draft.readOnly;
   input.readOnly=dirty||isSaving||!!draft.readOnly;
-  if(selection)showActions(selection);
+  if(selection){showActions(selection);refreshStylePanel();}
   for(const control of variables.querySelectorAll<HTMLButtonElement>('[data-schema-action]'))control.disabled=isSaving||hasConflict;
 }
 function showDraft(data: Draft, keep?: Ref) {
@@ -1192,6 +1196,17 @@ function askVariable(at:Ref,scope:'global'|'section'|'local'|'header'|'footer',l
     {key:'required',label:'การส่งค่า',options:[['no','ไม่บังคับ'],['yes','บังคับ']]}],
     v=>stageDefinition(addVariable(draft.definition,at,scope,v),at,'variable'));
 }
+function currentParagraph(){
+  return selection?.inline?selection.parent:selection?.type==='text-block'?selection:undefined;
+}
+const refreshStylePanel=installTemplateStyles({
+  definition:()=>draft.definition,
+  styleId:()=>currentParagraph()?.node?.props?.textStyleId,
+  locked:()=>!!draft.readOnly||isSaving||hasConflict||showingPreview,
+  assign:id=>{const item=currentParagraph();if(item)stage({kind:'paragraph-style',at:item.ref,styleId:id});},
+  apply:styles=>{if(selection)stageDefinition(applyPart(draft.definition,selection.ref,'styles',styles),selection.ref,'shared-style');},
+  fonts:()=>listFonts()
+});
 type FontOption={releaseId:string;familyName:string;version:number;faces:{weight:number;style:string}[]};
 let fontCatalog:Promise<FontOption[]>|undefined;
 function listFonts(){

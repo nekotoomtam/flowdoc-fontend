@@ -46,11 +46,26 @@
       </div>
       <div class="definition-viewport" tabindex="0" role="region" aria-label="พื้นที่กระดาษแก้โครง" aria-describedby="paper-zoom-help"><article id="paper" class="show-guides"></article></div></section>
     <aside class="selection-inspector" aria-label="รายละเอียดชิ้นที่เลือก">
+      <nav id="inspector-switch" aria-label="มุมมองแผงด้านข้าง">
+        <button type="button" id="item-view" aria-pressed="true">ชิ้นที่เลือก</button>
+        <button type="button" id="styles-view" aria-pressed="false">สไตล์ของแม่แบบ</button>
+      </nav>
+      <section hidden id="shared-styles" aria-label="สไตล์ของแม่แบบ">
+        <h2>ข้อความ</h2><div id="shared-style-list"></div>
+        <form id="shared-style-form"><fieldset>
+          <legend id="style-title"></legend>
+          <label>ฟอนต์และน้ำหนัก <select id="style-face"></select></label>
+          <label>ขนาด (pt) <input id="style-size" type="number" min="0.01" step="any" required></label>
+          <label>ระยะบรรทัด (pt) <input id="style-leading" type="number" min="0.01" step="any" required></label>
+          <button type="submit">ใช้กับร่าง</button>
+        </fieldset></form>
+      </section>
       <div id="paper-edit-tools" class="paper-edit-tools" role="group" aria-label="แก้ไขบนกระดาษ">
         <p id="paper-selection" aria-live="polite"></p>
         <nav id="paper-path" aria-label="ตำแหน่งในโครงเอกสาร"></nav>
       </div>
       <div class="inspector-scroll">
+      <div id="paragraph-style-choice" hidden><label>ใช้สไตล์ <select id="paragraph-style"></select></label> <button id="edit-used-style" type="button">แก้สไตล์นี้</button></div>
       <section id="binding-inspector" class="panel" hidden><h2>ตัวแปรที่ผูกไว้</h2><button id="binding-name" type="button" title="ชี้ช่องที่ผูกไว้บนกระดาษ"></button><button id="binding-return" type="button">◎ ชี้บนกระดาษ</button><div id="binding-targets"></div></section>
       <details class="inspector-group" open><summary>เครื่องมือของชิ้นที่เลือก</summary><div class="inspector-body">
         <p id="paper-layout-summary" hidden></p>

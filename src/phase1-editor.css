@@ -586,3 +586,17 @@ body:not(.library-paper):has(#editor)>.topbar{display:flex}
   box-sizing:border-box;
   padding:2px;
 }
+#inspector-switch{display:flex;gap:4px;padding:6px;border-bottom:1px solid var(--line)}
+#inspector-switch button{flex:1}
+#inspector-switch [aria-pressed=true],#shared-style-list [aria-pressed=true]{background:var(--selection);border-color:var(--selection-edge)}
+.show-template-styles>.inspector-scroll,.show-template-styles>#paper-edit-tools{display:none!important}
+#shared-styles{overflow:auto;padding:12px}
+#shared-styles h2{margin:0 0 8px}
+#shared-style-list{display:grid;gap:4px;margin-bottom:14px}
+#shared-style-list button{display:flex;align-items:center;justify-content:space-between;gap:8px;text-align:start;min-height:34px}
+#shared-style-list small{white-space:nowrap}
+#shared-style-list span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#shared-style-form fieldset{min-width:0;border:1px solid var(--line);border-radius:6px;padding:8px}
+#shared-style-form label,#paragraph-style-choice label{display:grid;gap:3px;margin-bottom:8px}
+#shared-style-form select,#shared-style-form input{max-width:100%;min-width:0}
+#paragraph-style-choice{padding:8px}

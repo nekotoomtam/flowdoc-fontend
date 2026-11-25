@@ -35,6 +35,7 @@ export type Ref = {sectionId:string;formatId?:string;band?:'header'|'footer';nod
 export type Change = {kind:'section';label:string} | {kind:'area';at:Ref;key:string;format:string}
   | {kind:'format';at:Ref;key:string} | {kind:'node';at:Ref;type:string;source?:{scope:string;key:string};pageField?:'current'|'total';position?:{anchor:string;side:'before'|'after'}}
   | {kind:'tag-style';at:Ref;style:InlineStyle} | {kind:'remove-tag';at:Ref}
+  | {kind:'paragraph-style';at:Ref;styleId:string}
   | {kind:'paragraph-parts';at:Ref;parts:Inline[]}
   | {kind:'inline-text';at:Ref;text:string}
   | {kind:'column-boundary';at:Ref;left:number;fraction:number}
@@ -618,6 +619,11 @@ export function applyStructureChange(source:Definition,change:Change):{definitio
       else delete field.styleOverride;
       selection=change.at;
     }
+  }else if(change.kind==='paragraph-style'){
+    const {node}=resolve(def,change.at);
+    if(node?.type!=='text-block'||!node.props||!Object.hasOwn(def.styles,change.styleId))return fail('เลือกกล่องข้อความและสไตล์ที่มีอยู่');
+    node.props.textStyleId=change.styleId;
+    selection=change.at;
   }else if(change.kind==='paragraph-parts'){
     const {node}=resolve(def,change.at);
     if(node?.type!=='text-block')return fail('เลือกย่อหน้าก่อน');

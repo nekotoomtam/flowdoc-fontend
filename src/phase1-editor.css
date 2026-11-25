@@ -556,7 +556,7 @@ body:not(.library-paper):has(#editor)>.topbar{display:flex}
 .word-editor{width:min(42em,92vw);border:1px solid #a1b5aa;border-radius:8px;padding:16px}
 .word-editor h2{font-size:1rem;margin:0 0 8px}.word-editor footer{display:flex;justify-content:flex-end;gap:8px}
 .word-input .ProseMirror{white-space:pre-wrap;min-height:3em;padding:8px;border:1px solid #9caea5;margin:8px 0}
-.word-input p{margin:0}.word-field{background:#e4f3e9;color:#14563e;border-radius:3px}.word-editor [aria-pressed=true],.word-field.ProseMirror-selectednode{outline:2px solid #236da2}
+.word-input p{margin:0}.word-field{background:#e4f3e9;color:inherit;border-radius:3px}.word-editor [aria-pressed=true],.word-field.ProseMirror-selectednode{outline:2px solid #236da2}
 .one-line-trial{max-width:880px;margin:auto;padding:24px 16px}.one-line-trial h1{font-size:20px}
 .one-line-trial .tag-tools{padding:8px 14px;border:1px solid #ccd6d0}.one-line-trial [role=status]{margin-left:auto}
 .one-line-paper{background:white;min-height:330px;padding:clamp(15px,5vw,55px);border:1px solid #ccd6d0;border-top:0}

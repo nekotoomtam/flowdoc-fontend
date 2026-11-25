@@ -51,7 +51,7 @@ export function installTemplateStyles(ctx:Context){
     for(const entry of list.querySelectorAll('button'))entry.setAttribute('aria-pressed',String(entry.dataset.styleId===id));
     get('style-title').textContent=title(id);
     size.value=String(style.fontSize.value);leading.value=String(style.lineHeightPt);
-    ink.value="#"+(style.color??"000000");line.setAttribute("aria-pressed",String(!!style.underline));
+    ink.value="#"+(style.color??"000000");ink.dispatchEvent(new Event("ink-sync"));line.setAttribute("aria-pressed",String(!!style.underline));
     family.replaceChildren();families.clear();
     if(style.fontFamilyKey==='sarabun'){
       const choices:Choice[]=[];

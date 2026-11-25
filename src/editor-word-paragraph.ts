@@ -95,6 +95,7 @@ export function mountWordParagraph(editor:HTMLElement,bold:HTMLButtonElement,siz
       paint.color.value='#'+(style?.color??paint.baseColor??'000000');
       paint.underline.setAttribute('aria-pressed',String(style?.underline??paint.baseUnderline??false));
       paint.color.disabled=paint.underline.disabled=sel.empty||!view.editable;
+      paint.color.dispatchEvent(new Event('ink-sync'));
     }
     if(document.activeElement!==size)size.value=String(style?.fontSizePt??baseSize);
   }

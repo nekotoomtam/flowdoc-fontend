@@ -1,3 +1,4 @@
+import {installInkPicker} from './ink-picker';
 import {installTemplateStyles} from './template-styles';
 import {TextSelection} from 'prosemirror-state';
 import {displayParagraphPart,mountWordParagraph} from './editor-word-paragraph';
@@ -296,6 +297,8 @@ function insertAt(item:Outline,offset:number){
     stage({kind:'insert-tag',at:item.ref,offset,scope,key});
   });
 }
+installInkPicker('tag');
+installInkPicker('style');
 let liveLine:ReturnType<typeof mountWordParagraph>|undefined;
 let liveRef:Ref|undefined;
 let liveHost:HTMLElement|undefined;
@@ -333,8 +336,8 @@ function activateParagraph(item:Outline,block:HTMLElement){
   const bold=q<HTMLButtonElement>('tag-bold');
   const old=[bold.onclick,bold.onmousedown,tagSize.onchange,tagSize.onkeydown] as const;
   const color=q<HTMLInputElement>('tag-color'),underline=q<HTMLButtonElement>('tag-underline');
-  color.hidden=underline.hidden=false;
-  restoreTools=()=>{color.hidden=underline.hidden=true;color.onchange=underline.onclick=underline.onmousedown=null;[bold.onclick,bold.onmousedown,tagSize.onchange,tagSize.onkeydown]=old;};
+  q('tag-ink').hidden=underline.hidden=false;
+  restoreTools=()=>{q('tag-palette').hidePopover();q('tag-ink').hidden=underline.hidden=true;color.onchange=underline.onclick=underline.onmousedown=null;[bold.onclick,bold.onmousedown,tagSize.onchange,tagSize.onkeydown]=old;};
   const style=draft.definition.styles[item.node!.props?.textStyleId??''] as {fontSize?:Length;font?:{weight:number};fontWeight?:string;color?:string;underline?:boolean}|undefined;
   const fields=variableScopes(item).flatMap(s=>Object.entries(s.schema.fields).filter(([,f])=>['number','string'].includes(f.type)).map(([key])=>({key,scope:s.scope})));
   liveLine=mountWordParagraph(host,bold,tagSize,item.node!.children!,fields,(style?.font?.weight??0)>=700||style?.fontWeight==='bold',style?.fontSize?lengthInPoints(style.fontSize):16,()=>{

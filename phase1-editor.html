@@ -42,7 +42,7 @@
         <button id="insert-at" type="button" disabled>แทรกตัวแปร</button>
         <button id="tag-bold" type="button" aria-label="ตัวหนา" aria-pressed="false" disabled><b>B</b></button>
         <button id="tag-underline" type="button" aria-label="ขีดเส้นใต้ข้อความที่เลือก" title="ขีดเส้นใต้" aria-pressed="false" hidden><u>U</u></button>
-        <input id="tag-color" type="color" aria-label="สีข้อความที่เลือก" title="สีตัวอักษร" hidden>
+        <span class="ink-tool"><button hidden id="tag-ink" type="button" aria-label="สีข้อความที่เลือก" title="สีข้อความที่เลือก" popovertarget="tag-palette">Aa</button><span id="tag-palette" class="ink-palette" popover><input id="tag-color" type="color" aria-label="สีอื่นสำหรับสีข้อความที่เลือก" title="เลือกสีอื่น"></span></span>
         <label>ขนาด <input id="tag-size" type="number" min="0.5" max="819" step="0.5" aria-label="ขนาดแท็ก" disabled> pt</label>
         <button id="tag-view" type="button" aria-pressed="false">ค่าตัวอย่าง</button>
       </div>
@@ -58,7 +58,7 @@
           <legend id="style-title"></legend>
           <label>ฟอนต์ <select id="style-family"></select></label>
           <label id="style-weight-label" hidden>น้ำหนัก <select id="style-weight"></select></label>
-          <label>สีตัวอักษร <input id="style-color" type="color"></label>
+          <div>สีตัวอักษร <span class="ink-tool"><button id="style-ink" type="button" aria-label="สีตัวอักษร" title="สีตัวอักษร" popovertarget="style-palette">Aa</button><span id="style-palette" class="ink-palette" popover><input id="style-color" type="color" aria-label="สีอื่นสำหรับสีตัวอักษร" title="เลือกสีอื่น"></span></span></div>
           <div class="style-switches" role="group" aria-label="รูปแบบตัวอักษร">
             <button hidden type="button" id="style-bold" aria-label="ตัวหนา" title="ตัวหนา" aria-pressed="false"><b>B</b></button>
             <button type="button" id="style-underline" aria-label="ขีดเส้นใต้" title="ขีดเส้นใต้" aria-pressed="false"><u>U</u></button>

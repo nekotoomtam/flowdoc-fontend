@@ -1,4 +1,4 @@
-import {Schema, type Mark, type Node as PNode} from 'prosemirror-model';
+import {DOMSerializer,Schema, type Mark, type Node as PNode} from 'prosemirror-model';
 import {EditorState,NodeSelection} from 'prosemirror-state';
 import {EditorView} from 'prosemirror-view';
 import {history,undo,redo,closeHistory} from 'prosemirror-history';
@@ -18,7 +18,7 @@ const schema=new Schema({
     return ['span',{style:[
       s.bold===undefined?'':'font-weight:'+(s.bold?'bold':'normal'),
       s.italic===undefined?'':'font-style:'+(s.italic?'italic':'normal'),
-      s.fontSizePt?'font-size:'+s.fontSizePt+'pt':'',s.color?'color:#'+s.color:'',
+      s.fontSizePt?'font-size:calc('+s.fontSizePt+' * var(--inline-pt, 1pt))':'',s.color?'color:#'+s.color:'',
       s.underline===undefined?'':'text-decoration:'+(s.underline?'underline':'none')
     ].join(';')},0];
   }}}
@@ -26,6 +26,20 @@ const schema=new Schema({
 const format=schema.marks.format!;
 function marks(id?:string,style?:InlineStyle,originalField?:Inline):Mark[]{
   return id||style||originalField?[format.create({id,style,originalField})]:[];
+}
+
+function paragraphNode(part:Inline){
+  if(part.type==='line-break')return schema.node('br',{id:part.id});
+  if(part.type==='field-ref')return schema.node('field',{part},undefined,marks(undefined,part.styleOverride));
+  if(part.text)return schema.text(part.text,marks(part.id,part.styleOverride));
+}
+const serializer=DOMSerializer.fromSchema(schema);
+export function displayParagraphPart(part:Inline){
+  const node=paragraphNode(part);
+  if(!node)return document.createElement('span');
+  const dom=serializer.serializeNode(node);
+  if(dom instanceof HTMLElement)return dom;
+  const span=document.createElement('span');span.append(dom);return span;
 }
 
 export function editParagraph(parts:Inline[],fields:{key:string;scope:string}[],baseBold:boolean,baseSize:number,apply:(parts:Inline[])=>void){
@@ -43,12 +57,7 @@ export function editParagraph(parts:Inline[],fields:{key:string;scope:string}[],
 }
 
 export function mountWordParagraph(editor:HTMLElement,bold:HTMLButtonElement,size:HTMLInputElement,parts:Inline[],fields:{key:string;scope:string}[],baseBold:boolean,baseSize:number,onChange?:()=>void){
-  const content:PNode[]=[];
-  for(const p of parts){
-    if(p.type==='line-break')content.push(schema.node('br',{id:p.id}));
-    else if(p.type==='field-ref')content.push(schema.node('field',{part:p},undefined,marks(undefined,p.styleOverride)));
-    else if(p.text)content.push(schema.text(p.text,marks(p.id,p.styleOverride)));
-  }
+  const content=parts.flatMap(part=>paragraphNode(part)??[]);
   editor.style.fontSize=baseSize+'pt';editor.style.fontWeight=baseBold?'bold':'normal';
   const state=EditorState.create({schema,doc:schema.node('doc',null,[schema.node('paragraph',null,content)]),plugins:[
     history(),keymap({'Mod-z':undo,'Mod-y':redo,'Mod-Shift-z':redo,Enter:(s,dispatch)=>{dispatch?.(s.tr.replaceSelectionWith(schema.node('br')));return true;}}),keymap(baseKeymap)

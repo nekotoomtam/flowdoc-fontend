@@ -1,5 +1,5 @@
 import {TextSelection} from 'prosemirror-state';
-import {mountWordParagraph} from './editor-word-paragraph';
+import {displayParagraphPart,mountWordParagraph} from './editor-word-paragraph';
 import './phase1-editor.css';
 import {mountColumnEdges} from './editor-column-edges';
 import {treeIcon} from './editor-tree-icon';
@@ -390,6 +390,7 @@ tagSize.onchange=()=>{
 };
 tagSize.onkeydown=event=>{if(event.key==='Enter')tagSize.blur();};
 q('tag-view').onclick=()=>{
+  closePaperParagraph();
   sampleView=!sampleView;paper.classList.toggle('show-tag-values',sampleView);q('tag-view').setAttribute('aria-pressed',String(sampleView));
   q('tag-view').textContent=sampleView?'กลับไปดูชื่อแท็ก':'ค่าตัวอย่าง';
   for(const control of paper.querySelectorAll<HTMLElement>('.definition-token[data-paper-ref]')){
@@ -494,16 +495,19 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
       }
     }else if(item.type==='text-block'){
       block.classList.add('definition-text');
-      if(creationMode()&&!draft.readOnly&&editableParagraph(item)){
+      const direct=creationMode()&&!draft.readOnly&&editableParagraph(item);
+      if(direct){
         block.addEventListener('mousedown',event=>{
           if(event.button!==0||isSaving||hasConflict||sampleView||liveHost?.contains(event.target as Node))return;
           const guard=new AbortController();
           document.addEventListener('click',e=>{e.stopImmediatePropagation();guard.abort();},{capture:true,once:true,signal:guard.signal});
           document.addEventListener('pointerdown',()=>guard.abort(),{capture:true,once:true,signal:guard.signal});
+          const chip=(event.target as Element).closest<HTMLElement>('[data-field-id]')?.dataset.fieldId;
           activateParagraph(item,block);
           if(!liveLine)return;
           event.preventDefault();event.stopPropagation();
           liveLine.view.focus();
+          if(chip&&liveLine.selectField(chip))return;
           const at=liveLine.view.posAtCoords({left:event.clientX,top:event.clientY});
           if(at)liveLine.view.dispatch(liveLine.view.state.tr.setSelection(TextSelection.near(liveLine.view.state.doc.resolve(at.pos))));
           const hit=document.elementFromPoint(event.clientX,event.clientY);
@@ -530,7 +534,23 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
         }
       }
       if(props?.textAlign)block.style.textAlign=props.textAlign;
-      for(const [index,part] of item.children.entries()){
+      if(direct){
+        const host=element('div');host.className='word-input tree-paper-line';
+        const display=element('div');display.className='paper-paragraph-display';
+        const paragraph=element('p');display.append(paragraph);host.append(display);block.append(host);
+        for(const part of item.children){
+          const span=displayParagraphPart(part.inline!);
+          const control=span.querySelector<HTMLElement>('[data-field-id]')??span;
+          control.dataset.paperRef=refKey(part.ref);
+          if(part.type==='field-ref'){
+            control.classList.add('definition-token');
+            control.textContent=tagLabel(part);
+          }
+          if(registerControl)paperNodes.set(part,control);
+          paragraph.append(span);
+        }
+        if(!paragraph.lastChild||paragraph.lastChild.nodeName==='BR')paragraph.append(element('br'));
+      }else for(const [index,part] of item.children.entries()){
         const previous=item.children[index-1];
         if(previous&&creationMode()&&!draft.readOnly&&previous.type!=='line-break'&&part.type!=='line-break'){
           const slot=button('+',()=>insertAt(previous,previous.inline?.text?.length??0));

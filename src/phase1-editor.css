@@ -581,3 +581,8 @@ body:not(.library-paper):has(#editor)>.topbar{display:flex}
   overflow-wrap:anywhere;
   outline-offset:-2px;
 }
+/* Keep the field selection clear of the paragraph frame even on its last wrapped line. */
+#paper .tree-paper-line :is(.paper-paragraph-display,.ProseMirror):has(.word-field){
+  box-sizing:border-box;
+  padding:2px;
+}

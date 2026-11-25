@@ -16,6 +16,7 @@ const schema=new Schema({
   marks:{format:{attrs:{id:{default:null},style:{default:null},originalField:{default:null}},toDOM:mark=>{
     const s:InlineStyle=mark.attrs.style??{};
     return ['span',{style:[
+      s.familyStyleId?'font-family:var(--inline-family-'+CSS.escape(s.familyStyleId)+', inherit)':'',
       s.bold===undefined?'':'font-weight:'+(s.bold?'bold':'normal'),
       s.italic===undefined?'':'font-style:'+(s.italic?'italic':'normal'),
       s.fontSizePt?'font-size:calc('+s.fontSizePt+' * var(--inline-pt, 1pt))':'',s.color?'color:#'+s.color:'',
@@ -56,7 +57,7 @@ export function editParagraph(parts:Inline[],fields:{key:string;scope:string}[],
   dialog.showModal();mounted.view.focus();mounted.sync();
 }
 
-export function mountWordParagraph(editor:HTMLElement,bold:HTMLButtonElement,size:HTMLInputElement,parts:Inline[],fields:{key:string;scope:string}[],baseBold:boolean,baseSize:number,onChange?:()=>void,paint?:{color:HTMLInputElement;underline:HTMLButtonElement;baseColor?:string;baseUnderline?:boolean}){
+export function mountWordParagraph(editor:HTMLElement,bold:HTMLButtonElement,size:HTMLInputElement,parts:Inline[],fields:{key:string;scope:string}[],baseBold:boolean,baseSize:number,onChange?:()=>void,paint?:{color:HTMLInputElement;underline:HTMLButtonElement;baseColor?:string;baseUnderline?:boolean;family?:HTMLSelectElement;baseFamily?:string}){
   const content=parts.flatMap(part=>paragraphNode(part)??[]);
   editor.style.fontSize=baseSize+'pt';editor.style.fontWeight=baseBold?'bold':'normal';
   const state=EditorState.create({schema,doc:schema.node('doc',null,[schema.node('paragraph',null,content)]),plugins:[
@@ -92,8 +93,10 @@ export function mountWordParagraph(editor:HTMLElement,bold:HTMLButtonElement,siz
     const style=format.isInSet(sample?.marks??[])?.attrs.style;
     bold.setAttribute('aria-pressed',String(style?.bold??baseBold));
     if(paint){
+      const families=new Set<string>();
       const colors=new Set<string>(),underlines=new Set<boolean>();
       const collect=(inline?:InlineStyle)=>{
+        families.add(inline?.familyStyleId??'');
         colors.add((inline?.color??paint.baseColor??'000000').toUpperCase());
         underlines.add(inline?.underline??paint.baseUnderline??false);
       };
@@ -101,6 +104,13 @@ export function mountWordParagraph(editor:HTMLElement,bold:HTMLButtonElement,siz
         if(node.isInline&&node.type!==schema.nodes.br)collect(format.isInSet(node.marks)?.attrs.style);
       });
       if(!colors.size)collect(style);
+      if(paint.family){
+        const option=paint.family.querySelector<HTMLOptionElement>('option[value="~mixed"]')!;
+        const effective=new Set([...families].map(id=>id||paint.baseFamily));
+        option.hidden=effective.size<=1;
+        paint.family.value=effective.size>1?'~mixed':families.has('')?'':[...families][0]!;
+        paint.family.disabled=sel.empty||!view.editable;
+      }
       paint.color.value='#'+colors.values().next().value;
       paint.color.toggleAttribute('data-mixed',colors.size>1);
       const underlineState=underlines.size>1?'mixed':String(underlines.has(true));
@@ -123,11 +133,14 @@ export function mountWordParagraph(editor:HTMLElement,bold:HTMLButtonElement,siz
         a=ends.filter(x=>x<=a).at(-1)??a;b=ends.find(x=>x>=b)??b;
       }
       const old=format.isInSet(node.marks)?.attrs;
-      tr.addMark(a,b,format.create({...old,style:{...old?.style,...patch}}));
+      const style={...old?.style,...patch};
+      if(!style.familyStyleId)delete style.familyStyleId;
+      tr.addMark(a,b,format.create({...old,style:Object.keys(style).length?style:null}));
     });
     view.dispatch(tr);view.focus();
   }
   if(paint){
+    if(paint.family)paint.family.onchange=()=>setStyle({familyStyleId:paint.family!.value||undefined});
     paint.underline.onmousedown=e=>e.preventDefault();
     paint.underline.onclick=()=>setStyle({underline:paint.underline.getAttribute('aria-pressed')!=='true'});
     paint.color.onchange=()=>setStyle({color:paint.color.value.slice(1).toUpperCase()});

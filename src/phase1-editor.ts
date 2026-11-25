@@ -325,6 +325,21 @@ function mapLiveParagraph(item:Outline){
     if(chip)paperNodes.set(part,chip);
   }
 }
+type FamilyStyle={font?:{releaseId?:string}};
+function familyKey(styleId?:string){
+  const styles=draft.definition.styles;
+  const release=(styles[styleId??''] as FamilyStyle|undefined)?.font?.releaseId;
+  return release?Object.keys(styles).find(key=>(styles[key] as FamilyStyle).font?.releaseId===release):undefined;
+}
+const fontNames=new Map<string,string>();
+function paragraphFamilies(){
+  const choices=new Map<string,string>();
+  for(const [key,style] of Object.entries(draft.definition.styles)){
+    const release=(style as FamilyStyle).font?.releaseId;
+    if(release&&familyKey(key)===key)choices.set(key,fontNames.get(release)??key);
+  }
+  return choices;
+}
 function activateParagraph(item:Outline,block:HTMLElement){
   if(isSaving||hasConflict||draft.readOnly||sampleView)return;
   if(liveHost&&block.contains(liveHost))return;
@@ -336,8 +351,24 @@ function activateParagraph(item:Outline,block:HTMLElement){
   const bold=q<HTMLButtonElement>('tag-bold');
   const old=[bold.onclick,bold.onmousedown,tagSize.onchange,tagSize.onkeydown] as const;
   const color=q<HTMLInputElement>('tag-color'),underline=q<HTMLButtonElement>('tag-underline');
+  const family=q<HTMLSelectElement>('tag-family');
+  const families=paragraphFamilies();
+  family.replaceChildren(new Option('ตามสไตล์ของกล่อง',''));
+  const mixed=new Option('ผสม','~mixed');mixed.disabled=mixed.hidden=true;family.add(mixed);
+  for(const [id,name] of families)family.add(new Option(name,id));
+  q('tag-family-label').hidden=families.size<2;
+  if(families.size)void listFonts().then(fonts=>{
+    for(const font of fonts){
+      fontNames.set(font.releaseId,font.familyName);
+      document.documentElement.style.setProperty('--release-'+CSS.escape(font.releaseId),'"'+CSS.escape(font.familyName)+'"');
+    }
+    for(const opt of family.options){
+      const release=(draft.definition.styles[opt.value] as FamilyStyle|undefined)?.font?.releaseId;
+      if(release&&fontNames.has(release))opt.text=fontNames.get(release)!;
+    }
+  });
   q('tag-ink').hidden=underline.hidden=false;
-  restoreTools=()=>{q('tag-palette').hidePopover();q('tag-ink').hidden=underline.hidden=true;color.onchange=underline.onclick=underline.onmousedown=null;[bold.onclick,bold.onmousedown,tagSize.onchange,tagSize.onkeydown]=old;};
+  restoreTools=()=>{family.onchange=null;q('tag-family-label').hidden=true;q('tag-palette').hidePopover();q('tag-ink').hidden=underline.hidden=true;color.onchange=underline.onclick=underline.onmousedown=null;[bold.onclick,bold.onmousedown,tagSize.onchange,tagSize.onkeydown]=old;};
   const style=draft.definition.styles[item.node!.props?.textStyleId??''] as {fontSize?:Length;font?:{weight:number};fontWeight?:string;color?:string;underline?:boolean}|undefined;
   const fields=variableScopes(item).flatMap(s=>Object.entries(s.schema.fields).filter(([,f])=>['number','string'].includes(f.type)).map(([key])=>({key,scope:s.scope})));
   liveLine=mountWordParagraph(host,bold,tagSize,item.node!.children!,fields,(style?.font?.weight??0)>=700||style?.fontWeight==='bold',style?.fontSize?lengthInPoints(style.fontSize):16,()=>{
@@ -350,7 +381,7 @@ function activateParagraph(item:Outline,block:HTMLElement){
       const anchor=view.domAtPos(selectionBeforeRender.anchor),head=view.domAtPos(selectionBeforeRender.head);
       window.getSelection()?.setBaseAndExtent(anchor.node,anchor.offset,head.node,head.offset);
     }
-  },{color,underline,baseColor:style?.color,baseUnderline:style?.underline});
+  },{color,underline,family,baseFamily:familyKey(item.node!.props?.textStyleId),baseColor:style?.color,baseUnderline:style?.underline});
   mapLiveParagraph(item);updateTagTools(item);
 }
 function editableParagraph(item?:Outline){
@@ -529,6 +560,12 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
         if(event.target===block&&!block.closest('td'))blockControl.click();
       });
       const style=draft.definition.styles[props?.textStyleId??''] as {fontSize?:Length;lineHeightPt?:number;fontWeight?:string;font?:{weight?:number}}|undefined;
+      const release=(style as FamilyStyle|undefined)?.font?.releaseId;
+      if(release)block.style.fontFamily='var(--release-'+CSS.escape(release)+', inherit)';
+      for(const [key,s] of Object.entries(draft.definition.styles)){
+        const id=(s as FamilyStyle).font?.releaseId;
+        if(id)block.style.setProperty('--inline-family-'+CSS.escape(key),'var(--release-'+CSS.escape(id)+', inherit)');
+      }
       if(style?.fontSize)block.style.fontSize=length(style.fontSize);
       if(style?.lineHeightPt)block.style.lineHeight=unit(style.lineHeightPt);
       if(style?.font?.weight)block.style.fontWeight=String(style.font.weight);

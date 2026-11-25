@@ -1,6 +1,6 @@
 export type Field = {type:string; label?:string; default?:unknown; allowEmpty?:boolean; items?:Schema; areaId?:string; required?:boolean; computed?:{inputs:{quantity:string;unit:string}}; formula?:{operation:"sum";source:{areaId:string;formatKey:string;arrayField:string;valueField:string};lookup?:{arrayField:string;keyField:string;valueField:string}}};
 export type Schema = {type?:'object'; fields:Record<string,Field>};
-export type InlineStyle = {bold?:boolean;italic?:boolean;underline?:boolean;fontSizePt?:number;color?:string};
+export type InlineStyle = {familyStyleId?:string;bold?:boolean;italic?:boolean;underline?:boolean;fontSizePt?:number;color?:string};
 export type Inline = {id?:string; type:string; textStyleId?:string;styleOverride?:InlineStyle;text?:string; key?:string; scope?:string; field?:string;value?:unknown;target?:unknown;url?:unknown};
 export type Length = {unit:'pt'|'mm';value:number};
 export const paddingSides=['top','right','bottom','left'] as const;

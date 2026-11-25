@@ -572,3 +572,12 @@ body:not(.library-paper):has(#editor)>.topbar{display:flex}
 
 .node-tools.docked{position:relative;inset:auto!important;flex-wrap:wrap;max-width:100%;box-shadow:none}
 .node-tools.docked .node-layer-menu{position:relative;inset:auto;flex-basis:100%;max-width:100%}
+#paper .tree-paper-line .word-field{
+  display:inline-block;
+  vertical-align:baseline;
+  line-height:1;
+  max-inline-size:100%;
+  box-sizing:border-box;
+  overflow-wrap:anywhere;
+  outline-offset:-2px;
+}

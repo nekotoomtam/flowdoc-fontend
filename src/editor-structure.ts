@@ -1,6 +1,6 @@
 export type Field = {type:string; label?:string; default?:unknown; allowEmpty?:boolean; items?:Schema; areaId?:string; required?:boolean; computed?:{inputs:{quantity:string;unit:string}}; formula?:{operation:"sum";source:{areaId:string;formatKey:string;arrayField:string;valueField:string};lookup?:{arrayField:string;keyField:string;valueField:string}}};
 export type Schema = {type?:'object'; fields:Record<string,Field>};
-export type InlineStyle = {bold?:boolean;italic?:boolean;underline?:boolean;fontSizePt?:number;color?:string};
+export type InlineStyle = {familyStyleId?:string;bold?:boolean;italic?:boolean;underline?:boolean;fontSizePt?:number;color?:string};
 export type Inline = {id?:string; type:string; textStyleId?:string;styleOverride?:InlineStyle;text?:string; key?:string; scope?:string; field?:string;value?:unknown;target?:unknown;url?:unknown};
 export type Length = {unit:'pt'|'mm';value:number};
 export const paddingSides=['top','right','bottom','left'] as const;
@@ -35,6 +35,7 @@ export type Ref = {sectionId:string;formatId?:string;band?:'header'|'footer';nod
 export type Change = {kind:'section';label:string} | {kind:'area';at:Ref;key:string;format:string}
   | {kind:'format';at:Ref;key:string} | {kind:'node';at:Ref;type:string;source?:{scope:string;key:string};pageField?:'current'|'total';position?:{anchor:string;side:'before'|'after'}}
   | {kind:'tag-style';at:Ref;style:InlineStyle} | {kind:'remove-tag';at:Ref}
+  | {kind:'paragraph-style';at:Ref;styleId:string}
   | {kind:'paragraph-parts';at:Ref;parts:Inline[]}
   | {kind:'inline-text';at:Ref;text:string}
   | {kind:'column-boundary';at:Ref;left:number;fraction:number}
@@ -618,6 +619,11 @@ export function applyStructureChange(source:Definition,change:Change):{definitio
       else delete field.styleOverride;
       selection=change.at;
     }
+  }else if(change.kind==='paragraph-style'){
+    const {node}=resolve(def,change.at);
+    if(node?.type!=='text-block'||!node.props||!Object.hasOwn(def.styles,change.styleId))return fail('เลือกกล่องข้อความและสไตล์ที่มีอยู่');
+    node.props.textStyleId=change.styleId;
+    selection=change.at;
   }else if(change.kind==='paragraph-parts'){
     const {node}=resolve(def,change.at);
     if(node?.type!=='text-block')return fail('เลือกย่อหน้าก่อน');

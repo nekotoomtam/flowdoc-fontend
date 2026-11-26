@@ -556,7 +556,7 @@ body:not(.library-paper):has(#editor)>.topbar{display:flex}
 .word-editor{width:min(42em,92vw);border:1px solid #a1b5aa;border-radius:8px;padding:16px}
 .word-editor h2{font-size:1rem;margin:0 0 8px}.word-editor footer{display:flex;justify-content:flex-end;gap:8px}
 .word-input .ProseMirror{white-space:pre-wrap;min-height:3em;padding:8px;border:1px solid #9caea5;margin:8px 0}
-.word-input p{margin:0}.word-field{background:#e4f3e9;color:#14563e;border-radius:3px}.word-editor [aria-pressed=true],.word-field.ProseMirror-selectednode{outline:2px solid #236da2}
+.word-input p{margin:0}.word-field{background:#e4f3e9;color:inherit;border-radius:3px}.word-editor [aria-pressed=true],.word-field.ProseMirror-selectednode{outline:2px solid #236da2}
 .one-line-trial{max-width:880px;margin:auto;padding:24px 16px}.one-line-trial h1{font-size:20px}
 .one-line-trial .tag-tools{padding:8px 14px;border:1px solid #ccd6d0}.one-line-trial [role=status]{margin-left:auto}
 .one-line-paper{background:white;min-height:330px;padding:clamp(15px,5vw,55px);border:1px solid #ccd6d0;border-top:0}
@@ -564,3 +564,59 @@ body:not(.library-paper):has(#editor)>.topbar{display:flex}
 .one-line-paper .ProseMirror:focus{box-shadow:0 1px #8fb7a2}
 #paper .tree-paper-line .ProseMirror{min-height:1.4em;padding:0;margin:0;border:0;outline:0}
 #paper .tree-paper-line .word-field[aria-current=true],#paper .tree-paper-line .ProseMirror-selectednode{outline:2px solid #236da2}
+
+#paper .tree-paper-line{--inline-pt:var(--sheet-pt);font-size:inherit!important;font-weight:inherit!important}
+#paper .tree-paper-line :is(.paper-paragraph-display,.ProseMirror){white-space:pre-wrap;overflow-wrap:break-word;min-height:1.4em;align-content:center}
+#paper .tree-paper-line p{font:inherit;color:inherit;line-height:inherit;margin:0;padding:0}
+#paper .definition-text>[hidden]{display:none!important}
+
+.node-tools.docked{position:relative;inset:auto!important;flex-wrap:wrap;max-width:100%;box-shadow:none}
+.node-tools.docked .node-layer-menu{position:relative;inset:auto;flex-basis:100%;max-width:100%}
+#paper .tree-paper-line .word-field{
+  display:inline-block;
+  vertical-align:baseline;
+  line-height:1;
+  max-inline-size:100%;
+  box-sizing:border-box;
+  overflow-wrap:anywhere;
+  outline-offset:-2px;
+}
+/* Keep the field selection clear of the paragraph frame even on its last wrapped line. */
+#paper .tree-paper-line :is(.paper-paragraph-display,.ProseMirror):has(.word-field){
+  box-sizing:border-box;
+  padding:2px;
+}
+#inspector-switch{display:flex;gap:4px;padding:6px;border-bottom:1px solid var(--line)}
+#inspector-switch button{flex:1}
+#inspector-switch [aria-pressed=true],#shared-style-list [aria-pressed=true]{background:var(--selection);border-color:var(--selection-edge)}
+.show-template-styles>.inspector-scroll,.show-template-styles>#paper-edit-tools{display:none!important}
+#shared-styles{overflow:auto;padding:12px}
+#shared-styles h2{margin:0 0 8px}
+#shared-style-list{display:grid;gap:4px;margin-bottom:14px}
+#shared-style-list button{display:flex;align-items:center;justify-content:space-between;gap:8px;text-align:start;min-height:34px}
+#shared-style-list small{white-space:nowrap}
+#shared-style-list span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#shared-style-form fieldset{min-width:0;border:1px solid var(--line);border-radius:6px;padding:8px}
+#shared-style-form label,#paragraph-style-choice label{display:grid;gap:3px;margin-bottom:8px}
+#shared-style-form select,#shared-style-form input{max-width:100%;min-width:0}
+#paragraph-style-choice{padding:8px}
+
+.style-switches{display:flex;gap:4px;margin-block:6px}
+.style-switches button{min-width:32px}
+.style-switches [aria-pressed=true]{background:var(--selection);border-color:var(--selection-edge)}
+#shared-style-form [hidden]{display:none}
+
+#paper .tree-paper-line p>span,#paper .tree-paper-line .word-field,#paper .definition-inline{
+  text-decoration-line:var(--run-decoration,var(--paragraph-decoration,none));
+}
+
+#tag-tools [hidden]{display:none}
+#tag-underline[aria-pressed=true]{background:var(--selection);border-color:var(--selection-edge)}
+
+.ink-tool button[popovertarget]{min-width:38px;min-height:32px;font:bold 18px/1 sans-serif;background:#fff;text-shadow:0 0 1px #666}
+.ink-tool button[hidden]{display:none}
+.ink-palette:popover-open{position:fixed;inset:auto;margin:0;display:flex;align-items:center;gap:4px;padding:6px;border:1px solid #a8b3b8;border-radius:6px;background:white}
+.ink-palette button[data-color],.ink-palette input[type=color]{width:27px;height:27px;min-width:0;padding:2px;border:1px solid #777;border-radius:4px;cursor:pointer}
+.ink-palette button[aria-pressed=true]{outline:2px solid #303b44;outline-offset:1px}
+
+#tag-underline[aria-pressed=mixed]::after{content:' · ผสม'}

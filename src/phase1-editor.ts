@@ -1,4 +1,7 @@
-import {mountWordParagraph} from './editor-word-paragraph';
+import {installInkPicker} from './ink-picker';
+import {installTemplateStyles} from './template-styles';
+import {TextSelection} from 'prosemirror-state';
+import {displayParagraphPart,mountWordParagraph} from './editor-word-paragraph';
 import './phase1-editor.css';
 import {mountColumnEdges} from './editor-column-edges';
 import {treeIcon} from './editor-tree-icon';
@@ -294,45 +297,104 @@ function insertAt(item:Outline,offset:number){
     stage({kind:'insert-tag',at:item.ref,offset,scope,key});
   });
 }
-// The integrated trial is limited to an authored document with one flowing paragraph.
-const treePaperTrial=new URLSearchParams(location.search).get('trial')==='tree-paper';
+installInkPicker('tag');
+installInkPicker('style');
 let liveLine:ReturnType<typeof mountWordParagraph>|undefined;
 let liveRef:Ref|undefined;
-let liveParts:Inline[]|undefined;
-function renderTreePaper(root:Outline|undefined){
-  if(!treePaperTrial||!root||draft.readOnly||roots.length!==1||root.children.length!==1)return false;
-  const item=root.children[0];
-  if(!editableParagraph(item))return false;
-  const parts=item.node!.children!;
-  q('word-open').hidden=q('tag-view').hidden=q('insert-at').hidden=true;
-  if(!liveLine||liveParts!==parts){
-    liveLine?.view.destroy();
-    const sheet=drawSectionPaper(root);
-    paper.replaceChildren(sheet);
-    const marker=paperNodes.get(item)!;
-    const block=marker.closest<HTMLElement>('.definition-text')!;
-    const host=element('div');host.className='word-input tree-paper-line';block.replaceChildren(host);
-    liveRef=item.ref;liveParts=parts;
-    const style=draft.definition.styles[item.node!.props!.textStyleId!] as {fontSize:Length;font:{weight:number}};
-    const fields=variableScopes(item).flatMap(s=>Object.entries(s.schema.fields).filter(([,f])=>['number','string'].includes(f.type)).map(([key])=>({key,scope:s.scope})));
-    liveLine=mountWordParagraph(host,q<HTMLButtonElement>('tag-bold'),tagSize,parts,fields,style.font.weight>=700,lengthInPoints(style.fontSize),()=>{
-      const updated=liveLine!.parts();
-      const result=applyStructureChange(draft.definition,{kind:'paragraph-parts',at:liveRef!,parts:updated});
-      liveParts=updated;
-      stageDefinition(result.definition,liveRef!,'paragraph-parts');
-    });
-    host.addEventListener('focusin',()=>{
-      const current=outlines.get(refKey(liveRef!));
-      if(current&&selection!==current&&selection?.parent!==current)select(current,false);
-    });
+let liveHost:HTMLElement|undefined;
+let editingTransaction=false;
+let restoreTools:(()=>void)|undefined;
+function closePaperParagraph(){
+  const block=liveHost?.parentElement;
+  liveLine?.view.destroy();liveHost?.remove();
+  liveLine=undefined;liveRef=undefined;liveHost=undefined;
+  if(block){
+    for(const child of block.children)(child as HTMLElement).hidden=false;
+    for(const control of block.querySelectorAll<HTMLElement>('[data-paper-ref]')){
+      const target=outlines.get(control.dataset.paperRef!);if(target)paperNodes.set(target,control);
+    }
   }
+  restoreTools?.();restoreTools=undefined;
+}
+function mapLiveParagraph(item:Outline){
+  if(!liveLine)return;
   paperNodes.set(item,liveLine.view.dom);
   for(const part of item.children){
     if(part.type!=='field-ref')continue;
     const chip=liveLine.view.dom.querySelector<HTMLElement>('[data-field-id="'+CSS.escape(part.inline!.id!)+'"]');
     if(chip)paperNodes.set(part,chip);
   }
-  return true;
+}
+type FamilyStyle={font?:{releaseId?:string}};
+function familyKey(styleId?:string){
+  const styles=draft.definition.styles;
+  const release=(styles[styleId??''] as FamilyStyle|undefined)?.font?.releaseId;
+  return release?Object.keys(styles).find(key=>(styles[key] as FamilyStyle).font?.releaseId===release):undefined;
+}
+const fontNames=new Map<string,string>();
+function paragraphFamilies(){
+  const choices=new Map<string,string>();
+  for(const [key,style] of Object.entries(draft.definition.styles)){
+    const release=(style as FamilyStyle).font?.releaseId;
+    if(release&&familyKey(key)===key)choices.set(key,fontNames.get(release)??key);
+  }
+  return choices;
+}
+function activateParagraph(item:Outline,block:HTMLElement){
+  if(isSaving||hasConflict||draft.readOnly||sampleView)return;
+  if(liveHost&&block.contains(liveHost))return;
+  closePaperParagraph();
+  select(item,false);
+  const host=element('div');host.className='word-input tree-paper-line';
+  for(const child of block.children)(child as HTMLElement).hidden=true;
+  block.append(host);liveHost=host;liveRef=item.ref;
+  const bold=q<HTMLButtonElement>('tag-bold');
+  const old=[bold.onclick,bold.onmousedown,tagSize.onchange,tagSize.onkeydown] as const;
+  const color=q<HTMLInputElement>('tag-color'),underline=q<HTMLButtonElement>('tag-underline');
+  const family=q<HTMLSelectElement>('tag-family');
+  const families=paragraphFamilies();
+  family.replaceChildren(new Option('ตามสไตล์ของกล่อง',''));
+  const mixed=new Option('ผสม','~mixed');mixed.disabled=mixed.hidden=true;family.add(mixed);
+  for(const [id,name] of families)family.add(new Option(name,id));
+  q('tag-family-label').hidden=families.size<2;
+  const faces=new Map<string,FontOption['faces']>();
+  if(families.size)void listFonts().then(fonts=>{
+    for(const font of fonts){
+      faces.set(font.releaseId,font.faces);
+      fontNames.set(font.releaseId,font.familyName);
+      document.documentElement.style.setProperty('--release-'+CSS.escape(font.releaseId),'"'+CSS.escape(font.familyName)+'"');
+    }
+    for(const opt of family.options){
+      const release=(draft.definition.styles[opt.value] as FamilyStyle|undefined)?.font?.releaseId;
+      if(release&&fontNames.has(release))opt.text=fontNames.get(release)!;
+    }
+    if(liveHost===host)liveLine?.sync();
+  });
+  q('tag-ink').hidden=underline.hidden=false;
+  restoreTools=()=>{bold.hidden=false;family.onchange=null;q('tag-family-label').hidden=true;q('tag-palette').hidePopover();q('tag-ink').hidden=underline.hidden=true;color.onchange=underline.onclick=underline.onmousedown=null;[bold.onclick,bold.onmousedown,tagSize.onchange,tagSize.onkeydown]=old;};
+  const style=draft.definition.styles[item.node!.props?.textStyleId??''] as {fontSize?:Length;font?:{weight:number};fontWeight?:string;color?:string;underline?:boolean}|undefined;
+  const fields=variableScopes(item).flatMap(s=>Object.entries(s.schema.fields).filter(([,f])=>['number','string'].includes(f.type)).map(([key])=>({key,scope:s.scope})));
+  liveLine=mountWordParagraph(host,bold,tagSize,item.node!.children!,fields,(style?.font?.weight??0)>=700||style?.fontWeight==='bold',style?.fontSize?lengthInPoints(style.fontSize):16,()=>{
+    const result=applyStructureChange(draft.definition,{kind:'paragraph-parts',at:item.ref,parts:liveLine!.parts()});
+    const view=liveLine!.view;
+    const selectionBeforeRender=view.state.selection;
+    editingTransaction=true;
+    try{stageDefinition(result.definition,item.ref,'paragraph-parts');}finally{editingTransaction=false;}
+    if(view.hasFocus() && selectionBeforeRender instanceof TextSelection){
+      const anchor=view.domAtPos(selectionBeforeRender.anchor),head=view.domAtPos(selectionBeforeRender.head);
+      window.getSelection()?.setBaseAndExtent(anchor.node,anchor.offset,head.node,head.offset);
+    }
+  },{color,underline,family,supportsFace:(key,inline)=>{
+    if(!key)return true;
+    const release=(draft.definition.styles[key] as FamilyStyle|undefined)?.font?.releaseId;
+    const available=release&&faces.get(release);
+    if(!available)return false;
+    const base=style as {font?:{weight?:number;style?:string}}|undefined;
+    const weight=inline.bold===undefined?(base?.font?.weight??400):inline.bold?700:400;
+    const slant=inline.italic===undefined?(base?.font?.style??'normal'):inline.italic?'italic':'normal';
+    return available.some(face=>face.weight===weight&&face.style===slant);
+  },baseFamily:familyKey(item.node!.props?.textStyleId),baseColor:style?.color,baseUnderline:style?.underline});
+  mapLiveParagraph(item);updateTagTools(item);
 }
 function editableParagraph(item?:Outline){
   const parent=item?.inline?item.parent:item;
@@ -358,7 +420,7 @@ function updateTagTools(item:Outline){
   const bold=q<HTMLButtonElement>('tag-bold'),size=q<HTMLInputElement>('tag-size');
   bold.disabled=size.disabled=!styled;
   bold.setAttribute('aria-pressed',String(!!styled&&(field?.styleOverride?.bold??((base?.font?.weight??0)>=700||base?.fontWeight==='bold'))));
-  if(liveLine&&liveRef&&(item.ref.nodeId===liveRef.nodeId)){
+  if(liveLine&&liveRef&&refKey(item.parent?.type==='text-block'?item.parent.ref:item.ref)===refKey(liveRef)){
     bold.disabled=size.disabled=!editable;liveLine.sync();q<HTMLButtonElement>('insert-at').disabled=true;return;
   }
   size.value=styled?String(field?.styleOverride?.fontSizePt??(base?.fontSize?lengthInPoints(base.fontSize):'')):'';
@@ -377,6 +439,7 @@ tagSize.onchange=()=>{
 };
 tagSize.onkeydown=event=>{if(event.key==='Enter')tagSize.blur();};
 q('tag-view').onclick=()=>{
+  closePaperParagraph();
   sampleView=!sampleView;paper.classList.toggle('show-tag-values',sampleView);q('tag-view').setAttribute('aria-pressed',String(sampleView));
   q('tag-view').textContent=sampleView?'กลับไปดูชื่อแท็ก':'ค่าตัวอย่าง';
   for(const control of paper.querySelectorAll<HTMLElement>('.definition-token[data-paper-ref]')){
@@ -481,6 +544,27 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
       }
     }else if(item.type==='text-block'){
       block.classList.add('definition-text');
+      const direct=creationMode()&&!draft.readOnly&&editableParagraph(item);
+      if(direct){
+        block.addEventListener('mousedown',event=>{
+          if(event.button!==0||isSaving||hasConflict||sampleView||liveHost?.contains(event.target as Node))return;
+          const guard=new AbortController();
+          document.addEventListener('click',e=>{e.stopImmediatePropagation();guard.abort();},{capture:true,once:true,signal:guard.signal});
+          document.addEventListener('pointerdown',()=>guard.abort(),{capture:true,once:true,signal:guard.signal});
+          const chip=(event.target as Element).closest<HTMLElement>('[data-field-id]')?.dataset.fieldId;
+          activateParagraph(item,block);
+          if(!liveLine)return;
+          event.preventDefault();event.stopPropagation();
+          liveLine.view.focus();
+          if(chip&&liveLine.selectField(chip))return;
+          const at=liveLine.view.posAtCoords({left:event.clientX,top:event.clientY});
+          if(at)liveLine.view.dispatch(liveLine.view.state.tr.setSelection(TextSelection.near(liveLine.view.state.doc.resolve(at.pos))));
+          const hit=document.elementFromPoint(event.clientX,event.clientY);
+          const target=hit&&liveLine.view.dom.contains(hit)?hit:liveLine.view.dom;
+          target.dispatchEvent(new MouseEvent('mousedown',event));
+        });
+        block.addEventListener('click',event=>{if(liveHost&&block.contains(liveHost))event.stopPropagation();});
+      }
       const spacer=props?.heightMode==='fixed'&&props.height&&!item.children.length;
       const blockControl=choose(item,spacer?item.label:'ข้อความ','definition-marker'+(spacer?' fixed-spacer':''));
       block.append(blockControl);
@@ -488,6 +572,12 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
         if(event.target===block&&!block.closest('td'))blockControl.click();
       });
       const style=draft.definition.styles[props?.textStyleId??''] as {fontSize?:Length;lineHeightPt?:number;fontWeight?:string;font?:{weight?:number}}|undefined;
+      const release=(style as FamilyStyle|undefined)?.font?.releaseId;
+      if(release)block.style.fontFamily='var(--release-'+CSS.escape(release)+', inherit)';
+      for(const [key,s] of Object.entries(draft.definition.styles)){
+        const id=(s as FamilyStyle).font?.releaseId;
+        if(id)block.style.setProperty('--inline-family-'+CSS.escape(key),'var(--release-'+CSS.escape(id)+', inherit)');
+      }
       if(style?.fontSize)block.style.fontSize=length(style.fontSize);
       if(style?.lineHeightPt)block.style.lineHeight=unit(style.lineHeightPt);
       if(style?.font?.weight)block.style.fontWeight=String(style.font.weight);
@@ -498,8 +588,29 @@ function drawSectionPaper(root: Outline, preferred?: Format) {
           block.style.alignContent=props.verticalAlign==='bottom'?'end':props.verticalAlign==='center'?'center':'start';
         }
       }
+      const decoration=style as {color?:string;underline?:boolean}|undefined;
+      if(decoration?.color)block.style.color='#'+decoration.color;
+      if(decoration?.underline)block.style.setProperty('--paragraph-decoration','underline');
+      const face=style as {fontStyle?:string;font?:{style?:string}}|undefined;
+      if(face?.fontStyle==='italic'||face?.font?.style==='italic')block.style.fontStyle='italic';
       if(props?.textAlign)block.style.textAlign=props.textAlign;
-      for(const [index,part] of item.children.entries()){
+      if(direct){
+        const host=element('div');host.className='word-input tree-paper-line';
+        const display=element('div');display.className='paper-paragraph-display';
+        const paragraph=element('p');display.append(paragraph);host.append(display);block.append(host);
+        for(const part of item.children){
+          const span=displayParagraphPart(part.inline!);
+          const control=span.querySelector<HTMLElement>('[data-field-id]')??span;
+          control.dataset.paperRef=refKey(part.ref);
+          if(part.type==='field-ref'){
+            control.classList.add('definition-token');
+            control.textContent=tagLabel(part);
+          }
+          if(registerControl)paperNodes.set(part,control);
+          paragraph.append(span);
+        }
+        if(!paragraph.lastChild||paragraph.lastChild.nodeName==='BR')paragraph.append(element('br'));
+      }else for(const [index,part] of item.children.entries()){
         const previous=item.children[index-1];
         if(previous&&creationMode()&&!draft.readOnly&&previous.type!=='line-break'&&part.type!=='line-break'){
           const slot=button('+',()=>insertAt(previous,previous.inline?.text?.length??0));
@@ -788,7 +899,7 @@ function focusPaper(item:Outline){
   select(item,true);
   const target=paperNodes.get(item);
   if(!target)return;
-  if(liveLine&&item.type==='field-ref'&&item.ref.nodeId===liveRef?.nodeId&&liveLine.selectField(item.inline!.id!)){target.scrollIntoView({block:'nearest'});return;}
+  if(liveLine&&item.type==='field-ref'&&liveRef&&item.parent&&refKey(item.parent.ref)===refKey(liveRef)&&liveLine.selectField(item.inline!.id!)){target.scrollIntoView({block:'nearest'});return;}
   target.focus({preventScroll:true});
   scrollWithin(paper.parentElement!,target);
   const bounds=target.getBoundingClientRect();
@@ -856,6 +967,7 @@ function select(item: Outline, measure: boolean, spacing?:'before'|'after') {
     }else paperNodes.get(selection)?.removeAttribute('aria-current');
   }
   if(inlineTarget&&inlineTarget!==item)closeInlineEditor();
+  if(liveRef&&refKey(item.parent?.type==='text-block'?item.parent.ref:item.ref)!==refKey(liveRef))closePaperParagraph();
   selection=item;
   const currentControl=treeNodes.get(treeItem(item));
   if(!currentControl||currentControl.closest("[hidden]")){
@@ -898,6 +1010,7 @@ function select(item: Outline, measure: boolean, spacing?:'before'|'after') {
   showLayoutFacts(item,spacing);
   showActions(item);
   updatePaperTools(item);
+  refreshStylePanel();
   if(measure)afterPaint('flowdoc:tree-selection',started,{type:item.type});
 }
 function reveal(item:Outline){
@@ -951,7 +1064,7 @@ function refreshButtons(){
   previewTab.title=previewTab.disabled?'บันทึกโครงก่อนลองข้อมูล':'ลองค่าตัวแปรบนกระดาษเสมือน';
   save.disabled=dirty||isSaving||hasConflict||!templateId||!!draft.readOnly;
   input.readOnly=dirty||isSaving||!!draft.readOnly;
-  if(selection)showActions(selection);
+  if(selection){showActions(selection);refreshStylePanel();}
   for(const control of variables.querySelectorAll<HTMLButtonElement>('[data-schema-action]'))control.disabled=isSaving||hasConflict;
 }
 function showDraft(data: Draft, keep?: Ref) {
@@ -983,13 +1096,27 @@ function showDraft(data: Draft, keep?: Ref) {
   const viewport=paper.parentElement!,paperScroll=viewport.scrollTop;
   for(const [root] of sectionSheets)if(!roots.includes(root))sectionSheets.delete(root);
   for(const [item] of paperNodes)if(outlines.get(refKey(item.ref))!==item)paperNodes.delete(item);
-  if(!renderTreePaper(roots[0])){
+  {
+    if(!editingTransaction)closePaperParagraph();
     const sheets=roots.map(root=>{
       let sheet=sectionSheets.get(root);
       if(!sheet){sheet=drawSectionPaper(root,root.section===selected.section?selected.format:undefined);sectionSheets.set(root,sheet);}
       return sheet;
     });
-    paper.replaceChildren(...sheets);viewport.scrollTop=paperScroll;
+    if(editingTransaction&&liveHost&&liveRef){
+      const active=outlines.get(refKey(liveRef));
+      const block=active&&paperNodes.get(active)?.closest<HTMLElement>('.definition-text');
+      const oldSheets=[...paper.children];
+      for(const sheet of sheets)if(!sheet.isConnected)paper.append(sheet);
+      if(active&&block&&liveHost.parentElement!==block){
+        for(const child of block.children)(child as HTMLElement).hidden=true;
+        if('moveBefore' in Element.prototype)(block as HTMLElement & {moveBefore:(n:Node,b:Node|null)=>void}).moveBefore(liveHost,null);
+        else{block.append(liveHost);liveLine?.view.focus();}
+      }
+      for(const sheet of oldSheets)if(!sheets.includes(sheet as HTMLElement))sheet.remove();
+      if(active)mapLiveParagraph(active);
+    }else paper.replaceChildren(...sheets);
+    viewport.scrollTop=paperScroll;
   }
   drawDefinitionVariables();
   select(selected,false);
@@ -1126,6 +1253,17 @@ function askVariable(at:Ref,scope:'global'|'section'|'local'|'header'|'footer',l
     {key:'required',label:'การส่งค่า',options:[['no','ไม่บังคับ'],['yes','บังคับ']]}],
     v=>stageDefinition(addVariable(draft.definition,at,scope,v),at,'variable'));
 }
+function currentParagraph(){
+  return selection?.inline?selection.parent:selection?.type==='text-block'?selection:undefined;
+}
+const refreshStylePanel=installTemplateStyles({
+  definition:()=>draft.definition,
+  styleId:()=>currentParagraph()?.node?.props?.textStyleId,
+  locked:()=>!!draft.readOnly||isSaving||hasConflict||showingPreview,
+  assign:id=>{const item=currentParagraph();if(item)stage({kind:'paragraph-style',at:item.ref,styleId:id});},
+  apply:styles=>{if(selection)stageDefinition(applyPart(draft.definition,selection.ref,'styles',styles),selection.ref,'shared-style');},
+  fonts:()=>listFonts()
+});
 type FontOption={releaseId:string;familyName:string;version:number;faces:{weight:number;style:string}[]};
 let fontCatalog:Promise<FontOption[]>|undefined;
 function listFonts(){
@@ -1964,6 +2102,16 @@ function paperFrame(control:HTMLElement){
 }
 function positionNodeTools(){
   if(!anchor?.isConnected||!workspace.offsetWidth){layerTools.hidden=true;return;}
+  // In a table, the space beside a paragraph belongs to another cell or row.
+  const docked=!!anchor.closest('td')&&!!editableParagraph(selection);
+  const parent=docked?q('paper-edit-tools'):workspace;
+  if(layerTools.parentElement!==parent)parent.append(layerTools);
+  layerTools.classList.toggle('docked',docked);
+  if(docked){
+    layerTools.hidden=false;
+    layerMenu.style.maxHeight='min(45vh, 320px)';
+    return;
+  }
   const r=anchor.getBoundingClientRect(),v=paperViewport.getBoundingClientRect(),w=workspace.getBoundingClientRect();
   layerTools.hidden=r.bottom<=v.top||r.top>=v.bottom||r.right<=v.left||r.left>=v.right;
   if(layerTools.hidden)return;
@@ -1978,7 +2126,7 @@ function positionNodeTools(){
   const table=anchor.closest('table');
   if(table){
     const sheet=table.closest('.definition-sheet')??table;
-    const obstacles=[r,...Array.from(sheet.querySelectorAll('.definition-inline,.definition-area-tools,.definition-image,.definition-rule'),el=>el.getBoundingClientRect())];
+    const obstacles=[r,...Array.from(sheet.querySelectorAll('.definition-inline,.paper-paragraph-display,.tree-paper-line .ProseMirror,.definition-area-tools,.definition-image,.definition-rule'),el=>el.getBoundingClientRect())];
     const candidates=[[left,top],[left,r.bottom+4],[clampLeft(r.right+5),r.top],[clampLeft(r.left-width-5),r.top]];
     for(const y of [above,r.bottom+4])for(const x of [r.right-width,table.getBoundingClientRect().left,v.left+3,v.right-width-6])
       candidates.push([clampLeft(x),y]);

@@ -1,5 +1,5 @@
-import {Schema, type Mark, type Node as PNode} from 'prosemirror-model';
-import {EditorState,NodeSelection} from 'prosemirror-state';
+import {DOMSerializer,Schema, Mark, type Node as PNode} from 'prosemirror-model';
+import {EditorState,NodeSelection,Plugin} from 'prosemirror-state';
 import {EditorView} from 'prosemirror-view';
 import {history,undo,redo,closeHistory} from 'prosemirror-history';
 import {keymap} from 'prosemirror-keymap';
@@ -16,16 +16,31 @@ const schema=new Schema({
   marks:{format:{attrs:{id:{default:null},style:{default:null},originalField:{default:null}},toDOM:mark=>{
     const s:InlineStyle=mark.attrs.style??{};
     return ['span',{style:[
+      s.familyStyleId?'font-family:var(--inline-family-'+CSS.escape(s.familyStyleId)+', inherit)':'',
       s.bold===undefined?'':'font-weight:'+(s.bold?'bold':'normal'),
       s.italic===undefined?'':'font-style:'+(s.italic?'italic':'normal'),
-      s.fontSizePt?'font-size:'+s.fontSizePt+'pt':'',s.color?'color:#'+s.color:'',
-      s.underline===undefined?'':'text-decoration:'+(s.underline?'underline':'none')
+      s.fontSizePt?'font-size:calc('+s.fontSizePt+' * var(--inline-pt, 1pt))':'',s.color?'color:#'+s.color:'',
+      s.underline===undefined?'':'--run-decoration:'+(s.underline?'underline':'none')+';text-decoration:'+(s.underline?'underline':'none')
     ].join(';')},0];
   }}}
 });
 const format=schema.marks.format!;
 function marks(id?:string,style?:InlineStyle,originalField?:Inline):Mark[]{
   return id||style||originalField?[format.create({id,style,originalField})]:[];
+}
+
+function paragraphNode(part:Inline){
+  if(part.type==='line-break')return schema.node('br',{id:part.id});
+  if(part.type==='field-ref')return schema.node('field',{part},undefined,marks(undefined,part.styleOverride));
+  if(part.text)return schema.text(part.text,marks(part.id,part.styleOverride));
+}
+const serializer=DOMSerializer.fromSchema(schema);
+export function displayParagraphPart(part:Inline){
+  const node=paragraphNode(part);
+  if(!node)return document.createElement('span');
+  const dom=serializer.serializeNode(node);
+  if(dom instanceof HTMLElement)return dom;
+  const span=document.createElement('span');span.append(dom);return span;
 }
 
 export function editParagraph(parts:Inline[],fields:{key:string;scope:string}[],baseBold:boolean,baseSize:number,apply:(parts:Inline[])=>void){
@@ -42,15 +57,18 @@ export function editParagraph(parts:Inline[],fields:{key:string;scope:string}[],
   dialog.showModal();mounted.view.focus();mounted.sync();
 }
 
-export function mountWordParagraph(editor:HTMLElement,bold:HTMLButtonElement,size:HTMLInputElement,parts:Inline[],fields:{key:string;scope:string}[],baseBold:boolean,baseSize:number,onChange?:()=>void){
-  const content:PNode[]=[];
-  for(const p of parts){
-    if(p.type==='line-break')content.push(schema.node('br',{id:p.id}));
-    else if(p.type==='field-ref')content.push(schema.node('field',{part:p},undefined,marks(undefined,p.styleOverride)));
-    else if(p.text)content.push(schema.text(p.text,marks(p.id,p.styleOverride)));
-  }
+export function mountWordParagraph(editor:HTMLElement,bold:HTMLButtonElement,size:HTMLInputElement,parts:Inline[],fields:{key:string;scope:string}[],baseBold:boolean,baseSize:number,onChange?:()=>void,paint?:{color:HTMLInputElement;underline:HTMLButtonElement;baseColor?:string;baseUnderline?:boolean;family?:HTMLSelectElement;baseFamily?:string;supportsFace?:(family:string|undefined,style:InlineStyle)=>boolean}){
+  const content=parts.flatMap(part=>paragraphNode(part)??[]);
   editor.style.fontSize=baseSize+'pt';editor.style.fontWeight=baseBold?'bold':'normal';
   const state=EditorState.create({schema,doc:schema.node('doc',null,[schema.node('paragraph',null,content)]),plugins:[
+    new Plugin({appendTransaction(_transactions,_old,state){
+      const {empty,$from}=state.selection;
+      if(!empty||$from.nodeBefore?.type!==schema.nodes.field)return null;
+      const following=$from.nodeAfter;
+      const marks=following?.isText?following.marks:[];
+      return state.storedMarks&&Mark.sameSet(state.storedMarks,marks)
+        ?null:state.tr.setStoredMarks(marks);
+    }}),
     history(),keymap({'Mod-z':undo,'Mod-y':redo,'Mod-Shift-z':redo,Enter:(s,dispatch)=>{dispatch?.(s.tr.replaceSelectionWith(schema.node('br')));return true;}}),keymap(baseKeymap)
   ]});
   const view=new EditorView(editor,{state,attributes:{'aria-label':'ข้อความในย่อหน้า',role:'textbox'},handleTextInput(v,from,to,text){
@@ -80,8 +98,45 @@ export function mountWordParagraph(editor:HTMLElement,bold:HTMLButtonElement,siz
   function sync(){
     const sel=view.state.selection;
     const sample=sel instanceof NodeSelection?sel.node:sel.$from.nodeAfter??sel.$from.nodeBefore;
-    const style=format.isInSet(sample?.marks??[])?.attrs.style;
+    const style=format.isInSet((sel.empty?view.state.storedMarks:null)??sample?.marks??[])?.attrs.style;
     bold.setAttribute('aria-pressed',String(style?.bold??baseBold));
+    if(paint){
+      const families=new Set<string>();
+      const selectedStyles:InlineStyle[]=[];
+      const colors=new Set<string>(),underlines=new Set<boolean>();
+      const collect=(inline?:InlineStyle)=>{
+        families.add(inline?.familyStyleId??'');
+        selectedStyles.push(inline??{});
+        colors.add((inline?.color??paint.baseColor??'000000').toUpperCase());
+        underlines.add(inline?.underline??paint.baseUnderline??false);
+      };
+      if(!sel.empty)view.state.doc.nodesBetween(sel.from,sel.to,node=>{
+        if(node.isInline&&node.type!==schema.nodes.br)collect(format.isInSet(node.marks)?.attrs.style);
+      });
+      if(!colors.size)collect(style);
+      if(paint.family){
+        const option=paint.family.querySelector<HTMLOptionElement>('option[value="~mixed"]')!;
+        const effective=new Set([...families].map(id=>id||paint.baseFamily));
+        option.hidden=effective.size<=1;
+        paint.family.value=effective.size>1?'~mixed':families.has('')?'':[...families][0]!;
+        paint.family.disabled=sel.empty||!view.editable;
+        if(paint.supportsFace){
+          for(const choice of paint.family.options){
+            if(choice.value==='~mixed')continue;
+            choice.disabled=!selectedStyles.every(s=>paint.supportsFace!(choice.value||paint.baseFamily,s));
+          }
+          const makeBold=bold.getAttribute('aria-pressed')!=='true';
+          bold.hidden=!selectedStyles.every(s=>paint.supportsFace!(s.familyStyleId??paint.baseFamily,{...s,bold:makeBold}));
+        }
+      }
+      paint.color.value='#'+colors.values().next().value;
+      paint.color.toggleAttribute('data-mixed',colors.size>1);
+      const underlineState=underlines.size>1?'mixed':String(underlines.has(true));
+      paint.underline.setAttribute('aria-pressed',underlineState);
+      paint.underline.title=underlineState==='mixed'?'ขีดเส้นใต้บางส่วน · กดเพื่อขีดทั้งช่วง':'ขีดเส้นใต้';
+      paint.color.disabled=paint.underline.disabled=sel.empty||!view.editable;
+      paint.color.dispatchEvent(new Event('ink-sync'));
+    }
     if(document.activeElement!==size)size.value=String(style?.fontSizePt??baseSize);
   }
   function setStyle(patch:InlineStyle){
@@ -96,9 +151,17 @@ export function mountWordParagraph(editor:HTMLElement,bold:HTMLButtonElement,siz
         a=ends.filter(x=>x<=a).at(-1)??a;b=ends.find(x=>x>=b)??b;
       }
       const old=format.isInSet(node.marks)?.attrs;
-      tr.addMark(a,b,format.create({...old,style:{...old?.style,...patch}}));
+      const style={...old?.style,...patch};
+      if(!style.familyStyleId)delete style.familyStyleId;
+      tr.addMark(a,b,format.create({...old,style:Object.keys(style).length?style:null}));
     });
     view.dispatch(tr);view.focus();
+  }
+  if(paint){
+    if(paint.family)paint.family.onchange=()=>setStyle({familyStyleId:paint.family!.value||undefined});
+    paint.underline.onmousedown=e=>e.preventDefault();
+    paint.underline.onclick=()=>setStyle({underline:paint.underline.getAttribute('aria-pressed')!=='true'});
+    paint.color.onchange=()=>setStyle({color:paint.color.value.slice(1).toUpperCase()});
   }
   bold.onmousedown=e=>e.preventDefault();bold.onclick=()=>setStyle({bold:bold.getAttribute('aria-pressed')!=='true'});
   size.onchange=()=>{if(size.value&&size.reportValidity())setStyle({fontSizePt:size.valueAsNumber});};
